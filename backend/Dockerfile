@@ -1,9 +1,11 @@
 FROM python:3.12-slim AS builder
 
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends python3-venv && rm -rf /var/lib/apt/lists/*
+COPY pyproject.toml README.md .
 RUN pip install --no-cache-dir --upgrade pip hatchling build wheel
 COPY . .
-RUN python -m pip wheel --no-deps --no-build-isolation --wheel-dir /app/dist .
+RUN python -m build --wheel
 
 FROM python:3.12-slim
 
