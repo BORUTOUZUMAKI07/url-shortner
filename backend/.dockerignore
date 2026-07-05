@@ -10,6 +10,6 @@ venv
 *.egg-info
 dist
 build
-README.md
+
 tests/
 alembic/versions/*.pyc
