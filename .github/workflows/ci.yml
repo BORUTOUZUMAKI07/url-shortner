@@ -177,6 +177,7 @@ jobs:
           ls -la frontend/package.json 2>&1
           ls -la frontend/next.config.ts 2>&1
           cat frontend/Dockerfile 2>&1
+        continue-on-error: true
 
       - name: Build frontend (amd64 only)
         if: always()
@@ -200,10 +201,20 @@ jobs:
           path: /tmp/docker_frontend.log
 
       - name: Show frontend Docker log excerpt on failure
-        if: failure()
+        if: always()
         shell: bash
         run: |
-          echo "### Frontend Docker Build Output (last 200 lines)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Frontend Docker Build Output" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          tail -200 /tmp/docker_frontend.log 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || echo "(no log file)" >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/docker_frontend.log 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || echo "(no log file)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Backend Docker Build Output" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/docker_backend.log 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || echo "(no log file)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Debug Docker available Output" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/debug_docker.log 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || echo "(no log file)" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
