@@ -160,22 +160,46 @@ jobs:
             type=ref,event=branch
 
       - name: Build and push backend
-        uses: docker/build-push-action@v6
-        with:
-          context: ./backend
-          platforms: linux/amd64
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-          tags: ${{ steps.meta-backend.outputs.tags }}
-          labels: ${{ steps.meta-backend.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        shell: bash
+        run: |
+          PUSH_FLAG=""
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            PUSH_FLAG="--push"
+          fi
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag "${{ steps.meta-backend.outputs.tags }}" \
+            --label "${{ steps.meta-backend.outputs.labels }}" \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            $PUSH_FLAG \
+            ./backend 2>&1 | tee /tmp/docker_backend.log
 
       - name: Build frontend (amd64 only)
-        uses: docker/build-push-action@v6
+        shell: bash
+        run: |
+          PUSH_FLAG=""
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+            PUSH_FLAG="--push"
+          fi
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag ghcr.io/${{ github.repository }}-frontend:sha-${{ github.sha }} \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            $PUSH_FLAG \
+            ./frontend 2>&1 | tee /tmp/docker_frontend.log
+
+      - name: Upload backend Docker log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
         with:
-          context: ./frontend
-          platforms: linux/amd64
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-          tags: ghcr.io/${{ github.repository }}-frontend:sha-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          name: docker-backend-log
+          path: /tmp/docker_backend.log
+
+      - name: Upload frontend Docker log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-frontend-log
+          path: /tmp/docker_frontend.log
