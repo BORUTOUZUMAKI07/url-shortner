@@ -163,18 +163,7 @@ jobs:
         shell: bash
         run: |
           set -x
-          PUSH_FLAG=""
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
-            PUSH_FLAG="--push"
-          fi
-          docker buildx build \
-            --platform linux/amd64 \
-            --tag "${{ steps.meta-backend.outputs.tags }}" \
-            --label "${{ steps.meta-backend.outputs.labels }}" \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            $PUSH_FLAG \
-            ./backend 2>&1 | tee /tmp/docker_backend.log
+          docker build ./backend 2>&1 | tee /tmp/docker_backend.log
 
       - name: Debug Docker available
         shell: bash
@@ -189,6 +178,7 @@ jobs:
           cat frontend/Dockerfile 2>&1
 
       - name: Build frontend (amd64 only)
+        if: always()
         shell: bash
         run: |
           set -x
