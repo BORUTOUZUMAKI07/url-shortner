@@ -178,16 +178,18 @@ jobs:
       - name: Debug Docker available
         shell: bash
         run: |
+          set -x
           docker --version
-          echo "docker buildx available:"
           docker buildx version 2>&1 || echo "no buildx"
+          docker info 2>&1 | head -10 || echo "no docker info"
+          ls -la frontend/Dockerfile 2>&1
+          ls -la frontend/package.json 2>&1
 
       - name: Build frontend (amd64 only)
         shell: bash
         run: |
-          docker buildx build \
-            --tag "ghcr.io/${{ github.repository }}-frontend:sha-${{ github.sha }}" \
-            ./frontend 2>&1 | tee /tmp/docker_frontend.log
+          set -x
+          docker build ./frontend 2>&1 | tee /tmp/docker_frontend.log
 
       - name: Upload backend Docker log on failure
         if: failure()
