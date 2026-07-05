@@ -162,6 +162,7 @@ jobs:
       - name: Build and push backend
         shell: bash
         run: |
+          set -x
           PUSH_FLAG=""
           if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
             PUSH_FLAG="--push"
@@ -184,6 +185,8 @@ jobs:
           docker info 2>&1 | head -10 || echo "no docker info"
           ls -la frontend/Dockerfile 2>&1
           ls -la frontend/package.json 2>&1
+          ls -la frontend/next.config.ts 2>&1
+          cat frontend/Dockerfile 2>&1
 
       - name: Build frontend (amd64 only)
         shell: bash
