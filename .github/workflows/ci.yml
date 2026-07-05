@@ -57,7 +57,14 @@ jobs:
       - run: pip install .[dev]
       - run: python -m alembic upgrade head
       - run: python -m compileall src/
-      - run: python -m pytest tests/ -v --cov=src --cov-report=xml -k "not kafka" --timeout=120
+      - name: Run tests (capture output)
+        run: python -m pytest tests/ -v --cov=src --cov-report=xml -k "not kafka" --timeout=120 2>&1 | tee /tmp/test_output.log
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-log
+          path: /tmp/test_output.log
       - uses: codecov/codecov-action@v4
         with:
           file: ./backend/coverage.xml
@@ -108,8 +115,17 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Debug info
+        run: node --version && npm --version
       - run: npm ci
-      - run: npm run build
+      - name: Build (capture output)
+        run: npm run build 2>&1 | tee /tmp/build_output.log
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build-log
+          path: /tmp/build_output.log
 
   docker-build:
     name: Docker Build & Push
