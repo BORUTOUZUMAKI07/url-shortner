@@ -27,7 +27,7 @@ export default function AdminPage() {
         if (!u.is_superadmin) router.push("/dashboard")
       })
       .catch(() => router.push("/login"))
-  }, [])
+  }, [router, setUser])
 
   useEffect(() => {
     if (!user?.is_superadmin) return

@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
@@ -8,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { auth, favoritesApi, urls, URLItem } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
-import { Heart, ExternalLink, Trash2, BarChart3, HeartOff, Loader2 } from "lucide-react"
+import { Heart, ExternalLink, BarChart3, HeartOff } from "lucide-react"
 
 export default function FavoritesPage() {
   const router = useRouter()
@@ -30,7 +29,7 @@ export default function FavoritesPage() {
     retry: false
   })
 
-  const { data: urlsData = [], isLoading: isFavsLoading } = useQuery({
+  const { data: urlsData = [] } = useQuery({
     queryKey: ["favorites"],
     queryFn: async () => {
       const favs = await favoritesApi.list()

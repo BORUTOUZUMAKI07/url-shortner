@@ -169,19 +169,21 @@ describe("Skeleton components", () => {
 describe("Tabs", () => {
   it("renders with default active tab", () => {
     render(
-      {/* @ts-expect-error: Tabs children type intersection issue */}
-      <Tabs defaultValue="tab1">
-        {({ active, setActive }: { active: string; setActive: (v: string) => void }) => (
-          <>
-            <TabsList>
-              <TabsTrigger value="tab1" active={active} setActive={setActive}>Tab 1</TabsTrigger>
-              <TabsTrigger value="tab2" active={active} setActive={setActive}>Tab 2</TabsTrigger>
-            </TabsList>
-            <TabsContent value="tab1" active={active}>Content 1</TabsContent>
-            <TabsContent value="tab2" active={active}>Content 2</TabsContent>
-          </>
-        )}
-      </Tabs>
+      <>
+        {/* @ts-expect-error: Tabs children type intersection issue */}
+        <Tabs defaultValue="tab1">
+          {({ active, setActive }: { active: string; setActive: (v: string) => void }) => (
+            <>
+              <TabsList>
+                <TabsTrigger value="tab1" active={active} setActive={setActive}>Tab 1</TabsTrigger>
+                <TabsTrigger value="tab2" active={active} setActive={setActive}>Tab 2</TabsTrigger>
+              </TabsList>
+              <TabsContent value="tab1" active={active}>Content 1</TabsContent>
+              <TabsContent value="tab2" active={active}>Content 2</TabsContent>
+            </>
+          )}
+        </Tabs>
+      </>
     )
     expect(screen.getByText("Content 1")).toBeDefined()
     expect(screen.queryByText("Content 2")).toBeNull()
@@ -189,14 +191,16 @@ describe("Tabs", () => {
 
   it("has data-slot attributes", () => {
     const { container } = render(
-      {/* @ts-expect-error: Tabs children type intersection issue */}
-      <Tabs defaultValue="a">
-        {({ active, setActive }: { active: string; setActive: (v: string) => void }) => (
-          <TabsList>
-            <TabsTrigger value="a" active={active} setActive={setActive}>A</TabsTrigger>
-          </TabsList>
-        )}
-      </Tabs>
+      <>
+        {/* @ts-expect-error: Tabs children type intersection issue */}
+        <Tabs defaultValue="a">
+          {({ active, setActive }: { active: string; setActive: (v: string) => void }) => (
+            <TabsList>
+              <TabsTrigger value="a" active={active} setActive={setActive}>A</TabsTrigger>
+            </TabsList>
+          )}
+        </Tabs>
+      </>
     )
     expect(container.querySelector("[data-slot=tabs]")).toBeDefined()
     expect(container.querySelector("[data-slot=tabs-list]")).toBeDefined()

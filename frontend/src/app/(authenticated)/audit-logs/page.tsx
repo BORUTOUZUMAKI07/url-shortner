@@ -3,9 +3,8 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { auth, workspacesApi, auditApi, AuditLog } from "@/lib/api"
+import { auth, workspacesApi, auditApi } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
 import { History, ShieldAlert, ChevronDown, ChevronUp, Loader2 } from "lucide-react"
 
