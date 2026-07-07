@@ -12,7 +12,18 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Ignored by convention:
+    "e2e/**",
+    "playwright-report/**",
+    "test-results/**",
   ]),
+  // Allow explicit any in test files.
+  {
+    files: ["src/test/**"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;
