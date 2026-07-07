@@ -6,7 +6,7 @@ RUN npm ci --no-audit --no-fund
 COPY . .
 
 ENV NODE_ENV=production
-RUN npx next build --webpack 2>&1
+RUN npm run build -- --webpack 2>&1
 
 EXPOSE 3000
 CMD ["npm", "start"]
