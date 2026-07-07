@@ -10,7 +10,6 @@ env:
   PYTHON_VERSION: "3.12"
   NODE_VERSION: "22"
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   backend-lint:
@@ -150,67 +149,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for backend
-        id: meta-backend
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend
-          tags: |
-            type=sha,prefix=,suffix=,format=short
-            type=ref,event=branch
-
       - name: Build and push backend
         shell: bash
         run: |
-          set -x
-          docker build ./backend 2>&1 | tee /tmp/docker_backend.log
+          docker build ./backend
 
-      - name: Debug Docker available
-        if: always()
+      - name: Build frontend
         shell: bash
         run: |
-          set -x
-          docker --version
-          docker buildx version 2>&1 || echo "no buildx"
-          docker info 2>&1 | head -10 || echo "no docker info"
-          ls -la frontend/Dockerfile 2>&1
-          ls -la frontend/package.json 2>&1
-          ls -la frontend/next.config.ts 2>&1
-          cat frontend/Dockerfile 2>&1
-        continue-on-error: true
-
-      - name: Build frontend (amd64 only)
-        if: always()
-        shell: bash
-        run: |
-          set -x
-          set -o pipefail
-          docker build ./frontend 2>&1 | tee /tmp/docker_frontend.log
-          EXIT_CODE=${PIPESTATUS[0]}; echo "BUILD_EXIT=$EXIT_CODE" >> "$GITHUB_ENV"; exit $EXIT_CODE
-
-      - name: Report frontend Docker error
-        if: always()
-        shell: bash
-        run: |
-          if [ "$BUILD_EXIT" != "0" ] && [ -s /tmp/docker_frontend.log ]; then
-            echo "::error::Frontend Docker build failed (exit code $BUILD_EXIT)"
-            err=$(tail -15 /tmp/docker_frontend.log | tr '\n' '|')
-            echo "::error::Tail: $err"
-            exit 1
-          fi
-
-      - name: Upload backend Docker log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-backend-log
-          path: /tmp/docker_backend.log
-
-      - name: Upload frontend Docker log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-frontend-log
-          path: /tmp/docker_frontend.log
+          docker build ./frontend
 
 
