@@ -2,7 +2,7 @@ FROM node:22-trixie
 
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm install --package-lock-only --no-audit --no-fund && npm ci --no-audit --no-fund
+RUN npm install --no-audit --no-fund
 COPY . .
 
 ENV NODE_ENV=production
