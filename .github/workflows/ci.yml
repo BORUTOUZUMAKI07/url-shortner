@@ -157,13 +157,14 @@ jobs:
       - name: Build frontend
         shell: bash
         run: |
+          set -o pipefail
           docker build ./frontend 2>&1 | tee /tmp/fe.log
-          EC=${PIPESTATUS[0]}; echo "EXIT=$EC" >> "$GITHUB_ENV"; exit $EC
 
-      - name: Show frontend error
-        if: env.EXIT != '0'
+      - name: Report frontend error
+        if: failure()
         shell: bash
         run: |
-          tail -10 /tmp/fe.log | while IFS= read -r line; do echo "::error::$line"; done
+          echo "::error::Frontend Docker build failed. Last 5 lines:"
+          tail -5 /tmp/fe.log 2>/dev/null | while IFS= read -r line; do echo "::error::$line"; done
 
 
