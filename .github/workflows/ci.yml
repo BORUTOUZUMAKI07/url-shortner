@@ -160,11 +160,11 @@ jobs:
           set -o pipefail
           docker build ./frontend 2>&1 | tee /tmp/fe.log
 
-      - name: Report frontend error
+      - name: Report frontend build error
         if: failure()
         shell: bash
         run: |
-          echo "::error::Frontend Docker build failed. Last 5 lines:"
-          tail -5 /tmp/fe.log 2>/dev/null | while IFS= read -r line; do echo "::error::$line"; done
+          echo "::error::Frontend Docker build failed. Build tail:"
+          tail -15 /tmp/fe.log 2>/dev/null | while IFS= read -r line; do echo "::error::$line"; done
 
 
