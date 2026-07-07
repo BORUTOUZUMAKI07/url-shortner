@@ -152,13 +152,25 @@ jobs:
       - name: Build and push backend
         shell: bash
         run: |
-          docker build ./backend
+          docker buildx build \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --tag ${{ env.REGISTRY }}/${{ github.repository }}/backend:${{ github.sha }} \
+            --tag ${{ env.REGISTRY }}/${{ github.repository }}/backend:latest \
+            --push \
+            ./backend
 
-      - name: Build frontend
+      - name: Build and push frontend
         shell: bash
         run: |
           set -o pipefail
-          docker build ./frontend 2>&1 | tee /tmp/fe.log
+          docker buildx build \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --tag ${{ env.REGISTRY }}/${{ github.repository }}/frontend:${{ github.sha }} \
+            --tag ${{ env.REGISTRY }}/${{ github.repository }}/frontend:latest \
+            --push \
+            ./frontend 2>&1 | tee /tmp/fe.log
 
       - name: Report frontend build error
         if: failure()
