@@ -184,7 +184,23 @@ jobs:
         shell: bash
         run: |
           set -x
+          set -o pipefail
           docker build ./frontend 2>&1 | tee /tmp/docker_frontend.log
+          EXIT_CODE=${PIPESTATUS[0]}; echo "BUILD_EXIT=$EXIT_CODE" >> "$GITHUB_ENV"; exit $EXIT_CODE
+
+      - name: Report frontend Docker error
+        if: always()
+        shell: bash
+        run: |
+          if [ "$BUILD_EXIT" != "0" ] && [ -s /tmp/docker_frontend.log ]; then
+            echo "::error::Frontend Docker build failed (exit code $BUILD_EXIT)"
+            grep -m3 -iE '(error|fail|ERR!|ERR |npm ERR)' /tmp/docker_frontend.log | head -3 | while IFS= read -r line; do
+              echo "::error::  $line"
+            done
+            echo "=== LAST 20 LINES ==="
+            tail -20 /tmp/docker_frontend.log
+            exit 1
+          fi
 
       - name: Upload backend Docker log on failure
         if: failure()
@@ -200,21 +216,4 @@ jobs:
           name: docker-frontend-log
           path: /tmp/docker_frontend.log
 
-      - name: Show frontend Docker log excerpt on failure
-        if: always()
-        shell: bash
-        run: |
-          echo "### Frontend Docker Build Output" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cat /tmp/docker_frontend.log 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || echo "(no log file)" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Backend Docker Build Output" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cat /tmp/docker_backend.log 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || echo "(no log file)" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Debug Docker available Output" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cat /tmp/debug_docker.log 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || echo "(no log file)" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
