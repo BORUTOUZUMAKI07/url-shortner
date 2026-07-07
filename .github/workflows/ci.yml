@@ -194,11 +194,11 @@ jobs:
         run: |
           if [ "$BUILD_EXIT" != "0" ] && [ -s /tmp/docker_frontend.log ]; then
             echo "::error::Frontend Docker build failed (exit code $BUILD_EXIT)"
-            grep -m3 -iE '(error|fail|ERR!|ERR |npm ERR)' /tmp/docker_frontend.log | head -3 | while IFS= read -r line; do
+            grep -i -E '(error|fail|ERR!|ERR |npm ERR|Turbopack|Error evaluating)' /tmp/docker_frontend.log | while IFS= read -r line; do
               echo "::error::  $line"
             done
-            echo "=== LAST 20 LINES ==="
-            tail -20 /tmp/docker_frontend.log
+            echo "=== FULL LOG ==="
+            cat /tmp/docker_frontend.log
             exit 1
           fi
 
