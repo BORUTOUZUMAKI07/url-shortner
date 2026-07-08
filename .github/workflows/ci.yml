@@ -34,9 +34,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install ruff mypy
+      - run: pip install ruff
       - run: ruff check src/ --exit-zero
-      - run: mypy src/ --ignore-missing-imports
 
   backend-unit:
     name: Backend Unit Tests

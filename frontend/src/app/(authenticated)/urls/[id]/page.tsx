@@ -40,7 +40,7 @@ export default function URLDetailPage() {
   const [selectedFolder, setSelectedFolder] = useState("")
   const [selectedTags, setSelectedTags] = useState<string[]>([])
 
-  const { isLoading: authLoading } = useQuery({
+  useQuery({
     queryKey: ["authMe"],
     queryFn: async () => {
       try {
@@ -57,7 +57,7 @@ export default function URLDetailPage() {
 
   const urlId = Number(id)
 
-  const { data: url, isLoading: isUrlLoading } = useQuery({
+  const { data: url } = useQuery({
     queryKey: ["url", urlId],
     queryFn: () => urls.get(urlId),
     enabled: !!urlId,

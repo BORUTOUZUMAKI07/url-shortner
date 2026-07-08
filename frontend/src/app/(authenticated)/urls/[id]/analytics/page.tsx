@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select } from "@/components/ui/select"
-import { urls, URLItem, AnalyticsSummary, AnalyticsTimeseries, AnalyticsDevices, UTMItem, RefererItem } from "@/lib/api"
+import { urls } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
 import { auth } from "@/lib/api"
 import dynamic from "next/dynamic"
@@ -34,7 +34,7 @@ export default function AnalyticsPage() {
   const { setUser } = useAuthStore()
   const [period, setPeriod] = useState("7d")
 
-  const { isLoading: authLoading } = useQuery({
+  useQuery({
     queryKey: ["authMe"],
     queryFn: async () => {
       try {

@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { useMe, useWorkspaces, useWorkspaceMembers, useUrls, useFolders, useTags, useFavorites, useDeleteUrlMutation, useAddFavoriteMutation, useRemoveFavoriteMutation } from "@/queries"
-import { Search, ExternalLink, Trash2, BarChart3, Plus, Heart, FolderOpen, Tags } from "lucide-react"
+import { Search, ExternalLink, Trash2, BarChart3, Heart, FolderOpen, Tags } from "lucide-react"
 
 export default function URLsPage() {
   useEffect(() => { document.title = "URLs - LinkForge" }, [])
