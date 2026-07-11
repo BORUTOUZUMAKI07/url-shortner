@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen } from "@/test/test-utils"
 import BillingPage from "@/app/(authenticated)/billing/page"
 
 const { mockUser, mockStore, mockStoreHook } = vi.hoisted(() => {
@@ -16,53 +16,41 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/store/auth", () => ({ useAuthStore: mockStoreHook }))
 
-vi.mock("@/lib/api", () => ({
-  auth: { me: vi.fn().mockResolvedValue(mockUser) },
-  billingApi: { upgrade: vi.fn() },
-  getErrorMessage: vi.fn((e) => e instanceof Error ? e.message : "Error"),
-}))
-
-vi.mock("@tanstack/react-query", () => ({
-  useQuery: vi.fn(() => ({ data: mockUser, isLoading: false })),
-  useMutation: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, variables: null })),
-  useQueryClient: vi.fn(() => ({ invalidateQueries: vi.fn() })),
-}))
-
 describe("BillingPage", () => {
   beforeEach(() => {
     mockStore.user = mockUser
   })
 
-  it("renders the page title", () => {
+  it("renders the page title", async () => {
     render(<BillingPage />)
-    expect(screen.getByText("Billing & Plans")).toBeDefined()
+    expect(await screen.findByText("Billing & Plans")).toBeDefined()
   })
 
-  it("shows current plan", () => {
+  it("shows current plan", async () => {
     render(<BillingPage />)
-    expect(screen.getByText("free")).toBeDefined()
+    expect(await screen.findByText("free")).toBeDefined()
   })
 
-  it("renders all plan cards", () => {
+  it("renders all plan cards", async () => {
     render(<BillingPage />)
-    expect(screen.getByText("Free")).toBeDefined()
+    expect(await screen.findByText("Free")).toBeDefined()
     expect(screen.getByText("Pro")).toBeDefined()
     expect(screen.getByText("Enterprise")).toBeDefined()
   })
 
-  it("renders back button", () => {
+  it("renders back button", async () => {
     render(<BillingPage />)
-    expect(screen.getByText("Back")).toBeDefined()
+    expect(await screen.findByText("Back")).toBeDefined()
   })
 
-  it("shows upgrade buttons for non-current plans", () => {
+  it("shows upgrade buttons for non-current plans", async () => {
     render(<BillingPage />)
-    const buttons = screen.getAllByText("Upgrade")
+    const buttons = await screen.findAllByText("Upgrade")
     expect(buttons.length).toBeGreaterThanOrEqual(2)
   })
 
-  it("shows Current badge on the free plan", () => {
+  it("shows Current badge on the free plan", async () => {
     render(<BillingPage />)
-    expect(screen.getByText("Current")).toBeDefined()
+    expect(await screen.findByText("Current")).toBeDefined()
   })
 })

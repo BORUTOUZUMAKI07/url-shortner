@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen } from "@/test/test-utils"
 import { Sidebar } from "@/components/layout/sidebar"
 
-const { mockSidebarUser, mockAuthLogout } = vi.hoisted(() => ({
+const { mockSidebarUser } = vi.hoisted(() => ({
   mockSidebarUser: { id: 1, email: "test@test.com", is_superadmin: false },
-  mockAuthLogout: vi.fn(),
 }))
 
 vi.mock("next/navigation", () => ({
@@ -16,10 +15,6 @@ vi.mock("@/store/auth", () => ({
     const state = { user: mockSidebarUser, logout: vi.fn() }
     return selector ? selector(state) : state
   },
-}))
-
-vi.mock("@/lib/api", () => ({
-  auth: { logout: mockAuthLogout },
 }))
 
 describe("Sidebar", () => {

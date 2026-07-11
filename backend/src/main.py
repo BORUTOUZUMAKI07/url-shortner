@@ -60,6 +60,7 @@ from src.routes import (
 from src.workers.aggregation_worker import start_worker as start_aggregation_worker
 from src.workers.analytics_worker import consume_url_clicked_events
 from src.workers.cleanup_worker import start_worker as start_cleanup_worker
+from src.workers.dlq_replay_worker import consume_dlq_replay
 from src.workers.expiry_worker import start_worker as start_expiry_worker
 from src.workers.metadata_worker import consume_url_created
 from src.workers.webhook_click_consumer import consume_url_clicked_webhooks
@@ -168,13 +169,15 @@ async def lifespan(app: FastAPI):
         aggregation_task = asyncio.create_task(start_aggregation_worker())
         expiry_task = asyncio.create_task(start_expiry_worker())
         cleanup_task = asyncio.create_task(start_cleanup_worker())
+        dlq_replay_task = asyncio.create_task(consume_dlq_replay())
 
         yield
 
         logger.info("Shutting down URL Shortener workers...")
-        for task in [analytics_task, metadata_task, webhook_click_task, webhook_retry_task, aggregation_task, expiry_task, cleanup_task]:
+        tasks = [analytics_task, metadata_task, webhook_click_task, webhook_retry_task, aggregation_task, expiry_task, cleanup_task, dlq_replay_task]
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(*[task if task.done() else asyncio.wait_for(task, timeout=5) for task in [analytics_task, metadata_task, webhook_click_task, webhook_retry_task, aggregation_task, expiry_task, cleanup_task]], return_exceptions=True)
+        await asyncio.gather(*[task if task.done() else asyncio.wait_for(task, timeout=5) for task in tasks], return_exceptions=True)
     else:
         print("[INFO] Workers NOT started in backend (running separately)")
         yield

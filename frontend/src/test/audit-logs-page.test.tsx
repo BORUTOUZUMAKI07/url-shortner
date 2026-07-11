@@ -1,17 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { describe, it, expect, vi } from "vitest"
+import { render, screen } from "@/test/test-utils"
+import { server } from "@/test/mocks/server"
+import { http, HttpResponse } from "msw"
 import AuditLogsPage from "@/app/(authenticated)/audit-logs/page"
 
-const { mockStoreHook, queryReturnMap, mockQueryClient } = vi.hoisted(() => {
+const API = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
+
+const { mockStoreHook } = vi.hoisted(() => {
   const mockStore = { user: { id: 1, email: "test@test.com" }, setUser: vi.fn() }
   const mockStoreHook = (selector?: (s: any) => any) => selector ? selector(mockStore) : mockStore
-  const queryReturnMap: Record<string, any> = {
-    authMe: { data: { id: 1 }, isLoading: false },
-    workspaces: { data: [{ id: 1, name: "Test" }], isLoading: false },
-    auditLogs: { data: [], isLoading: false },
-  }
-  const mockQueryClient = { invalidateQueries: vi.fn() }
-  return { mockStoreHook, queryReturnMap, mockQueryClient }
+  return { mockStoreHook }
 })
 
 vi.mock("next/navigation", () => ({
@@ -20,47 +18,27 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/store/auth", () => ({ useAuthStore: mockStoreHook }))
 
-vi.mock("@tanstack/react-query", () => ({
-  useQuery: vi.fn(({ queryKey }: { queryKey: string[] }) => {
-    if (queryKey[0] === "authMe") return queryReturnMap.authMe
-    if (queryKey[0] === "workspaces") return queryReturnMap.workspaces
-    if (queryKey[0] === "auditLogs") return queryReturnMap.auditLogs
-    return { data: [], isLoading: false }
-  }),
-  useMutation: vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false })),
-  useQueryClient: vi.fn(() => mockQueryClient),
-}))
-
-vi.mock("@/lib/api", () => ({
-  auth: { me: vi.fn() },
-  workspacesApi: { list: vi.fn().mockResolvedValue([{ id: 1, name: "Test" }]) },
-  auditApi: { list: vi.fn().mockResolvedValue([]) },
-}))
-
 describe("AuditLogsPage", () => {
-  beforeEach(() => {
-    queryReturnMap.authMe = { data: { id: 1 }, isLoading: false }
-    queryReturnMap.workspaces = { data: [{ id: 1, name: "Test" }], isLoading: false }
-    queryReturnMap.auditLogs = { data: [], isLoading: false }
+  it("renders the page title", async () => {
+    render(<AuditLogsPage />)
+    expect(await screen.findByText("Audit Logs")).toBeDefined()
   })
 
-  it("renders the page title", () => {
+  it("shows empty state when no logs", async () => {
     render(<AuditLogsPage />)
-    expect(screen.getByText("Audit Logs")).toBeDefined()
+    expect(await screen.findByText("No audit logs yet")).toBeDefined()
   })
 
-  it("shows empty state when no logs", () => {
+  it("renders log entries when present", async () => {
+    server.use(
+      http.get(`${API}/audit-logs/workspace/:workspaceId`, () => {
+        return HttpResponse.json([
+          { id: 1, action: "create", resource_type: "url", resource_id: 1, user_id: 1, before_state: null, after_state: null, created_at: "2024-01-01T00:00:00Z" },
+        ])
+      })
+    )
     render(<AuditLogsPage />)
-    expect(screen.getByText("No audit logs yet")).toBeDefined()
-  })
-
-  it("renders log entries when present", () => {
-    queryReturnMap.auditLogs = {
-      data: [{ id: 1, action: "create", resource_type: "url", resource_id: 1, user_id: 1, before_state: null, after_state: null, created_at: "2024-01-01T00:00:00Z" }],
-      isLoading: false,
-    }
-    render(<AuditLogsPage />)
-    expect(screen.getByText("create")).toBeDefined()
+    expect(await screen.findByText("create")).toBeDefined()
     expect(screen.getByText("url")).toBeDefined()
   })
 })
