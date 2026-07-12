@@ -6,6 +6,19 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+# Patch redis_client globally before any module imports it,
+# otherwise the health endpoint (which calls redis_client.ping()) will fail.
+import src.core.redis
+_mock_redis = AsyncMock()
+_mock_redis.ping.return_value = True
+_mock_redis.get.return_value = None
+_mock_redis.setex.return_value = True
+_mock_redis.delete.return_value = True
+_mock_redis.incr.return_value = 1
+_mock_redis.expire.return_value = True
+_mock_redis.eval.return_value = 0
+src.core.redis.redis_client = _mock_redis
+
 from src.main import create_app
 
 pytestmark = pytest.mark.integration
