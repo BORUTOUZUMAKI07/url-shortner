@@ -46,7 +46,7 @@ jobs:
       DATABASE_URL: postgresql://linkforge_user:linkforge_password@localhost:5432/linkforge_db
       MONGODB_URI: mongodb://admin:adminpassword@localhost:27017
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
