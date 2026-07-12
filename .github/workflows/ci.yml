@@ -192,6 +192,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Lowercase repository name (Docker tags must be lowercase)
+        shell: bash
+        run: echo "REPOSITORY=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -211,8 +215,8 @@ jobs:
           docker buildx build \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
-            --tag ${{ env.REGISTRY }}/${{ github.repository }}/backend:${{ github.sha }} \
-            --tag ${{ env.REGISTRY }}/${{ github.repository }}/backend:latest \
+            --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}/backend:${{ github.sha }} \
+            --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}/backend:latest \
             --push \
             ./backend
 
@@ -223,8 +227,8 @@ jobs:
           docker buildx build \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
-            --tag ${{ env.REGISTRY }}/${{ github.repository }}/frontend:${{ github.sha }} \
-            --tag ${{ env.REGISTRY }}/${{ github.repository }}/frontend:latest \
+            --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}/frontend:${{ github.sha }} \
+            --tag ${{ env.REGISTRY }}/${{ env.REPOSITORY }}/frontend:latest \
             --push \
             ./frontend 2>&1 | tee /tmp/fe.log
 
