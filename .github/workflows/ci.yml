@@ -124,6 +124,7 @@ jobs:
         with:
           file: ./backend/coverage.xml
           flags: backend
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   frontend-lint:
     name: Frontend Lint
