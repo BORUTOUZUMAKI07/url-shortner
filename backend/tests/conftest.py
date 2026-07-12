@@ -143,7 +143,11 @@ async def mock_external_services():
         patch("src.services.workspace_service.WebhookService", AsyncMock()),
     ]
     if os.environ.get("_USE_TESTCONTAINERS") != "1":
-        patches.insert(0, patch("src.services.auth_service.redis_client", AsyncMock()))
+        redis_mock = AsyncMock(spec=["get"])
+        redis_mock.get.return_value = None
+        patches.insert(0, patch("src.services.auth_service.redis_client", redis_mock))
+        patches.insert(0, patch("src.core.deps.redis_client", redis_mock))
+        patches.insert(0, patch("src.core.api_key_auth.redis_client", redis_mock))
     with contextlib.ExitStack() as stack:
         for p in patches:
             stack.enter_context(p)
