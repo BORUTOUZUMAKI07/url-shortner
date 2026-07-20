@@ -17,6 +17,20 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "LinkForge - URL Shortener",
   description: "Enterprise-grade URL shortener with analytics and team collaboration",
+  icons: { icon: "/favicon.svg" },
+  openGraph: {
+    title: "LinkForge - URL Shortener",
+    description: "Enterprise-grade URL shortener with analytics and team collaboration",
+    url: "https://url-shortner-peay.vercel.app",
+    siteName: "LinkForge",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "LinkForge - URL Shortener",
+    description: "Enterprise-grade URL shortener with analytics and team collaboration",
+  },
+  metadataBase: new URL("https://url-shortner-peay.vercel.app"),
 };
 
 export default function RootLayout({
