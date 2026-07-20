@@ -67,11 +67,11 @@ export default function ApiKeysPage() {
           ) : (
             <div className="space-y-3">
               {keys.map((key) => (
-                <div key={key.id} className="flex items-center justify-between rounded-lg border px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <Key className="size-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm font-medium">{key.name}</p>
+                <div key={key.id} className="flex flex-col gap-2 rounded-lg border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Key className="size-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{key.name}</p>
                       <p className="text-xs text-muted-foreground">Prefix: {key.prefix}...</p>
                     </div>
                   </div>

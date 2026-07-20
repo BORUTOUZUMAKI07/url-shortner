@@ -102,9 +102,9 @@ export default function WebhookReceiverPage() {
         </CardContent>
       </Card>
 
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 gap-2">
         <p className="text-sm text-muted-foreground">{events.length} event{events.length !== 1 ? "s" : ""} received</p>
-        <Button variant="outline" size="sm" onClick={() => fetchEvents()}>
+        <Button variant="outline" size="sm" onClick={() => fetchEvents()} className="shrink-0">
           <RefreshCw className="mr-1 size-3.5" /> Refresh
         </Button>
       </div>
@@ -119,7 +119,7 @@ export default function WebhookReceiverPage() {
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          <div className="space-y-2 max-h-[70vh] overflow-y-auto">
+          <div className="space-y-2 max-h-[50vh] overflow-y-auto lg:max-h-[70vh]">
             {events.map((ev) => (
               <div
                 key={ev.id}
@@ -151,7 +151,7 @@ export default function WebhookReceiverPage() {
             ))}
           </div>
 
-          <div className="lg:sticky lg:top-6">
+          <div className="lg:sticky lg:top-6 space-y-4">
             {selected ? (
               <Card>
                 <CardHeader>

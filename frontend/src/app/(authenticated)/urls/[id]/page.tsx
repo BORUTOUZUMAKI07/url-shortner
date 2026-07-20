@@ -163,12 +163,10 @@ export default function URLDetailPage() {
         <ArrowLeft className="size-4" /> Back to URLs
       </button>
 
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="text-2xl font-bold">URL Details</h1>
-            <p className="text-sm text-muted-foreground">/{url.short_code}</p>
-          </div>
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold">URL Details</h1>
+          <p className="text-sm text-muted-foreground break-all">/{url.short_code}</p>
           <Badge variant={url.status === "active" ? "success" : "secondary"} className="capitalize">{url.status}</Badge>
           {url.is_one_time && <Badge variant="warning">One-time</Badge>}
         </div>

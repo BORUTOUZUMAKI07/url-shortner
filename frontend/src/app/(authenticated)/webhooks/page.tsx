@@ -84,12 +84,12 @@ export default function WebhooksPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Webhooks</h1>
           <p className="text-sm text-muted-foreground">Receive real-time events about your URLs.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link href="/webhooks/receiver">
             <Button variant="outline"><Radio className="mr-1 size-4" />Receiver Log</Button>
           </Link>
@@ -139,11 +139,11 @@ export default function WebhooksPage() {
       ) : (
         <div className="space-y-2">
           {hooks.map((h) => (
-            <div key={h.id} className="flex items-center justify-between rounded-lg border bg-card px-4 py-3 transition-colors hover:bg-muted/50">
+            <div key={h.id} className="flex items-start justify-between rounded-lg border bg-card px-4 py-3 transition-colors hover:bg-muted/50 gap-2">
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium break-all">{h.url}</span>
-                  <Badge variant={h.is_active ? "success" : "secondary"}>{h.is_active ? "Active" : "Disabled"}</Badge>
+                  <Badge variant={h.is_active ? "success" : "secondary"} className="shrink-0">{h.is_active ? "Active" : "Disabled"}</Badge>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-1">
                   {h.events.map((et) => (
@@ -151,7 +151,7 @@ export default function WebhooksPage() {
                   ))}
                 </div>
               </div>
-              <Button variant="ghost" size="xs" onClick={() => handleDelete(h.id)}>
+              <Button variant="ghost" size="xs" onClick={() => handleDelete(h.id)} className="shrink-0">
                 <Trash2 className="size-3.5 text-destructive" />
               </Button>
             </div>

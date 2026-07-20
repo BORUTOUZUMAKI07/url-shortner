@@ -54,23 +54,25 @@ export default function URLsPage() {
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative flex-1">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="relative w-full sm:flex-1">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input placeholder="Search URLs..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
-        <Select value={String(wsId ?? "")} onChange={(e) => setWsId(e.target.value ? Number(e.target.value) : null)} className="w-40">
-          <option value="">All workspaces</option>
-          {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-        </Select>
-        <Select value={folderFilter} onChange={(e) => setFolderFilter(e.target.value)} className="w-36">
-          <option value="">All folders</option>
-          {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </Select>
-        <Select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="w-36">
-          <option value="">All tags</option>
-          {allTags.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
-        </Select>
+        <div className="flex flex-wrap gap-3">
+          <Select value={String(wsId ?? "")} onChange={(e) => setWsId(e.target.value ? Number(e.target.value) : null)} className="w-full sm:w-40">
+            <option value="">All workspaces</option>
+            {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </Select>
+          <Select value={folderFilter} onChange={(e) => setFolderFilter(e.target.value)} className="w-full sm:w-36">
+            <option value="">All folders</option>
+            {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </Select>
+          <Select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="w-full sm:w-36">
+            <option value="">All tags</option>
+            {allTags.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+          </Select>
+        </div>
       </div>
 
       {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
@@ -89,10 +91,10 @@ export default function URLsPage() {
           ) : (
             <div className="divide-y">
               {items.map((url) => (
-                <div key={url.id} className="flex items-center justify-between px-6 py-3">
+                <div key={url.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <a href={`/${url.short_code}`} target="_blank" className="text-sm font-medium text-blue-400 hover:underline">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <a href={`/${url.short_code}`} target="_blank" className="text-sm font-medium text-blue-400 hover:underline break-all">
                         {url.short_code} <ExternalLink className="inline size-3" />
                       </a>
                       <Badge variant={url.status === "active" ? "success" : "secondary"}>{url.status}</Badge>
@@ -100,7 +102,7 @@ export default function URLsPage() {
                     </div>
                     <p className="truncate text-xs text-muted-foreground">{url.original_url}</p>
                     {url.tags && url.tags.length > 0 && (
-                      <div className="mt-1 flex gap-1">
+                      <div className="mt-1 flex flex-wrap gap-1">
                         {url.tags.map((t) => (
                           <span key={t} className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-300">
                             <Tags className="size-2.5" /> {t}

@@ -70,11 +70,11 @@ export default function FavoritesPage() {
       ) : (
         <div className="space-y-2">
           {urlsData.map((url) => (
-            <div key={url.id} className="flex items-center justify-between rounded-lg border bg-card px-4 py-3 transition-colors hover:bg-muted/50">
+            <div key={url.id} className="flex flex-col gap-2 rounded-lg border bg-card px-4 py-3 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <Heart className="size-3.5 text-red-400" />
-                  <a href={`${baseUrl}/${url.short_code}`} target="_blank" className="text-sm font-medium text-blue-400 hover:underline">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Heart className="size-3.5 text-red-400 shrink-0" />
+                  <a href={`${baseUrl}/${url.short_code}`} target="_blank" className="text-sm font-medium text-blue-400 hover:underline break-all">
                     {url.short_code} <ExternalLink className="inline size-3" />
                   </a>
                   <Badge variant={url.status === "active" ? "success" : "secondary"}>{url.status}</Badge>

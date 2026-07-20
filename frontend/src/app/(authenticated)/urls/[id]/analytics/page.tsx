@@ -110,12 +110,12 @@ export default function AnalyticsPage() {
         <ArrowLeft className="size-4" /> Back to URLs
       </button>
 
-      <div className="mb-6 flex items-center justify-between">
-        <div>
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold">Analytics</h1>
           <p className="text-sm text-muted-foreground break-all">/{url.short_code} — {url.original_url}</p>
         </div>
-        <Select value={period} onChange={(e) => setPeriod(e.target.value)} className="w-32">
+        <Select value={period} onChange={(e) => setPeriod(e.target.value)} className="w-full sm:w-32">
           <option value="24h">24 hours</option>
           <option value="7d">7 days</option>
           <option value="30d">30 days</option>
@@ -163,7 +163,7 @@ export default function AnalyticsPage() {
 
       {devices && (
         <Tabs defaultValue="browsers">
-          <TabsList>
+          <TabsList className="flex-wrap">
             <TabsTrigger value="browsers"><Monitor className="mr-1 size-4" />Browsers</TabsTrigger>
             <TabsTrigger value="devices"><Smartphone className="mr-1 size-4" />Devices</TabsTrigger>
             <TabsTrigger value="os">OS</TabsTrigger>

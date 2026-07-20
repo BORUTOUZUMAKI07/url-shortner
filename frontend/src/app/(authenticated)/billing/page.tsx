@@ -70,7 +70,7 @@ export default function BillingPage() {
       {error && <div className="mb-4 rounded-lg bg-red-500/10 px-4 py-2 text-sm text-red-400">{error}</div>}
       {success && <div className="mb-4 rounded-lg bg-green-500/10 px-4 py-2 text-sm text-green-400">{success}</div>}
 
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3">
         {PLANS.map((plan) => {
           const isCurrent = user.plan === plan.backend
           const isLoading = upgradeMutation.isPending && upgradeMutation.variables === plan.backend

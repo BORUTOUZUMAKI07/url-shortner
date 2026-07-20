@@ -166,9 +166,9 @@ function WorkspacesPageInner() {
 
   return (
     <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold">Workspaces</h1>
             {user?.is_superadmin && <Badge className="bg-purple-600 text-white">Superadmin</Badge>}
           </div>
@@ -191,9 +191,9 @@ function WorkspacesPageInner() {
 
       <Card className="mb-6">
         <CardHeader><CardTitle>Create Workspace</CardTitle></CardHeader>
-        <CardContent className="flex gap-2">
-          <Input placeholder="Workspace name" value={newName} onValueChange={(v) => setNewName(v)} />
-          <Button onClick={handleCreate} className="bg-blue-600 text-white hover:bg-blue-700">
+        <CardContent className="flex flex-col gap-2 sm:flex-row">
+          <Input placeholder="Workspace name" value={newName} onValueChange={(v) => setNewName(v)} className="w-full" />
+          <Button onClick={handleCreate} className="bg-blue-600 text-white hover:bg-blue-700 shrink-0">
             <Plus className="mr-1 size-4" />Create
           </Button>
         </CardContent>
@@ -261,9 +261,9 @@ function WorkspacesPageInner() {
                   <p className="mb-3 text-sm font-medium">Members</p>
                   <div className="mb-4 space-y-2">
                     {members[ws.id]?.map((m) => (
-                      <div key={m.id} className="flex items-center justify-between rounded-lg bg-muted px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{m.email}</span>
+                      <div key={m.id} className="flex flex-col gap-2 rounded-lg bg-muted px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium break-all">{m.email}</span>
                           {isOwner(ws.id) ? (
                             <Select value={m.role} onChange={(e) => handleChangeRole(ws.id, m.id, e.target.value)}
                               className="h-7 w-24 text-xs">
@@ -289,8 +289,8 @@ function WorkspacesPageInner() {
                       <p className="mb-2 text-sm font-medium">Pending Invites</p>
                       <div className="mb-4 space-y-2">
                         {invites[ws.id]?.map((inv) => (
-                          <div key={inv.id} className="flex items-center justify-between rounded-lg bg-amber-500/10 px-3 py-2">
-                            <span className="text-sm">{inv.email} <span className="text-xs text-muted-foreground capitalize">({inv.role})</span>{inv.token && <span className="ml-2 text-xs text-muted-foreground">token: {inv.token.substring(0, 8)}...</span>}</span>
+                          <div key={inv.id} className="flex flex-col gap-2 rounded-lg bg-amber-500/10 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                            <span className="text-sm break-all">{inv.email} <span className="text-xs text-muted-foreground capitalize">({inv.role})</span>{inv.token && <span className="ml-2 text-xs text-muted-foreground">token: {inv.token.substring(0, 8)}...</span>}</span>
                             {isAdmin(ws.id) && (
                               <Button variant="ghost" size="xs" onClick={() => handleCancelInvite(ws.id, inv.id)}>
                                 <XCircle className="size-3.5 text-destructive" />
@@ -303,9 +303,9 @@ function WorkspacesPageInner() {
                   )}
 
                   {canManage(ws.id) && (
-                    <div className="flex gap-2">
-                      <Input placeholder="Email to invite" value={inviteEmail} onValueChange={(v) => setInviteEmail(v)} />
-                      <Select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="w-28">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input placeholder="Email to invite" value={inviteEmail} onValueChange={(v) => setInviteEmail(v)} className="w-full" />
+                      <Select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="w-full sm:w-28">
                         <option value="viewer">Viewer</option>
                         <option value="editor">Editor</option>
                         <option value="admin">Admin</option>

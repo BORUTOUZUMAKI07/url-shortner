@@ -18,13 +18,13 @@ export default function Home() {
       <BackgroundBeams className="opacity-30" />
 
       <div className="relative z-20">
-        <nav className="flex items-center justify-between px-6 py-4">
-          <span className="text-xl font-bold text-white">LinkForge</span>
-          <div className="flex items-center gap-4">
-            <Link href="/login" className="text-sm text-zinc-400 hover:text-white transition-colors">Sign In</Link>
+        <nav className="flex items-center justify-between px-4 py-4 sm:px-6">
+          <span className="text-lg sm:text-xl font-bold text-white">LinkForge</span>
+          <div className="flex items-center gap-3 sm:gap-4">
+            <Link href="/login" className="text-xs sm:text-sm text-zinc-400 hover:text-white transition-colors">Sign In</Link>
             <Link
               href="/login"
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+              className="rounded-lg bg-blue-600 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-white hover:bg-blue-700 transition-colors"
             >
               Get Started
             </Link>
@@ -36,17 +36,17 @@ export default function Home() {
             <span className="size-2 rounded-full bg-blue-400 animate-pulse" />
             Enterprise-grade URL shortener
           </div>
-          <h1 className="max-w-4xl text-5xl font-bold leading-tight text-white sm:text-6xl md:text-7xl">
+          <h1 className="max-w-4xl text-4xl font-bold leading-tight text-white sm:text-6xl md:text-7xl">
             Shorten. Track.
             <br />
             <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
               Optimize.
             </span>
           </h1>
-          <p className="mt-6 max-w-xl text-lg text-zinc-400">
+          <p className="mt-6 max-w-xl text-base text-zinc-400 sm:text-lg">
             Enterprise-grade URL shortener with real-time analytics, team collaboration, and full observability.
           </p>
-          <div className="mt-10 flex items-center gap-4">
+          <div className="mt-10 flex flex-col sm:flex-row items-center gap-4">
             <Link
               href="/login"
               className="flex h-12 w-40 items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
