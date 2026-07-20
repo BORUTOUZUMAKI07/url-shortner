@@ -252,7 +252,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="border-t border-zinc-800/50 px-6 py-24">
+      <section id="pricing" className="border-t border-zinc-800/50 px-6 py-24">
         <div className="mx-auto max-w-6xl">
           <AnimatedSection>
             <h2 className="text-center text-3xl font-bold text-white sm:text-4xl">
@@ -359,23 +359,22 @@ export default function Home() {
               <h4 className="mb-3 text-sm font-semibold text-white">Product</h4>
               <ul className="space-y-2 text-sm text-zinc-500">
                 <li><Link href="#features" className="hover:text-white transition-colors">Features</Link></li>
-                <li><Link href="#pricing" className="hover:text-white transition-colors">Pricing</Link></li>
                 <li><Link href="/login" className="hover:text-white transition-colors">Sign In</Link></li>
+                <li><Link href="/register" className="hover:text-white transition-colors">Get Started</Link></li>
               </ul>
             </div>
             <div>
-              <h4 className="mb-3 text-sm font-semibold text-white">Company</h4>
+              <h4 className="mb-3 text-sm font-semibold text-white">Developers</h4>
               <ul className="space-y-2 text-sm text-zinc-500">
-                <li><span className="cursor-default">About</span></li>
-                <li><span className="cursor-default">Blog</span></li>
-                <li><span className="cursor-default">Contact</span></li>
+                <li><Link href="/login" className="hover:text-white transition-colors">API Keys</Link></li>
+                <li><Link href="/login" className="hover:text-white transition-colors">Dashboard</Link></li>
               </ul>
             </div>
             <div>
-              <h4 className="mb-3 text-sm font-semibold text-white">Legal</h4>
+              <h4 className="mb-3 text-sm font-semibold text-white">Resources</h4>
               <ul className="space-y-2 text-sm text-zinc-500">
-                <li><span className="cursor-default">Privacy Policy</span></li>
-                <li><span className="cursor-default">Terms of Service</span></li>
+                <li><a href="https://github.com/BORUTOUZUMAKI07/url-shortner" target="_blank" className="hover:text-white transition-colors">GitHub</a></li>
+                <li><span className="cursor-default">Documentation</span></li>
               </ul>
             </div>
           </div>
