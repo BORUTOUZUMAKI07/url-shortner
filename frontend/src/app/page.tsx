@@ -140,23 +140,20 @@ export default function Home() {
                   <div className="size-3 rounded-full bg-red-500" />
                   <div className="size-3 rounded-full bg-yellow-500" />
                   <div className="size-3 rounded-full bg-green-500" />
-                  <span className="ml-2 text-xs text-zinc-500">dashboard.linkforge.app</span>
+                  <span className="ml-2 text-xs text-zinc-500">Preview</span>
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-4">
                   <div className="rounded-lg bg-zinc-800/50 p-4">
-                    <div className="text-xs text-zinc-500">Total Clicks</div>
-                    <div className="mt-1 text-2xl font-bold text-white">12,847</div>
-                    <div className="mt-1 text-xs text-green-400">+12.5% this week</div>
+                    <div className="text-xs text-zinc-500">Smart Links</div>
+                    <div className="mt-1 text-lg font-bold text-white">Custom aliases &amp; QR codes</div>
                   </div>
                   <div className="rounded-lg bg-zinc-800/50 p-4">
-                    <div className="text-xs text-zinc-500">Active URLs</div>
-                    <div className="mt-1 text-2xl font-bold text-white">342</div>
-                    <div className="mt-1 text-xs text-green-400">+8 new today</div>
+                    <div className="text-xs text-zinc-500">Analytics</div>
+                    <div className="mt-1 text-lg font-bold text-white">Real-time dashboards</div>
                   </div>
                   <div className="rounded-lg bg-zinc-800/50 p-4">
-                    <div className="text-xs text-zinc-500">Countries</div>
-                    <div className="mt-1 text-2xl font-bold text-white">24</div>
-                    <div className="mt-1 text-xs text-blue-400">Global reach</div>
+                    <div className="text-xs text-zinc-500">Collaboration</div>
+                    <div className="mt-1 text-lg font-bold text-white">Team workspaces</div>
                   </div>
                 </div>
               </div>
