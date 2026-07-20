@@ -1,11 +1,11 @@
 "use client"
 
-import { useRef, useState, useEffect } from "react"
+import { useRef, useState } from "react"
 import Link from "next/link"
 import { motion, useInView } from "motion/react"
 import {
   Link2, BarChart3, Users, Upload, Key, Shield,
-  Check, ChevronDown, ExternalLink, Quote,
+  Check, ChevronDown, ExternalLink,
   ArrowRight, Sparkles, Zap, Code,
 } from "lucide-react"
 
@@ -18,18 +18,9 @@ const features = [
   { icon: Shield, title: "Enterprise Grade", desc: "Kafka events, OpenTelemetry, Prometheus metrics, and Grafana dashboards." },
 ]
 
-const stats = [
-  { label: "URLs Shortened", value: "10K+" },
-  { label: "Active Users", value: "500+" },
-  { label: "Clicks Tracked", value: "1M+" },
-  { label: "Uptime", value: "99.9%" },
-]
 
-const testimonials = [
-  { quote: "LinkForge transformed how our team manages links. The analytics are incredible.", author: "Alex K.", role: "Engineering Lead" },
-  { quote: "The API-first approach made integration effortless. Best URL shortener we've used.", author: "Sarah M.", role: "Developer" },
-  { quote: "Bulk operations save us hours every week. The workspace collaboration is a game changer.", author: "James R.", role: "Marketing Director" },
-]
+
+
 
 const plans = [
   {
@@ -63,28 +54,6 @@ function AnimatedSection({ children, className }: { children: React.ReactNode; c
       {children}
     </motion.div>
   )
-}
-
-function Counter({ value, suffix = "" }: { value: string; suffix?: string }) {
-  const [count, setCount] = useState(0)
-  const ref = useRef(null)
-  const isInView = useInView(ref, { once: true })
-  const num = parseInt(value.replace(/\D/g, ""))
-
-  useEffect(() => {
-    if (!isInView) return
-    let start = 0
-    const dur = 2000
-    const step = Math.max(1, Math.floor(num / 60))
-    const interval = setInterval(() => {
-      start += step
-      if (start >= num) { start = num; clearInterval(interval) }
-      setCount(start)
-    }, dur / 60)
-    return () => clearInterval(interval)
-  }, [isInView, num])
-
-  return <span ref={ref}>{count.toLocaleString()}{suffix}</span>
 }
 
 export default function Home() {
@@ -193,61 +162,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="border-t border-zinc-800/50 px-6 py-24">
-        <div className="mx-auto max-w-6xl">
-          <AnimatedSection>
-            <h2 className="text-center text-3xl font-bold text-white sm:text-4xl">
-              Trusted by teams worldwide
-            </h2>
-          </AnimatedSection>
-          <div className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {stats.map((s, i) => (
-              <motion.div
-                key={s.label}
-                initial={{ opacity: 0, scale: 0.9 }}
-                whileInView={{ opacity: 1, scale: 1 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.4, delay: i * 0.1 }}
-                className="text-center"
-              >
-                <div className="text-4xl font-bold gradient-text sm:text-5xl">
-                  <Counter value={s.value} />
-                </div>
-                <div className="mt-2 text-sm text-zinc-400">{s.label}</div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      <section className="border-t border-zinc-800/50 bg-zinc-900/30 px-6 py-24">
-        <div className="mx-auto max-w-6xl">
-          <AnimatedSection>
-            <h2 className="text-center text-3xl font-bold text-white sm:text-4xl">
-              What our users say
-            </h2>
-          </AnimatedSection>
-          <div className="mt-16 grid gap-6 md:grid-cols-3">
-            {testimonials.map((t, i) => (
-              <motion.div
-                key={t.author}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: i * 0.15 }}
-                className="glass rounded-xl p-6"
-              >
-                <Quote className="mb-4 size-6 text-blue-400" />
-                <p className="text-sm leading-relaxed text-zinc-300">&ldquo;{t.quote}&rdquo;</p>
-                <div className="mt-4 border-t border-zinc-800 pt-4">
-                  <div className="text-sm font-medium text-white">{t.author}</div>
-                  <div className="text-xs text-zinc-500">{t.role}</div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
 
       <section id="pricing" className="border-t border-zinc-800/50 px-6 py-24">
         <div className="mx-auto max-w-6xl">
