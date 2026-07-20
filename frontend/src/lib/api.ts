@@ -1,3 +1,5 @@
+import { clearTokenCookies, setTokenCookie } from "@/lib/token-cookie"
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
 
 function getToken(): string | null {
@@ -25,6 +27,7 @@ async function tryRefresh(): Promise<boolean> {
 function clearTokens() {
   localStorage.removeItem("access_token")
   localStorage.removeItem("refresh_token")
+  clearTokenCookies()
 }
 
 async function handleUnauthorized() {
