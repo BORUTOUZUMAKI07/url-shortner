@@ -5,8 +5,8 @@ services:
     region: oregon
     plan: free
     rootDir: backend
-    buildCommand: pip install .
-    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install uv && uv sync --no-dev
+    startCommand: uv run uvicorn src.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
         sync: false
@@ -15,6 +15,10 @@ services:
       - key: MONGODB_DB
         value: linkforge_analytics
       - key: REDIS_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
       - key: KAFKA_BOOTSTRAP_SERVERS
         sync: false
