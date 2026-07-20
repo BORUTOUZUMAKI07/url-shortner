@@ -1,5 +1,7 @@
 import type { NextConfig } from "next"
 
+const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000"
+
 const nextConfig: NextConfig = {
   skipTrailingSlashRedirect: true,
 
@@ -17,15 +19,12 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
-        // Proxy API calls to FastAPI backend
         source: "/api/:path*",
-        destination: "http://127.0.0.1:8000/api/:path*",
+        destination: `${BACKEND_URL}/api/:path*`,
       },
       {
-        // Forward short URL redirects to backend.
-        // Matches single-segment paths like /abc123 that are NOT known frontend pages.
         source: "/:short_code((?!login|register|forgot-password|reset-password|verify-email|dashboard|urls|workspaces|folders|tags|favorites|api-keys|webhooks|bulk|audit-logs|billing|profile|admin|_next|favicon).*)",
-        destination: "http://127.0.0.1:8000/:short_code",
+        destination: `${BACKEND_URL}/:short_code`,
       },
     ]
   },
