@@ -49,7 +49,7 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold">
           Welcome back{user?.email ? `, ${user.email.split("@")[0]}` : ""}
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">Here&apos;s what&apos;s happening with your links.</p>
+        <p className="mt-1 text-sm text-zinc-400">Here&apos;s what&apos;s happening with your links.</p>
       </div>
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -82,7 +82,7 @@ export default function DashboardPage() {
                 <div className="mt-4">
                   <p className="text-3xl font-bold">{s.value}</p>
                   <p className="text-sm font-medium text-zinc-400 mt-0.5">{s.title}</p>
-                  <p className="text-xs text-zinc-600 mt-0.5">{s.desc}</p>
+                  <p className="text-xs text-zinc-400 mt-0.5">{s.desc}</p>
                 </div>
               </CardContent>
             </Card>
@@ -112,7 +112,7 @@ export default function DashboardPage() {
                   <Link2 className="size-8 text-blue-400" />
                 </div>
                 <p className="font-medium">No URLs yet</p>
-                <p className="mt-1 text-sm text-zinc-500">Create your first shortened URL to get started.</p>
+                <p className="mt-1 text-sm text-zinc-400">Create your first shortened URL to get started.</p>
                 <Link href="/urls/new" className="mt-6">
                   <Button className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-600/20">
                     <Plus className="mr-1.5 size-4" />Create URL
@@ -135,7 +135,7 @@ export default function DashboardPage() {
                           <Badge variant="warning" className="text-[10px] px-1.5 py-0">One-time</Badge>
                         )}
                       </div>
-                      <p className="truncate text-xs text-zinc-500 mt-0.5">{url.original_url}</p>
+                      <p className="truncate text-xs text-zinc-400 mt-0.5">{url.original_url}</p>
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Link href={`/urls/${url.id}/analytics`}>
@@ -165,7 +165,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <p className="text-sm font-medium">Create URL</p>
-                <p className="text-xs text-zinc-500">Shorten a new link</p>
+                <p className="text-xs text-zinc-400">Shorten a new link</p>
               </div>
             </Link>
             <Link href="/urls" className="group flex items-center gap-3 rounded-lg border border-zinc-800/50 bg-zinc-900/30 px-4 py-3 transition-all hover:border-zinc-700/50 hover:bg-zinc-900/60">
@@ -174,7 +174,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <p className="text-sm font-medium">View URLs</p>
-                <p className="text-xs text-zinc-500">Browse all links</p>
+                <p className="text-xs text-zinc-400">Browse all links</p>
               </div>
             </Link>
             <Link href="/workspaces" className="group flex items-center gap-3 rounded-lg border border-zinc-800/50 bg-zinc-900/30 px-4 py-3 transition-all hover:border-zinc-700/50 hover:bg-zinc-900/60">
@@ -183,7 +183,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <p className="text-sm font-medium">Workspaces</p>
-                <p className="text-xs text-zinc-500">Manage teams</p>
+                <p className="text-xs text-zinc-400">Manage teams</p>
               </div>
             </Link>
           </CardContent>

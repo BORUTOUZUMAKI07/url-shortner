@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect } from "react"
+import { Suspense, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
@@ -32,10 +32,14 @@ function LoginForm() {
     }
   }
 
+  const processedRef = useRef(false)
+
   useEffect(() => {
+    if (processedRef.current) return
     const accessToken = searchParams.get("access_token")
     const refreshToken = searchParams.get("refresh_token")
     if (accessToken) {
+      processedRef.current = true
       localStorage.setItem("access_token", accessToken)
       setTokenCookie(accessToken)
       if (refreshToken) {
@@ -43,6 +47,7 @@ function LoginForm() {
         setRefreshTokenCookie(refreshToken)
       }
       auth.me().then(setUser).then(redirectAfterLogin)
+      return
     }
     const inviteToken = searchParams.get("invite_token")
     if (inviteToken) {
@@ -85,7 +90,7 @@ function LoginForm() {
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="relative z-10 w-full max-w-sm">
         <div className="mb-6 text-center">
           <Link href="/" className="inline-block text-2xl font-bold text-white hover:opacity-80 transition-opacity">LinkForge</Link>
-          <p className="mt-1 text-sm text-zinc-500">Sign in to your account</p>
+          <p className="mt-1 text-sm text-zinc-400">Sign in to your account</p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="glass mb-4 space-y-4 rounded-xl p-8 shadow-2xl">
@@ -99,13 +104,13 @@ function LoginForm() {
 
           <div>
             <input type="email" placeholder="Email" {...register("email")}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2.5 text-sm text-white placeholder-zinc-500 transition-colors focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2.5 text-sm text-white placeholder-zinc-400 transition-colors focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
             {errors.email && <p className="mt-1 text-xs text-red-400">{errors.email.message}</p>}
           </div>
 
           <div>
             <input type="password" placeholder="Password" {...register("password")}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2.5 text-sm text-white placeholder-zinc-500 transition-colors focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2.5 text-sm text-white placeholder-zinc-400 transition-colors focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
             {errors.password && <p className="mt-1 text-xs text-red-400">{errors.password.message}</p>}
           </div>
 
@@ -122,7 +127,7 @@ function LoginForm() {
         <div className="glass rounded-xl p-8 shadow-2xl">
           <div className="relative mb-6">
             <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-zinc-800" /></div>
-            <div className="relative flex justify-center text-xs"><span className="bg-zinc-900 px-2 text-zinc-500">Or continue with</span></div>
+            <div className="relative flex justify-center text-xs"><span className="bg-zinc-900 px-2 text-zinc-400">Or continue with</span></div>
           </div>
           <div className="grid gap-3">
             <button onClick={() => handleOAuth("google")} className="group flex items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-white px-4 py-2.5 text-sm font-medium text-zinc-900 transition-all hover:bg-zinc-100 hover:shadow-lg">
@@ -136,11 +141,11 @@ function LoginForm() {
           </div>
         </div>
 
-        <p className="mt-6 text-center text-xs text-zinc-600">
+        <p className="mt-6 text-center text-xs text-zinc-500">
           By continuing, you agree to our{" "}
-          <span className="cursor-default hover:text-zinc-400 transition-colors">Terms of Service</span>{" "}
+          <span className="cursor-default hover:text-zinc-300 transition-colors">Terms of Service</span>{" "}
           and{" "}
-          <span className="cursor-default hover:text-zinc-400 transition-colors">Privacy Policy</span>
+          <span className="cursor-default hover:text-zinc-300 transition-colors">Privacy Policy</span>
         </p>
       </motion.div>
     </div>
