@@ -54,15 +54,17 @@ export default function Home() {
               Start Free
             </Link>
             <Link
-              href="/login"
+              href="#features"
               className="flex h-12 w-40 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-900 text-sm font-medium text-zinc-300 hover:bg-zinc-800 transition-colors"
+              scroll={false}
+              onClick={(e) => { e.preventDefault(); document.getElementById("features")?.scrollIntoView({ behavior: "smooth" }) }}
             >
               Learn More
             </Link>
           </div>
         </section>
 
-        <section className="px-6 pb-24">
+        <section id="features" className="px-6 pb-24">
           <div className="mx-auto max-w-6xl">
             <h2 className="mb-12 text-center text-3xl font-bold text-white">Everything you need</h2>
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
