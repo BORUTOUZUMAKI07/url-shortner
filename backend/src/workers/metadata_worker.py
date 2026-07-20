@@ -47,6 +47,9 @@ async def extract_metadata(url: str, logger) -> dict[str, str | None]:
 
 async def consume_url_created():
     setup_logging()
+    from src.core.tracing import init_metrics, init_tracing
+    init_tracing()
+    init_metrics()
     logger = get_logger("metadata-worker")
 
     kwargs = {

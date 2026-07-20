@@ -41,6 +41,9 @@ async def run_cleanup(logger, db):
 
 async def start_worker():
     setup_logging()
+    from src.core.tracing import init_metrics, init_tracing
+    init_tracing()
+    init_metrics()
     logger = get_logger("cleanup-worker")
     logger.info("Cleanup Worker started")
     interval = 45

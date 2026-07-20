@@ -119,21 +119,13 @@ class TestSettingsOverrides:
         assert s.UPSTASH_REDIS_REST_URL == "https://us1-wonder-123.upstash.io"
         assert s.UPSTASH_REDIS_REST_TOKEN == "token123"
 
-    def test_loki_config(self):
-        s = Settings(LOKI_URL="https://custom-loki.example.com", _env_file=None)
-        assert s.LOKI_URL == "https://custom-loki.example.com"
-
     def test_otel_config(self):
         s = Settings(OTEL_EXPORTER_OTLP_ENDPOINT="http://otel-collector:4318", _env_file=None)
         assert s.OTEL_EXPORTER_OTLP_ENDPOINT == "http://otel-collector:4318"
 
-    def test_jaeger_disabled_by_default(self):
+    def test_otlp_enabled_by_default(self):
         s = Settings(_env_file=None)
-        assert s.JAEGER_ENABLED is False
-
-    def test_prometheus_enabled_by_default(self):
-        s = Settings(_env_file=None)
-        assert s.PROMETHEUS_ENABLED is True
+        assert s.OTLP_ENABLED is True
 
     def test_settings_model_config(self):
         s = Settings(_env_file=None)
@@ -178,10 +170,6 @@ class TestSettingsEdgeCases:
     def test_schema_registry_url_default_none(self):
         s = Settings(_env_file=None)
         assert s.SCHEMA_REGISTRY_URL is None
-
-    def test_loki_password_default_none(self):
-        s = Settings(_env_file=None)
-        assert s.LOKI_PASSWORD is None
 
     def test_environment_default(self):
         s = Settings(_env_file=None)

@@ -35,6 +35,9 @@ async def scan_and_expire_urls(logger):
 
 async def start_worker():
     setup_logging()
+    from src.core.tracing import init_metrics, init_tracing
+    init_tracing()
+    init_metrics()
     logger = get_logger("expiry-worker")
     logger.info("Expiry Worker started")
     interval = 30

@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  PYTHON_VERSION: "3.12"
+  PYTHON_VERSION: "3.13"
   NODE_VERSION: "22"
   REGISTRY: ghcr.io
 
@@ -122,7 +122,7 @@ jobs:
           path: /tmp/test_output.log
       - uses: codecov/codecov-action@v5
         with:
-          file: ./backend/coverage.xml
+          files: ./backend/coverage.xml
           flags: backend
           token: ${{ secrets.CODECOV_TOKEN }}
 

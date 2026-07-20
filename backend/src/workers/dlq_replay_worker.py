@@ -31,6 +31,9 @@ async def handle_dlq_message(msg, consumer, logger):
 
 async def consume_dlq_replay():
     setup_logging()
+    from src.core.tracing import init_metrics, init_tracing
+    init_tracing()
+    init_metrics()
     logger = get_logger("dlq-replay-worker")
 
     await init_kafka()

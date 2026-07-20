@@ -6,7 +6,7 @@ from aiokafka import AIOKafkaProducer
 from src.core.config import settings
 from src.events.schemas import serialize
 from src.log_utils import get_logger
-from src.workers._sni_patch import SNIAwareSSLContext, _extract_hostname
+from src.workers._sni_patch import _make_sni_context
 
 logger = get_logger(__name__)
 
@@ -26,11 +26,9 @@ async def init_kafka():
         kwargs["sasl_plain_username"] = settings.KAFKA_SASL_USERNAME
         kwargs["sasl_plain_password"] = settings.KAFKA_SASL_PASSWORD  # type: ignore[assignment]
     if settings.KAFKA_SSL_CA_PATH:
-        sni_hostname = _extract_hostname(settings.KAFKA_BOOTSTRAP_SERVERS)
-        context = SNIAwareSSLContext(sni_hostname=sni_hostname)
-        context.load_verify_locations(cafile=settings.KAFKA_SSL_CA_PATH)
-        context.check_hostname = False
-        kwargs["ssl_context"] = context  # type: ignore[assignment]
+        kwargs["ssl_context"] = _make_sni_context(
+            settings.KAFKA_BOOTSTRAP_SERVERS, settings.KAFKA_SSL_CA_PATH,
+        )
     for attempt, delay in enumerate(_RETRY_DELAYS):
         try:
             producer = AIOKafkaProducer(**kwargs)
@@ -70,9 +68,32 @@ async def publish_event(topic: str, value: dict, key: Optional[str] = None):
     asyncio.create_task(_send_background(topic, payload, encoded_key))
 
 
+async def _send_and_stop(topic: str, value: bytes, key: Optional[bytes] = None):
+    """Create a temporary producer, send one message, and stop."""
+    kwargs = {
+        "bootstrap_servers": settings.KAFKA_BOOTSTRAP_SERVERS,
+        "security_protocol": settings.KAFKA_SECURITY_PROTOCOL,
+    }
+    if settings.KAFKA_SASL_USERNAME:
+        kwargs["sasl_mechanism"] = settings.KAFKA_SASL_MECHANISM
+        kwargs["sasl_plain_username"] = settings.KAFKA_SASL_USERNAME
+        kwargs["sasl_plain_password"] = settings.KAFKA_SASL_PASSWORD
+    if settings.KAFKA_SSL_CA_PATH:
+        kwargs["ssl_context"] = _make_sni_context(
+            settings.KAFKA_BOOTSTRAP_SERVERS, settings.KAFKA_SSL_CA_PATH,
+        )
+    try:
+        p = AIOKafkaProducer(**kwargs)
+        await p.start()
+        await p.send_and_wait(topic, value=value, key=key)
+        await p.stop()
+    except Exception as e:
+        logger.error("Failed to publish raw event to %s: %s", topic, e)
+
+
 async def publish_raw(topic: str, value: bytes, key: Optional[bytes] = None):
     global producer
-    if not producer:
-        logger.warning("Kafka producer not available — dropping raw event to %s", topic)
-        return
-    asyncio.create_task(_send_background(topic, value, key))
+    if producer:
+        asyncio.create_task(_send_background(topic, value, key))
+    else:
+        asyncio.create_task(_send_and_stop(topic, value, key))

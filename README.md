@@ -7,7 +7,7 @@ Full-stack URL shortening platform with multi-tenant workspaces, click analytics
 | Layer | Technology |
 |---|---|
 | **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS 4, shadcn/ui |
-| **Backend** | Python 3.12, FastAPI, SQLAlchemy 2, Alembic |
+| **Backend** | Python 3.13, FastAPI, SQLAlchemy 2, Alembic |
 | **Databases** | PostgreSQL 16, MongoDB 7, Redis 7 |
 | **Event Bus** | Apache Kafka, Avro schemas, Karapace Schema Registry |
 | **Workers** | 8 background workers (analytics, metadata, aggregation, expiry, cleanup, webhooks, DLQ replay) |
@@ -70,4 +70,4 @@ npm run dev                           # http://localhost:3000
 
 ## Deployment
 
-The project is configured for Render.com (see `backend/render.yaml`) and GitHub Container Registry. CI publishes Docker images to `ghcr.io` on version tags.
+The project is configured for Koyeb and GitHub Container Registry. CI publishes Docker images to `ghcr.io` on version tags.

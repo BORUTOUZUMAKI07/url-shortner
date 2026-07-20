@@ -30,7 +30,7 @@ from src.core.config import settings
 from src.core.database import check_db_health, engine, init_db
 from src.core.mongodb import init_mongodb
 from src.core.redis import init_redis, redis_client
-from src.core.tracing import init_metrics, init_tracing, instrument_fastapi, instrument_sqlalchemy
+from src.core.tracing import init_metrics, init_tracing, instrument_fastapi, instrument_redis, instrument_sqlalchemy
 from src.errors.base import AppError
 from src.events.kafka import close_kafka, init_kafka
 from src.log_utils import get_logger, setup_logging
@@ -154,6 +154,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Tracing/metrics init failed: %s", e)
 
+    try:
+        instrument_fastapi(app)
+        instrument_sqlalchemy(engine)
+    except Exception as e:
+        logger.warning("FastAPI/SQLAlchemy instrumentation failed: %s", e)
+
     # Initialize databases
     try:
         await init_db()
@@ -164,6 +170,7 @@ async def lifespan(app: FastAPI):
     try:
         await init_redis()
         logger.info("Redis (Upstash) connected successfully.")
+        instrument_redis(redis_client)
     except Exception as e:
         logger.warning("Redis connection failed: %s", e)
 
@@ -211,9 +218,6 @@ app = create_app(lifespan_override=lifespan)
 
 
 if __name__ == "__main__":
-    instrument_fastapi(app)
-    instrument_sqlalchemy(engine)
-
     # Determine port from settings (default 8000)
     port = int(settings.PORT) if hasattr(settings, "PORT") else 8000
 

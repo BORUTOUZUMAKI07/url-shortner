@@ -1,4 +1,4 @@
-FROM python:3.12-slim AS builder
+FROM python:3.13-slim AS builder
 
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends python3-venv && rm -rf /var/lib/apt/lists/*
@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir --upgrade pip hatchling build wheel
 COPY . .
 RUN python -m build --wheel
 
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 RUN addgroup --system --gid 1001 app \
@@ -18,5 +18,5 @@ USER app
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://0.0.0.0:8000/health',timeout=3).status==200 else 1)" || exit 1
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+  CMD python -c "import urllib.request, os, sys; port = os.environ.get('PORT', '8000'); sys.exit(0 if urllib.request.urlopen(f'http://0.0.0.0:{port}/health',timeout=3).status==200 else 1)" || exit 1
+CMD uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}

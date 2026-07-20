@@ -92,6 +92,9 @@ async def _move_to_dlq(db, event, error: str):
 
 async def start_worker():
     setup_logging()
+    from src.core.tracing import init_metrics, init_tracing
+    init_tracing()
+    init_metrics()
     logger = get_logger("webhook-retry-worker")
     logger.info("Webhook Retry Worker started (max_retries=%d, base_delay=%ds)", MAX_RETRIES, BASE_DELAY)
     loop = asyncio.get_event_loop()

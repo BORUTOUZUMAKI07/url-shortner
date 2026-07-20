@@ -1,6 +1,8 @@
+import os
+import tempfile
 from typing import Optional
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -65,6 +67,7 @@ class Settings(BaseSettings):
     KAFKA_SASL_USERNAME: Optional[str] = None
     KAFKA_SASL_PASSWORD: Optional[str] = None
     KAFKA_SSL_CA_PATH: Optional[str] = None
+    KAFKA_SSL_CA: Optional[str] = None
     SCHEMA_REGISTRY_URL: Optional[str] = None
 
     KAFKA_SECURITY_PROTOCOL: str = "PLAINTEXT"
@@ -84,6 +87,16 @@ class Settings(BaseSettings):
         if v and v != "GSSAPI":
             return v
         return "PLAIN" if info.data.get("KAFKA_SASL_USERNAME") else "GSSAPI"
+
+    @model_validator(mode="after")
+    def write_ca_cert(self):
+        ca_content = self.KAFKA_SSL_CA
+        if ca_content and not self.KAFKA_SSL_CA_PATH:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pem", prefix="kafka-ca-")
+            tmp.write(ca_content.encode() if isinstance(ca_content, str) else ca_content)
+            tmp.close()
+            object.__setattr__(self, "KAFKA_SSL_CA_PATH", tmp.name)
+        return self
 
     # --- SMTP (Email) ---
     SMTP_HOST: str = ""
@@ -110,21 +123,11 @@ class Settings(BaseSettings):
     GITHUB_OAUTH_CLIENT_SECRET: Optional[str] = None
     GITHUB_OAUTH_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/oauth/github/callback"
 
-    # --- Observability (OpenTelemetry, Prometheus, Loki, Tempo) ---
+    # --- Observability (OpenTelemetry OTLP) ---
     ENVIRONMENT: str = "production"
-    JAEGER_ENABLED: bool = False
-    JAEGER_HOST: str = "localhost"
-    JAEGER_PORT: int = 6831
-    PROMETHEUS_ENABLED: bool = True
-    LOKI_ENABLED: bool = True
-    LOKI_URL: str = "https://logs-prod-028.grafana.net/loki/api/v1/push"
-    LOKI_USERNAME: str = "1683438"
-    LOKI_PASSWORD: Optional[str] = None
-    OTEL_TRACES_EXPORTER: str = "otlp"
-    OTEL_METRICS_EXPORTER: str = "prometheus"
+    OTLP_ENABLED: bool = True
     OTEL_EXPORTER_OTLP_ENDPOINT: Optional[str] = None
     OTEL_EXPORTER_OTLP_HEADERS: Optional[str] = None
-    PROMETHEUS_REMOTE_WRITE_URL: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

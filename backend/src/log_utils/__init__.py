@@ -1,12 +1,12 @@
 """
 Structured logging setup with JSON format and correlation ID support.
-Integrates with Loki for centralized log aggregation.
+Exports logs via OTLP to New Relic.
 """
 
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -29,7 +29,7 @@ class CorrelationIdFilter(logging.Filter):
 class JSONFormatter(jsonlogger.JsonFormatter):
     def add_fields(self, log_record, record, message_dict):
         super().add_fields(log_record, record, message_dict)
-        log_record['timestamp'] = datetime.now(timezone.utc).isoformat() + "Z"
+        log_record['timestamp'] = datetime.now(timezone(timedelta(hours=5, minutes=30))).isoformat()
         log_record['service'] = settings.PROJECT_NAME
         log_record['environment'] = settings.ENVIRONMENT
         log_record['version'] = "1.0.0"
@@ -71,16 +71,38 @@ def setup_logging(correlation_id: Optional[str] = None):
     file_handler.addFilter(correlation_filter)
     logger.addHandler(file_handler)
 
-    if settings.LOKI_ENABLED and settings.LOKI_URL:
+    if settings.OTLP_ENABLED and settings.OTEL_EXPORTER_OTLP_ENDPOINT:
+        os.environ.setdefault("OTEL_SEMCONV_STABILITY_OPT_IN", "http/dup")
         try:
-            from src.log_utils.loki_handler import BatchedLokiHandler
-            loki_handler = BatchedLokiHandler(batch_size=10, flush_interval=5.0)
-            loki_handler.setLevel(logging.INFO)
-            loki_handler.setFormatter(formatter)
-            loki_handler.addFilter(correlation_filter)
-            logger.addHandler(loki_handler)
+            from opentelemetry.sdk._logs import LoggingHandler as OTLPLoggingHandler
+            from opentelemetry.sdk._logs import LoggerProvider as OTLPLoggerProvider
+            from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+            from opentelemetry.sdk.resources import Resource
+            from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+
+            headers = {}
+            if settings.OTEL_EXPORTER_OTLP_HEADERS:
+                for pair in settings.OTEL_EXPORTER_OTLP_HEADERS.split(","):
+                    if "=" in pair:
+                        k, v = pair.split("=", 1)
+                        headers[k.strip()] = v.strip()
+
+            otlp_log_exporter = OTLPLogExporter(
+                endpoint=f"{settings.OTEL_EXPORTER_OTLP_ENDPOINT}/v1/logs",
+                headers=headers,
+                timeout=10,
+            )
+            log_resource = Resource.create({
+                "service.name": settings.PROJECT_NAME or "url-shortener",
+                "service.version": "1.0.0",
+                "environment": settings.ENVIRONMENT,
+            })
+            log_provider = OTLPLoggerProvider(resource=log_resource)
+            log_provider.add_log_record_processor(BatchLogRecordProcessor(otlp_log_exporter))
+            otlp_handler = OTLPLoggingHandler(logger_provider=log_provider, level=logging.INFO)
+            logger.addHandler(otlp_handler)
         except Exception as e:
-            logger.warning("Loki handler not available: %s", e)
+            logger.warning("OTLP log handler not available: %s", e)
 
     logger.addFilter(correlation_filter)
     return logger

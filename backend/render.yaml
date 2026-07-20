@@ -23,26 +23,20 @@ services:
         sync: false
       - key: KAFKA_SSL_CA_PATH
         value: ./ca.pem
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASSWORD
-        sync: false
-      - key: FROM_EMAIL
-        sync: false
-      - key: FROM_NAME
-        value: LinkForge
-      - key: FRONTEND_URL
+      - key: SCHEMA_REGISTRY_URL
         sync: false
       - key: SECRET_KEY
         sync: false
-      - key: ALGORITHM
-        value: HS256
-      - key: ACCESS_TOKEN_EXPIRE_MINUTES
-        value: "60"
+      - key: ENVIRONMENT
+        value: production
+      - key: FRONTEND_URL
+        sync: false
+      - key: BACKEND_URL
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_HEADERS
+        sync: false
       - key: GOOGLE_OAUTH_CLIENT_ID
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_SECRET
@@ -55,117 +49,3 @@ services:
         sync: false
       - key: GITHUB_OAUTH_REDIRECT_URI
         sync: false
-      - key: ENVIRONMENT
-        value: production
-      - key: LOKI_URL
-        value: https://logs-prod-028.grafana.net/loki/api/v1/push
-      - key: LOKI_USERNAME
-        value: "1641225"
-      - key: LOKI_PASSWORD
-        sync: false
-      - key: OTEL_EXPORTER_OTLP_ENDPOINT
-        value: https://otlp-gateway-prod-ap-south-1.grafana.net/otlp
-      - key: OTEL_EXPORTER_OTLP_HEADERS
-        sync: false
-      - key: PROMETHEUS_REMOTE_WRITE_URL
-        value: https://prometheus-prod-43-prod-ap-south-1.grafana.net/api/prom/push
-      - key: PROMETHEUS_API_TOKEN
-        sync: false
-
-  - type: worker
-    name: linkforge-analytics-worker
-    runtime: python
-    region: oregon
-    plan: free
-    buildCommand: pip install uv && uv sync --no-dev
-    startCommand: python -m src.workers.analytics_worker
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-      - key: MONGODB_URI
-        sync: false
-      - key: MONGODB_DB
-        value: linkforge_analytics
-      - key: KAFKA_BOOTSTRAP_SERVERS
-        sync: false
-      - key: KAFKA_SASL_USERNAME
-        sync: false
-      - key: KAFKA_SASL_PASSWORD
-        sync: false
-      - key: KAFKA_SSL_CA_PATH
-        value: ./ca.pem
-      - key: ENVIRONMENT
-        value: production
-
-  - type: worker
-    name: linkforge-aggregation-worker
-    runtime: python
-    region: oregon
-    plan: free
-    buildCommand: pip install uv && uv sync --no-dev
-    startCommand: python -m src.workers.aggregation_worker
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-      - key: MONGODB_URI
-        sync: false
-      - key: MONGODB_DB
-        value: linkforge_analytics
-      - key: KAFKA_BOOTSTRAP_SERVERS
-        sync: false
-      - key: KAFKA_SASL_USERNAME
-        sync: false
-      - key: KAFKA_SASL_PASSWORD
-        sync: false
-      - key: KAFKA_SSL_CA_PATH
-        value: ./ca.pem
-      - key: ENVIRONMENT
-        value: production
-
-  - type: worker
-    name: linkforge-expiry-worker
-    runtime: python
-    region: oregon
-    plan: free
-    buildCommand: pip install uv && uv sync --no-dev
-    startCommand: python -m src.workers.expiry_worker
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: KAFKA_BOOTSTRAP_SERVERS
-        sync: false
-      - key: KAFKA_SASL_USERNAME
-        sync: false
-      - key: KAFKA_SASL_PASSWORD
-        sync: false
-      - key: KAFKA_SSL_CA_PATH
-        value: ./ca.pem
-      - key: ENVIRONMENT
-        value: production
-
-  - type: worker
-    name: linkforge-cleanup-worker
-    runtime: python
-    region: oregon
-    plan: free
-    buildCommand: pip install uv && uv sync --no-dev
-    startCommand: python -m src.workers.cleanup_worker
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-      - key: MONGODB_URI
-        sync: false
-      - key: MONGODB_DB
-        value: linkforge_analytics
-      - key: KAFKA_BOOTSTRAP_SERVERS
-        sync: false
-      - key: KAFKA_SASL_USERNAME
-        sync: false
-      - key: KAFKA_SASL_PASSWORD
-        sync: false
-      - key: KAFKA_SSL_CA_PATH
-        value: ./ca.pem
-      - key: ENVIRONMENT
-        value: production

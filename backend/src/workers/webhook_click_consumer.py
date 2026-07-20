@@ -21,6 +21,9 @@ from src.workers.kafka_consumer_pool import KafkaConnectionPool
 
 async def consume_url_clicked_webhooks():
     setup_logging()
+    from src.core.tracing import init_metrics, init_tracing
+    init_tracing()
+    init_metrics()
     logger = get_logger("webhook-click-consumer")
 
     kwargs = {

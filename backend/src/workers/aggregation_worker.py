@@ -63,6 +63,9 @@ async def run_aggregation_rollup(logger):
 
 async def start_worker():
     setup_logging()
+    from src.core.tracing import init_metrics, init_tracing
+    init_tracing()
+    init_metrics()
     logger = get_logger("aggregation-worker")
     logger.info("Aggregation Worker started")
     try:

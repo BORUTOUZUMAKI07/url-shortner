@@ -42,11 +42,9 @@ dependencies = [
     "opentelemetry-api>=1.25.0",
     "opentelemetry-sdk>=1.25.0",
     "opentelemetry-exporter-otlp-proto-http>=1.25.0",
-    "opentelemetry-exporter-prometheus>=0.46b0",
     "opentelemetry-instrumentation-fastapi>=0.46b0",
     "opentelemetry-instrumentation-sqlalchemy>=0.46b0",
     "opentelemetry-instrumentation-redis>=0.46b0",
-    "prometheus-client>=0.21.0",
     "python-json-logger>=2.0.7",
 ]
 
@@ -89,7 +87,7 @@ select = ["E", "F", "I", "N", "W"]
 ignore = ["E501", "E712"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 warn_unused_ignores = false
 strict = false
 check_untyped_defs = true

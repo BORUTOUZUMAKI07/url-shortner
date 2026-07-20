@@ -18,6 +18,9 @@ from src.workers.kafka_consumer_pool import KafkaConnectionPool
 
 async def consume_url_clicked_events():
     setup_logging()
+    from src.core.tracing import init_metrics, init_tracing
+    init_tracing()
+    init_metrics()
     logger = get_logger("analytics-worker")
 
     kwargs = {
@@ -86,9 +89,9 @@ async def process_event(event_data: dict, logger):
 
     click_kwargs = dict(
         short_code=event_data["short_code"],
-        original_url=event_data["original_url"],
-        workspace_id=event_data["workspace_id"],
-        ip_address=event_data["ip_address"],
+        original_url=event_data.get("original_url", ""),
+        workspace_id=event_data.get("workspace_id"),
+        ip_address=event_data.get("ip_address"),
         user_agent=ua_string,
         referer=event_data.get("referer"),
         browser=browser, os=os, device=device,
@@ -97,7 +100,7 @@ async def process_event(event_data: dict, logger):
         utm_source=event_data.get("utm_source"),
         utm_medium=event_data.get("utm_medium"),
         utm_campaign=event_data.get("utm_campaign"),
-        clicked_at=datetime.fromisoformat(event_data["clicked_at"]),
+        clicked_at=datetime.fromisoformat(event_data["clicked_at"]) if "clicked_at" in event_data else datetime.utcnow(),
     )
     event_id = event_data.get("event_id")
     if event_id:

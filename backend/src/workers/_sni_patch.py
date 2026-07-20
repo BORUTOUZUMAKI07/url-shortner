@@ -1,34 +1,6 @@
 import logging
 import ssl
-from typing import Optional, Union
-
-
-class SNIAwareSSLContext(ssl.SSLContext):
-    """SSLContext subclass that injects ``server_hostname`` into every
-    ``wrap_socket`` call so that TLS handshakes include the correct SNI
-    extension.
-
-    aiokafka's internal connection machinery calls ``wrap_socket`` without
-    *server_hostname* when the broker address is an IP instead of a DNS name.
-    Some Kafka providers (e.g. Aiven) rely on SNI for TLS routing, so we
-    always pass the original bootstrap hostname through this subclass.
-    """
-
-    def __init__(self, protocol: int = ssl.PROTOCOL_TLS_CLIENT, *, sni_hostname: Optional[str] = None) -> None:
-        super().__init__(protocol)  # type: ignore[call-arg]
-        self._sni_hostname = sni_hostname
-
-    def wrap_socket(self, sock, server_side: bool = False,
-                    do_handshake_on_connect: bool = True,
-                    suppress_ragged_eofs: bool = True,
-                    server_hostname: Optional[Union[str, bytes]] = None,
-                    session: Optional[ssl.SSLSession] = None):
-        if server_hostname is None and self._sni_hostname:
-            server_hostname = self._sni_hostname
-        return super().wrap_socket(
-            sock, server_side, do_handshake_on_connect,
-            suppress_ragged_eofs, server_hostname, session,
-        )
+from typing import Optional
 
 
 def _extract_hostname(bootstrap_servers: str) -> Optional[str]:
@@ -37,21 +9,40 @@ def _extract_hostname(bootstrap_servers: str) -> Optional[str]:
 
 
 def _make_sni_context(bootstrap_servers: str, cafile: str) -> ssl.SSLContext:
-    """Build an SSL context that sends the correct SNI hostname.
+    """Build an SSL context for Aiven Kafka.
 
-    Replaces the old pattern of ``ssl.create_default_context()`` +
-    ``apply_sni_patch()`` with a single ``SNIAwareSSLContext``.
+    Uses ``ssl.create_default_context()`` (``PROTOCOL_TLS_CLIENT`` +
+    ``CERT_REQUIRED``).  Disables hostname verification because
+    aiokafka connects to individual brokers by IP.  Injects the
+    bootstrap hostname into ``wrap_socket`` when aiokafka connects
+    to a broker by IP without ``server_hostname`` — Aiven brokers
+    require a valid ``server_hostname`` to complete the TLS handshake.
     """
     sni_hostname = _extract_hostname(bootstrap_servers)
-    ctx: SNIAwareSSLContext = SNIAwareSSLContext(sni_hostname=sni_hostname)
-    ctx.load_verify_locations(cafile=cafile)
+    ctx = ssl.create_default_context(cafile=cafile)
     ctx.check_hostname = False
+
+    # Patch wrap_socket (used by direct calls)
+    _orig_wrap_socket = ctx.wrap_socket
+    def _wrap_socket(sock, server_side=False, do_handshake_on_connect=True,
+                     suppress_ragged_eofs=True, server_hostname=None, session=None):
+        return _orig_wrap_socket(sock, server_side, do_handshake_on_connect,
+                                 suppress_ragged_eofs, sni_hostname, session)
+    ctx.wrap_socket = _wrap_socket
+
+    # Patch wrap_bio (used by asyncio on Python 3.13+ / ProactorEventLoop)
+    _orig_wrap_bio = ctx.wrap_bio
+    def _wrap_bio(incoming, outgoing, server_side=False,
+                  server_hostname=None, session=None):
+        return _orig_wrap_bio(incoming, outgoing, server_side,
+                              sni_hostname, session)
+    ctx.wrap_bio = _wrap_bio
+
     return ctx
 
 
 # ---------------------------------------------------------------------------
-# Backward-compatible no-op — the SNI is now handled by SNIAwareSSLContext
-# directly, so calling apply_sni_patch is no longer necessary.
+# Backward-compatible no-op.
 # ---------------------------------------------------------------------------
 _PATCHED = False
 
@@ -62,5 +53,5 @@ def apply_sni_patch(bootstrap_hostname: Optional[str] = None) -> None:
         return
     _PATCHED = True
     log = logging.getLogger(__name__)
-    log.info("SNI patch is no longer required — SNIAwareSSLContext handles TLS.")
+    log.info("SNI patch is not required for this Aiven cluster.")
     return

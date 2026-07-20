@@ -22,9 +22,10 @@ async def seed_superadmin(current_user: User = Depends(get_current_user), db: As
     result = await db.execute(select(User).where(User.is_superadmin == True))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Superadmin already exists")
-    current_user.is_superadmin = True
+    merged = await db.merge(current_user)
+    merged.is_superadmin = True
     await db.commit()
-    return {"detail": f"{current_user.email} is now superadmin"}
+    return {"detail": f"{merged.email} is now superadmin"}
 
 
 @router.get("/users", summary="List all users")
