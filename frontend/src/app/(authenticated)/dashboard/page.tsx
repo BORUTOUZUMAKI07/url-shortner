@@ -123,7 +123,7 @@ export default function DashboardPage() {
             ) : (
               <div className="space-y-1">
                 {urlList.slice(0, 5).map((url) => (
-                  <div key={url.id} className="group flex items-center justify-between rounded-md border-l-2 border-transparent px-3 py-2.5 transition-colors hover:border-l-blue-500/50 hover:bg-zinc-900/50">
+                  <div key={url.id} className="group flex items-center justify-between rounded-md border-l-2 border-transparent px-3 py-2.5 transition-colors hover:border-l-blue-500/50">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <a href={`/${url.short_code}`} target="_blank" className="text-sm font-medium text-zinc-100 hover:text-blue-400 transition-colors">
@@ -157,21 +157,21 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-semibold">Quick Actions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
-            <Link href="/urls/new" className="flex items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-zinc-900/50">
+            <Link href="/urls/new" className="flex items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-zinc-800/30">
               <Plus className="size-4 text-zinc-400" />
               <div>
                 <p className="text-sm font-medium">Create URL</p>
                 <p className="text-xs text-zinc-500">Shorten a new link</p>
               </div>
             </Link>
-            <Link href="/urls" className="flex items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-zinc-900/50">
+            <Link href="/urls" className="flex items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-zinc-800/30">
               <Link2 className="size-4 text-zinc-400" />
               <div>
                 <p className="text-sm font-medium">View URLs</p>
                 <p className="text-xs text-zinc-500">Browse all links</p>
               </div>
             </Link>
-            <Link href="/workspaces" className="flex items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-zinc-900/50">
+            <Link href="/workspaces" className="flex items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-zinc-800/30">
               <Activity className="size-4 text-zinc-400" />
               <div>
                 <p className="text-sm font-medium">Workspaces</p>

@@ -61,7 +61,7 @@ export default function URLsPage() {
         </Link>
       </div>
 
-      <div className="mb-4 rounded-lg border border-zinc-800/50 bg-zinc-900/30 p-3">
+      <div className="mb-4 rounded-lg border border-zinc-800/50 p-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500" />
@@ -69,7 +69,7 @@ export default function URLsPage() {
               placeholder="Search by original URL or short code..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="border-zinc-700/50 bg-zinc-800/50 pl-9 text-sm placeholder:text-zinc-500 focus:border-zinc-600"
+              className="border-zinc-700/50 pl-9 text-sm placeholder:text-zinc-500 focus:border-zinc-600"
             />
           </div>
           <div className="flex flex-wrap gap-2">
