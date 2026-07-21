@@ -63,7 +63,7 @@ export default function BillingPage() {
         <ArrowLeft className="size-4" /> Back
       </button>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">Billing & Plans</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Billing & Plans</h1>
         <p className="text-sm text-muted-foreground">Your current plan: <Badge variant="success" className="capitalize">{user.plan}</Badge></p>
       </div>
 

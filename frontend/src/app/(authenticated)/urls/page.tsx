@@ -154,18 +154,18 @@ export default function URLsPage() {
                       <a href={`/${url.short_code}`} target="_blank" className="text-sm font-medium text-zinc-100 hover:text-blue-400 transition-colors">
                         {url.short_code} <ExternalLink className="inline size-3" />
                       </a>
-                      <Badge variant={url.status === "active" ? "success" : "secondary"} className="text-[10px] px-1.5 py-0">
+                      <Badge variant={url.status === "active" ? "success" : "secondary"} className="text-xs px-1.5 py-0">
                         {url.status === "active" ? "Live" : url.status}
                       </Badge>
                       {url.is_one_time && (
-                        <Badge variant="warning" className="text-[10px] px-1.5 py-0">One-time</Badge>
+                        <Badge variant="warning" className="text-xs px-1.5 py-0">One-time</Badge>
                       )}
                     </div>
                     <p className="mt-0.5 truncate text-xs text-zinc-500">{url.original_url}</p>
                     {url.tags && url.tags.length > 0 && (
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         {url.tags.map((t) => (
-                          <span key={t} className="inline-flex items-center gap-1 rounded-md bg-zinc-800/50 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                          <span key={t} className="inline-flex items-center gap-1 rounded-md bg-zinc-800/50 px-1.5 py-0.5 text-xs text-zinc-400">
                             <Tags className="size-2.5" /> {t}
                           </span>
                         ))}

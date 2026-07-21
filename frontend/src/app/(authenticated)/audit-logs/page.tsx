@@ -60,7 +60,7 @@ export default function AuditLogsPage() {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">Audit Logs</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Audit Logs</h1>
         <p className="text-sm text-muted-foreground">Track all events across your workspace.</p>
       </div>
 

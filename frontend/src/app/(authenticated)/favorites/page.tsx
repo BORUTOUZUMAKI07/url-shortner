@@ -57,7 +57,7 @@ export default function FavoritesPage() {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">Favorites</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Favorites</h1>
         <p className="text-sm text-muted-foreground">Your bookmarked URLs.</p>
       </div>
 

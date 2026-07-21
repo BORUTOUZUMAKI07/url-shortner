@@ -38,7 +38,7 @@ export default function ForgotPasswordPage() {
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-zinc-950 px-4">
       <BackgroundBeams className="opacity-40" />
       <div className="relative z-10 w-full max-w-sm space-y-4 rounded-xl border border-zinc-800 bg-zinc-900/80 p-8 shadow-2xl backdrop-blur-sm">
-        <h1 className="text-center text-2xl font-bold text-white">Forgot Password</h1>
+        <h1 className="text-center text-2xl font-bold tracking-tight text-white">Forgot Password</h1>
         {sent ? (
           <p className="text-center text-sm text-green-400">If that email exists, a reset link has been sent.</p>
         ) : (

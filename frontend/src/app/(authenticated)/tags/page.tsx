@@ -75,7 +75,7 @@ export default function TagsPage() {
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center gap-3">
-        <h1 className="text-2xl font-bold">Tags</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Tags</h1>
         <Select value={String(wsId ?? "")} onChange={(e) => setSelectedWsId(Number(e.target.value))} className="w-44">
           {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
         </Select>

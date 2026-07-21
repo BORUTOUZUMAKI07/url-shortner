@@ -163,7 +163,7 @@ export default function BulkPage() {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">Bulk Operations</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Bulk Operations</h1>
         <p className="text-sm text-muted-foreground">Create, manage, and export URLs in bulk.</p>
       </div>
 

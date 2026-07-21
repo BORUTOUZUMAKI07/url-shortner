@@ -73,7 +73,7 @@ export function Sidebar() {
       <nav className="flex-1 space-y-4 overflow-y-auto p-3 scrollbar-thin">
         {allSections.map((section) => (
           <div key={section.label}>
-            <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+            <div className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
               {section.label}
             </div>
             <div className="space-y-0.5">

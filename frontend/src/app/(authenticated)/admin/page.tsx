@@ -57,7 +57,7 @@ export default function AdminPage() {
     <div className="p-6">
       <div className="mb-6 flex items-center gap-2">
         <Shield className="size-6 text-purple-500" />
-        <h1 className="text-2xl font-bold">Admin Panel</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Admin Panel</h1>
         <Badge className="bg-purple-600 text-white">Superadmin</Badge>
       </div>
 

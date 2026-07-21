@@ -112,7 +112,7 @@ export default function AnalyticsPage() {
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold">Analytics</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Analytics</h1>
           <p className="text-sm text-muted-foreground break-all">/{url.short_code} — {url.original_url}</p>
         </div>
         <Select value={period} onChange={(e) => setPeriod(e.target.value)} className="w-full sm:w-32">

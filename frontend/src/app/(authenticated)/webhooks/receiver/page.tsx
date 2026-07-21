@@ -78,7 +78,7 @@ export default function WebhookReceiverPage() {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">Webhook Receiver</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Webhook Receiver</h1>
         <p className="text-sm text-muted-foreground">View webhook events delivered to your app in real time.</p>
       </div>
 

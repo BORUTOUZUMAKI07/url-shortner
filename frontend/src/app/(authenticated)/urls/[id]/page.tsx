@@ -165,7 +165,7 @@ export default function URLDetailPage() {
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold">URL Details</h1>
+          <h1 className="text-2xl font-bold tracking-tight">URL Details</h1>
           <p className="text-sm text-muted-foreground break-all">/{url.short_code}</p>
           <Badge variant={url.status === "active" ? "success" : "secondary"} className="capitalize">{url.status}</Badge>
           {url.is_one_time && <Badge variant="warning">One-time</Badge>}

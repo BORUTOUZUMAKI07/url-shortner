@@ -86,7 +86,7 @@ export default function WebhooksPage() {
     <div className="p-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Webhooks</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Webhooks</h1>
           <p className="text-sm text-muted-foreground">Receive real-time events about your URLs.</p>
         </div>
         <div className="flex flex-wrap gap-2">

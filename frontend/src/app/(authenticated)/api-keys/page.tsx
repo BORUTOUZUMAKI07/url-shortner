@@ -30,7 +30,7 @@ export default function ApiKeysPage() {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold">API Keys</h1>
+        <h1 className="text-2xl font-bold tracking-tight">API Keys</h1>
         <p className="text-sm text-muted-foreground">Manage API keys for programmatic access.</p>
       </div>
 

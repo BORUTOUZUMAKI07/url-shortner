@@ -34,7 +34,7 @@ function RegisterForm() {
         <BackgroundBeams className="opacity-30" />
         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="relative z-10 w-full max-w-sm glass rounded-xl p-8 shadow-2xl text-center">
           <CheckCircle className="mx-auto mb-4 size-12 text-green-400" />
-          <h1 className="text-2xl font-bold text-white mb-2">Account Created</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-white mb-2">Account Created</h1>
           <p className="text-zinc-400 mb-6">Check your email to verify your account, then sign in.</p>
           <Link href="/login" className="inline-block rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors">Sign In</Link>
         </motion.div>
@@ -55,7 +55,7 @@ function RegisterForm() {
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="glass mb-4 space-y-4 rounded-xl p-8 shadow-2xl">
-          <h1 className="text-center text-2xl font-bold text-white">Create Account</h1>
+          <h1 className="text-center text-2xl font-bold tracking-tight text-white">Create Account</h1>
 
           {errors.root && (
             <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-3">
