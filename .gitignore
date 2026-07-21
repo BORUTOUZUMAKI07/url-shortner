@@ -2,6 +2,11 @@
 .env
 backend/.env
 frontend/.env.local
+*.bak
+
+# Infrastructure-specific certs that change per deployment
+ca.pem
+backend/ca.pem
 
 # OS
 .DS_Store
@@ -23,6 +28,7 @@ backend/coverage.xml
 backend/.backend_pid
 
 # Logs
+logs/
 backend/logs/
 *.log
 
@@ -37,3 +43,7 @@ frontend/npm
 *.egg-info/
 dist/
 build/
+
+# Tooling artifacts
+.agents/
+.playwright-cli/

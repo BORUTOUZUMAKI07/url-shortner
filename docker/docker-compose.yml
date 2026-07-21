@@ -195,23 +195,6 @@ services:
       - mongodb
       - kafka
 
-  qr-worker:
-    build:
-      context: ../backend
-      dockerfile: Dockerfile
-    container_name: linkforge_qr_worker
-    command: python -m src.workers.qr_worker
-    environment:
-      - DATABASE_URL=postgresql://linkforge_user:linkforge_password@postgres:5432/linkforge_db
-      - REDIS_URL=redis://redis:6379
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - FRONTEND_URL=http://localhost:3001
-      - ENVIRONMENT=development
-    depends_on:
-      - postgres
-      - redis
-      - kafka
-
   webhook-retry-worker:
     build:
       context: ../backend
