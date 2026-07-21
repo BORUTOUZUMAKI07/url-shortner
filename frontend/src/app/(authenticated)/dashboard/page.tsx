@@ -10,7 +10,7 @@ import { StatsCardSkeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { useDashboard } from "@/hooks/useDashboard"
 import { useAuthStore } from "@/store/auth"
 import {
-  BarChart3, ExternalLink, Plus, Link2, Activity, Crown,
+  BarChart3, ExternalLink, Plus, Link2, Activity,
   AlertTriangle, ArrowRight,
 } from "lucide-react"
 
@@ -27,13 +27,11 @@ export default function DashboardPage() {
   const stats = [
     { title: "Total URLs", value: totalUrlsCount, icon: Link2, color: "blue" },
     { title: "Active", value: activeUrls.length, icon: Activity, color: "green" },
-    { title: "Plan", value: "Free", icon: Crown, color: "purple" },
   ]
 
   const colorMap: Record<string, { ring: string; text: string; bg: string }> = {
     blue: { ring: "ring-blue-500/20", text: "text-blue-400", bg: "bg-blue-500/10" },
     green: { ring: "ring-green-500/20", text: "text-green-400", bg: "bg-green-500/10" },
-    purple: { ring: "ring-purple-500/20", text: "text-purple-400", bg: "bg-purple-500/10" },
   }
 
   if (isLoading) {
@@ -72,7 +70,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2">
         {stats.map((s) => {
           const Icon = s.icon
           const c = colorMap[s.color]
