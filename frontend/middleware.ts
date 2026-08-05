@@ -38,7 +38,7 @@ export function middleware(request: NextRequest) {
       maxAge: 604800,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
-      httpOnly: false,
+      httpOnly: true,
     })
   }
 

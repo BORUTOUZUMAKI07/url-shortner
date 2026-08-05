@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 
@@ -31,24 +31,31 @@ async def register(payload: UserCreate, svc: AuthService = Depends(get_auth_serv
 @router.post("/login", response_model=Token,
     summary="Login",
     description="Authenticate with email and password to receive access and refresh tokens.")
-async def login(payload: UserLogin, svc: AuthService = Depends(get_auth_service)):
-    return await svc.login(payload.email, payload.password)
+async def login(response: Response, payload: UserLogin, svc: AuthService = Depends(get_auth_service)):
+    token = await svc.login(payload.email, payload.password)
+    _set_auth_cookies(response, token.access_token, token.refresh_token)
+    return token
 
 
 @router.post("/refresh", response_model=Token,
     summary="Refresh access token")
-async def refresh(payload: RefreshTokenRequest, svc: AuthService = Depends(get_auth_service)):
-    return await svc.refresh(payload.refresh_token)
+async def refresh(response: Response, payload: RefreshTokenRequest, svc: AuthService = Depends(get_auth_service)):
+    token = await svc.refresh(payload.refresh_token)
+    _set_auth_cookies(response, token.access_token, token.refresh_token)
+    return token
 
 
 @router.post("/logout",
     summary="Logout",
-    description="Blacklists the current access token so it can no longer be used.")
+    description="Blacklists the current access token and clears auth cookies.")
 async def logout(
+    response: Response,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     svc: AuthService = Depends(get_auth_service),
 ):
     await svc.logout(credentials.credentials)
+    response.delete_cookie(key="access_token", path="/")
+    response.delete_cookie(key="refresh_token", path="/")
     return {"detail": "Successfully logged out"}
 
 
@@ -100,3 +107,26 @@ async def oauth_callback(provider: str, code: str, state: str, svc: AuthService 
     tokens = await svc.oauth_callback(provider, code, state)
     redirect_url = f"{settings.FRONTEND_URL}/login?access_token={tokens.access_token}&refresh_token={tokens.refresh_token}"
     return RedirectResponse(url=redirect_url, status_code=302)
+
+
+def _set_auth_cookies(response: Response, access_token: str, refresh_token: str | None) -> None:
+    is_prod = settings.ENVIRONMENT == "production"
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        max_age=604800,
+        path="/",
+        secure=is_prod,
+        httponly=True,
+        samesite="lax",
+    )
+    if refresh_token:
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            max_age=2592000,
+            path="/",
+            secure=is_prod,
+            httponly=True,
+            samesite="lax",
+        )

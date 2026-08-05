@@ -13,6 +13,7 @@ to handle intermittent connection drops gracefully.
 """
 
 import os
+import os
 import sys
 from pathlib import Path
 
@@ -75,10 +76,11 @@ def create_app(lifespan_override=None):
         lifespan=lifespan_override,
     )
 
-    # Configure CORS
+    # Configure CORS — explicit origins only (browsers reject * with credentials)
+    _cors_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", settings.FRONTEND_URL).split(",") if origin.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=_cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

@@ -1,5 +1,4 @@
 import { create } from "zustand"
-import { clearTokenCookies } from "@/lib/token-cookie"
 
 export interface User {
   id: number
@@ -26,9 +25,6 @@ export const useAuthStore = create<AuthState>((set) => ({
   setUser: (user) => set({ user, isLoading: false }),
   setLoading: (isLoading) => set({ isLoading }),
   logout: () => {
-    localStorage.removeItem("access_token")
-    localStorage.removeItem("refresh_token")
-    clearTokenCookies()
     set({ user: null })
   },
 }))

@@ -1,33 +1,20 @@
-import { clearTokenCookies, setTokenCookie } from "@/lib/token-cookie"
-
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null
-  return localStorage.getItem("access_token")
-}
-
 async function tryRefresh(): Promise<boolean> {
-  const refreshToken = localStorage.getItem("refresh_token")
-  if (!refreshToken) return false
   try {
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken }),
+      credentials: "include",
     })
     if (!res.ok) return false
-    const data = await res.json()
-    localStorage.setItem("access_token", data.access_token)
-    if (data.refresh_token) localStorage.setItem("refresh_token", data.refresh_token)
     return true
   } catch { return false }
 }
 
 function clearTokens() {
-  localStorage.removeItem("access_token")
-  localStorage.removeItem("refresh_token")
-  clearTokenCookies()
+  document.cookie = "access_token=; path=/; max-age=0"
+  document.cookie = "refresh_token=; path=/; max-age=0"
 }
 
 async function handleUnauthorized() {
@@ -39,20 +26,16 @@ async function handleUnauthorized() {
 }
 
 async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken()
   const isFormData = options.body instanceof FormData
   const headers: Record<string, string> = {
     ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string>),
   }
-  if (token) headers["Authorization"] = `Bearer ${token}`
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" })
   if (res.status === 401 && !path.startsWith("/auth/login") && !path.startsWith("/auth/register") && !path.startsWith("/auth/refresh")) {
     const recovered = await handleUnauthorized()
     if (recovered) {
-      const newToken = getToken()
-      headers["Authorization"] = `Bearer ${newToken}`
-      const retry = await fetch(`${API_BASE}${path}`, { ...options, headers })
+      const retry = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" })
       if (retry.ok) return retry.json()
     }
     throw new Error("Session expired. Please login again.")
@@ -75,18 +58,14 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 }
 
 export async function apiFetchBlob(path: string, options: RequestInit = {}): Promise<Blob> {
-  const token = getToken()
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   }
-  if (token) headers["Authorization"] = `Bearer ${token}`
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" })
   if (res.status === 401) {
     const recovered = await handleUnauthorized()
     if (recovered) {
-      const newToken = getToken()
-      headers["Authorization"] = `Bearer ${newToken}`
-      const retry = await fetch(`${API_BASE}${path}`, { ...options, headers })
+      const retry = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" })
       if (retry.ok) return retry.blob()
     }
     throw new Error("Session expired. Please login again.")
@@ -98,7 +77,6 @@ export async function apiFetchBlob(path: string, options: RequestInit = {}): Pro
   }
   return res.blob()
 }
-
 export interface User {
   id: number; email: string; is_verified: boolean; role: string; plan: string; is_superadmin: boolean; avatar_url: string | null; created_at: string
 }
@@ -144,7 +122,7 @@ export const auth = {
   verifyEmail: (token: string) => apiFetch<{ detail: string }>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
   providers: () => apiFetch<{ providers: string[] }>("/auth/providers"),
   oauth: async (provider: string) => {
-    const res = await fetch(`${API_BASE}/auth/oauth/${provider}`, { method: "POST" })
+    const res = await fetch(`${API_BASE}/auth/oauth/${provider}`, { method: "POST", credentials: "include" })
     if (!res.ok) throw new Error("Failed to initiate OAuth")
     return res.json() as Promise<{ authorization_url: string }>
   },
