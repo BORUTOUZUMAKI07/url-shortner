@@ -14,6 +14,7 @@ from src.events.schemas import deserialize
 from src.log_utils import get_logger, setup_logging
 from src.models.webhook import Webhook
 from src.models.webhook_event import WebhookEvent
+from src.models.webhook_subscription import WebhookSubscription
 from src.services.webhook_service import decrypt_secret
 from src.workers._sni_patch import _make_sni_context
 from src.workers.kafka_consumer_pool import KafkaConnectionPool
@@ -97,7 +98,7 @@ async def deliver_click_webhooks(event_data: dict, logger):
             select(Webhook).where(
                 Webhook.workspace_id == workspace_id,
                 Webhook.is_active == True,
-                Webhook.events.contains("url.clicked"),
+                Webhook.subscriptions.any(WebhookSubscription.event_type == "url.clicked"),
             )
         )
         webhooks = list(result.scalars().all())

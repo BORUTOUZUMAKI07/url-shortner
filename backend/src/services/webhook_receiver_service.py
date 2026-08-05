@@ -52,7 +52,7 @@ class WebhookReceiverService:
         if signature:
             webhooks = await self.webhook_repo.get_workspace_webhooks(workspace_id)
             for wh in webhooks:
-                if event_type in wh.events.split(","):
+                if any(s.event_type == event_type for s in wh.subscriptions):
                     secret = decrypt_secret(wh.secret)
                     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
                     if hmac.compare_digest(signature, expected):

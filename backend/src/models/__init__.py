@@ -10,6 +10,7 @@ from .url import URL
 from .user import User
 from .webhook import Webhook
 from .webhook_event import WebhookEvent
+from .webhook_subscription import WebhookSubscription
 from .webhook_received_event import WebhookReceivedEvent
 from .workspace import Workspace
 from .workspace_invite import InviteStatus, WorkspaceInvite
@@ -29,6 +30,7 @@ __all__ = [
     "User",
     "Webhook",
     "WebhookEvent",
+    "WebhookSubscription",
     "WebhookReceivedEvent",
     "Workspace",
     "InviteStatus",

@@ -1,6 +1,7 @@
 from sqlalchemy import and_, select
 
 from src.models.webhook import Webhook
+from src.models.webhook_subscription import WebhookSubscription
 from src.repositories.base import BaseRepository
 
 
@@ -17,7 +18,7 @@ class WebhookRepository(BaseRepository[Webhook]):
                 and_(
                     Webhook.workspace_id == workspace_id,
                     Webhook.is_active == True,
-                    Webhook.events.contains(event),
+                    Webhook.subscriptions.any(WebhookSubscription.event_type == event),
                 )
             )
         )
