@@ -1,6 +1,6 @@
 import pytest
 
-from src.utils.base62 import BASE62_ALPHABET, encode_base62, hashid_encode
+from src.shared.core.base62 import BASE62_ALPHABET, encode_base62, hashid_encode
 
 
 class TestEncodeBase62:

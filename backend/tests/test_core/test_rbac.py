@@ -1,8 +1,8 @@
 import pytest
 
-from src.core.rbac import check_role
-from src.errors import ForbiddenError
-from src.models.workspace_member import MemberRole
+from src.shared.core.rbac import check_role
+from src.shared.errors import ForbiddenError
+from src.workspaces.models.workspace_member import MemberRole
 
 
 class TestCheckRole:

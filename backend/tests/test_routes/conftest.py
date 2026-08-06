@@ -7,13 +7,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from src.core.deps import get_db
-from src.core.security import create_access_token, hash_password
+from src.identity.models.user import User
+from src.links.models.url import URL, URLStatus
 from src.main import create_app
-from src.models.url import URL, URLStatus
-from src.models.user import User
-from src.models.workspace import Workspace
-from src.models.workspace_member import MemberRole, WorkspaceMember
+from src.shared.core.deps import get_db
+from src.shared.core.security import create_access_token, hash_password
+from src.workspaces.models.workspace import Workspace
+from src.workspaces.models.workspace_member import MemberRole, WorkspaceMember
 
 pytestmark = pytest.mark.integration
 
@@ -27,9 +27,9 @@ async def mock_redis():
     redis_mock.incr.return_value = 1
     redis_mock.expire.return_value = True
     redis_mock.eval.return_value = 1
-    with (patch("src.core.deps.redis_client", redis_mock),
-          patch("src.core.api_key_auth.redis_client", redis_mock),
-          patch("src.services.auth_service.redis_client", redis_mock)):
+    with (patch("src.shared.core.deps.redis_client", redis_mock),
+          patch("src.shared.core.api_key_auth.redis_client", redis_mock),
+          patch("src.identity.services.auth_service.redis_client", redis_mock)):
         yield
 
 _test_engine = None
@@ -38,7 +38,7 @@ _test_engine = None
 def _get_test_engine():
     global _test_engine
     if _test_engine is None:
-        from src.core.config import settings
+        from src.shared.core.config import settings
         _test_engine = create_async_engine(
             settings.ASYNC_DATABASE_URI,
             echo=False,
@@ -57,7 +57,7 @@ async def _test_lifespan(app):
 
 @pytest_asyncio.fixture(autouse=True)
 async def patch_async_session_local():
-    import src.core.database as db_mod
+    import src.shared.core.database as db_mod
 
     original = db_mod.AsyncSessionLocal
     test_session = async_sessionmaker(

@@ -7,17 +7,17 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from src.core.mongodb import init_mongodb
-from src.documents.click_event import ClickEvent
-from src.models.analytics import URLAnalyticsSummary
-from src.models.url import URL, URLStatus
-from src.models.user import User
-from src.models.workspace import Workspace
-from src.workers.aggregation_worker import run_aggregation_rollup
-from src.workers.analytics_worker import process_event
-from src.workers.cleanup_worker import run_cleanup
-from src.workers.expiry_worker import scan_and_expire_urls
-from src.workers.webhook_retry_worker import backoff_delay
+from src.analytics.models.analytics import URLAnalyticsSummary
+from src.analytics.workers.aggregation_worker import run_aggregation_rollup
+from src.analytics.workers.analytics_worker import process_event
+from src.identity.models.user import User
+from src.links.models.url import URL, URLStatus
+from src.links.workers.cleanup_worker import run_cleanup
+from src.links.workers.expiry_worker import scan_and_expire_urls
+from src.shared.core.click_event import ClickEvent
+from src.shared.core.mongodb import init_mongodb
+from src.webhooks.workers.webhook_retry_worker import backoff_delay
+from src.workspaces.models.workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ _test_engine = None
 def _get_test_engine():
     global _test_engine
     if _test_engine is None:
-        from src.core.config import settings
+        from src.shared.core.config import settings
         _test_engine = create_async_engine(settings.ASYNC_DATABASE_URI, echo=False, poolclass=NullPool)
     return _test_engine
 
@@ -38,7 +38,7 @@ def _get_session_local():
 
 @pytest_asyncio.fixture(autouse=True)
 async def reset_pooled_engine():
-    from src.core.database import engine as _pooled_engine
+    from src.shared.core.database import engine as _pooled_engine
     await _pooled_engine.dispose()
 
 
@@ -189,7 +189,7 @@ async def test_multiple_workers_end_to_end(setup_db):
 @pytest.mark.asyncio
 async def test_metadata_worker_extract_and_store(setup_db):
     url, user, workspace = setup_db
-    from src.workers.metadata_worker import extract_metadata
+    from src.webhooks.workers.metadata_worker import extract_metadata
     meta = await extract_metadata("https://example.com", logger)
     assert meta["title"] == "Example Domain"
     assert meta["description"] is None
@@ -199,7 +199,7 @@ async def test_metadata_worker_extract_and_store(setup_db):
 @pytest.mark.asyncio
 async def test_webhook_retry_worker_scan(setup_db):
     url, user, workspace = setup_db
-    from src.workers.webhook_retry_worker import retry_failed_events
+    from src.webhooks.workers.webhook_retry_worker import retry_failed_events
     await retry_failed_events(logger)
 
 

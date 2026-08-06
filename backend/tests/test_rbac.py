@@ -2,10 +2,10 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.middleware.rbac import require_role
-from src.models.user import User
-from src.models.workspace import Workspace
-from src.models.workspace_member import MemberRole, WorkspaceMember
+from src.identity.models.user import User
+from src.shared.middleware.rbac import require_role
+from src.workspaces.models.workspace import Workspace
+from src.workspaces.models.workspace_member import MemberRole, WorkspaceMember
 
 
 @pytest.mark.asyncio

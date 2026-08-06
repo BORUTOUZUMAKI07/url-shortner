@@ -22,24 +22,24 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Import all models so Alembic can discover them for autogenerate
-from src.core.config import settings  # noqa: E402
-from src.models import (  # noqa: E402, F401
-    URL,
-    APIKey,
-    AuditLog,
-    Favorite,
-    Folder,
-    Tag,
-    URLAnalyticsSummary,
-    UrlTag,
-    User,
-    Webhook,
-    WebhookEvent,
-    Workspace,
-    WorkspaceInvite,
-    WorkspaceMember,
-)
-from src.models.base import Base  # noqa: E402
+from src.shared.core.config import settings  # noqa: E402
+from src.shared.core.base import Base  # noqa: E402
+from src.identity.models.api_key import APIKey  # noqa: E402, F401
+from src.identity.models.user import User  # noqa: E402, F401
+from src.links.models.favorite import Favorite  # noqa: E402, F401
+from src.links.models.folder import Folder  # noqa: E402, F401
+from src.links.models.tag import Tag, UrlTag  # noqa: E402, F401
+from src.links.models.url import URL  # noqa: E402, F401
+from src.analytics.models.analytics import URLAnalyticsSummary  # noqa: E402, F401
+from src.analytics.models.audit_log import AuditLog  # noqa: E402, F401
+from src.analytics.models.dead_letter import DeadLetterEvent  # noqa: E402, F401
+from src.webhooks.models.webhook import Webhook  # noqa: E402, F401
+from src.webhooks.models.webhook_event import WebhookEvent  # noqa: E402, F401
+from src.webhooks.models.webhook_received_event import WebhookReceivedEvent  # noqa: E402, F401
+from src.webhooks.models.webhook_subscription import WebhookSubscription  # noqa: E402, F401
+from src.workspaces.models.workspace import Workspace  # noqa: E402, F401
+from src.workspaces.models.workspace_invite import WorkspaceInvite  # noqa: E402, F401
+from src.workspaces.models.workspace_member import WorkspaceMember  # noqa: E402, F401
 
 target_metadata = Base.metadata
 

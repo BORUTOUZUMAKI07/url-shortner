@@ -13,7 +13,6 @@ to handle intermittent connection drops gracefully.
 """
 
 import os
-import os
 import sys
 from pathlib import Path
 
@@ -27,45 +26,39 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from src.core.config import settings
-from src.core.database import check_db_health, engine, init_db
-from src.core.mongodb import init_mongodb
-from src.core.redis import init_redis, redis_client
-from src.core.tracing import init_metrics, init_tracing, instrument_fastapi, instrument_redis, instrument_sqlalchemy
-from src.errors.base import AppError
-from src.events.kafka import close_kafka, init_kafka
-from src.log_utils import get_logger, setup_logging
-from src.middleware.audit import AuditContextMiddleware
-from src.middleware.metrics import MetricsMiddleware
-from src.middleware.rate_limit import RateLimitMiddleware
-from src.middleware.rbac import RBACMiddleware
-from src.middleware.tracing import TracingMiddleware
-from src.routes import (
-    admin,
-    analytics,
-    api_keys,
-    audit_logs,
-    auth,
-    billing,
-    bulk,
-    favorites,
-    folders,
-    profile,
-    redirect,
-    tags,
-    urls,
-    webhook_receiver,
-    webhooks,
-    workspaces,
+from src.admin.routes import admin
+from src.analytics.routes import analytics, audit_logs, billing
+from src.analytics.workers.aggregation_worker import start_worker as start_aggregation_worker
+from src.analytics.workers.analytics_worker import consume_url_clicked_events
+from src.identity.routes import api_keys, auth, profile
+from src.links.routes import bulk, favorites, folders, redirect, tags, urls
+from src.links.workers.cleanup_worker import start_worker as start_cleanup_worker
+from src.links.workers.expiry_worker import start_worker as start_expiry_worker
+from src.shared import get_logger, setup_logging
+from src.shared.core.config import settings
+from src.shared.core.database import check_db_health, engine, init_db
+from src.shared.core.mongodb import init_mongodb
+from src.shared.core.redis import init_redis, redis_client
+from src.shared.core.tracing import (
+    init_metrics,
+    init_tracing,
+    instrument_fastapi,
+    instrument_redis,
+    instrument_sqlalchemy,
 )
-from src.workers.aggregation_worker import start_worker as start_aggregation_worker
-from src.workers.analytics_worker import consume_url_clicked_events
-from src.workers.cleanup_worker import start_worker as start_cleanup_worker
-from src.workers.dlq_replay_worker import consume_dlq_replay
-from src.workers.expiry_worker import start_worker as start_expiry_worker
-from src.workers.metadata_worker import consume_url_created
-from src.workers.webhook_click_consumer import consume_url_clicked_webhooks
-from src.workers.webhook_retry_worker import start_worker as start_webhook_retry_worker
+from src.shared.errors.base import AppError
+from src.shared.events.kafka import close_kafka, init_kafka
+from src.shared.middleware.audit import AuditContextMiddleware
+from src.shared.middleware.metrics import MetricsMiddleware
+from src.shared.middleware.rate_limit import RateLimitMiddleware
+from src.shared.middleware.rbac import RBACMiddleware
+from src.shared.middleware.tracing import TracingMiddleware
+from src.webhooks.routes import webhook_receiver, webhooks
+from src.webhooks.workers.dlq_replay_worker import consume_dlq_replay
+from src.webhooks.workers.metadata_worker import consume_url_created
+from src.webhooks.workers.webhook_click_consumer import consume_url_clicked_webhooks
+from src.webhooks.workers.webhook_retry_worker import start_worker as start_webhook_retry_worker
+from src.workspaces.routes import workspaces
 
 
 def create_app(lifespan_override=None):

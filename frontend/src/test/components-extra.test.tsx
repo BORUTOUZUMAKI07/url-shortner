@@ -170,7 +170,6 @@ describe("Tabs", () => {
   it("renders with default active tab", () => {
     render(
       <>
-        {/* @ts-expect-error: Tabs children type intersection issue */}
         <Tabs defaultValue="tab1">
           {({ active, setActive }: { active: string; setActive: (v: string) => void }) => (
             <>
@@ -192,7 +191,6 @@ describe("Tabs", () => {
   it("has data-slot attributes", () => {
     const { container } = render(
       <>
-        {/* @ts-expect-error: Tabs children type intersection issue */}
         <Tabs defaultValue="a">
           {({ active, setActive }: { active: string; setActive: (v: string) => void }) => (
             <TabsList>

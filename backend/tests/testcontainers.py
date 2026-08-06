@@ -34,8 +34,8 @@ def start_containers() -> None:
     if result.returncode != 0:
         raise RuntimeError(f"Alembic migration failed:\n{result.stdout}\n{result.stderr}")
 
-    import src.core.config
-    src.core.config.settings = src.core.config.Settings()
+    import src.shared.core.config
+    src.shared.core.config.settings = src.shared.core.config.Settings()
 
     _mongo = MongoDbContainer("mongo:7")
     _mongo.start()

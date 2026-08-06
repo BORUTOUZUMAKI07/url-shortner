@@ -2,7 +2,7 @@
 
 ## Python 3.13 SNI — Patch `wrap_bio`, not just `wrap_socket`
 
-**File:** `backend/src/workers/_sni_patch.py`
+**File:** `backend/src/shared/workers/_sni_patch.py`
 
 Python 3.13+ on Windows uses `ProactorEventLoop`, which calls `sslcontext.wrap_bio()` (not `wrap_socket()`) in `asyncio.ProactorEventLoop.create_connection()`. The original monkey-patch only targeted `wrap_socket`, so SNI was never injected for asyncio-managed Kafka connections. The broker received the IP address as SNI → rejected TLS handshake → `WinError 10054`.
 
@@ -19,7 +19,7 @@ sslcontext.SSLContext.wrap_bio = _wrap_with_sni(sslcontext.SSLContext.wrap_bio)
 
 ## DLQ `publish_raw` — One-shot Producer
 
-**File:** `backend/src/events/kafka.py` function `publish_raw`
+**File:** `backend/src/shared/events/kafka.py` function `publish_raw`
 
 Workers never call `init_kafka()` so the global `producer` was `None`. DLQ messages were silently dropped.
 
@@ -27,13 +27,25 @@ Workers never call `init_kafka()` so the global `producer` was `None`. DLQ messa
 
 ## `KeyError` for Optional Fields — Use `.get()`
 
-**File:** `backend/src/workers/analytics_worker.py` function `process_event`
+**File:** `backend/src/analytics/workers/analytics_worker.py` function `process_event`
 
 Some event fields (`original_url`, `workspace_id`, `ip_address`, `clicked_at`) might be missing in incomplete test data.
 
 **Fix:** Use `.get()` with defaults instead of `[]` for all optional fields. Pydantic validation still catches type errors (e.g., `workspace_id` string vs int).
 
 # Running the Stack
+
+## ⚠️ NEVER run the pytest suite against the production database
+
+`backend/.env` points `DATABASE_URL` at the **production Neon DB** (free tier).
+`backend/tests/conftest.py` truncates `urls, workspace_invites, workspace_members, workspaces, users`
+at session start — this **wiped all real data once** when pytest was run without containers.
+
+**Rules:**
+- Never run `pytest` without `--use-testcontainers`. DB-backed tests now hard-fail without it.
+- `_clean_db_once()` and the `db` fixture are guarded by `_USE_TESTCONTAINERS=1`, set only by `tests/testcontainers.py`.
+- Only safe commands without Docker: `uv run pytest tests/test_core tests/test_events -q -o addopts=''`
+- Always check what `.env` points at (and what session/fixture hooks do) before running anything destructive.
 
 ## Start Backend (standalone, no embedded workers)
 ```

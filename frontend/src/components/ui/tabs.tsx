@@ -7,7 +7,7 @@ type TabsRenderProps = {
   setActive: (value: string) => void
 }
 
-function Tabs({ defaultValue, className, children, onChange, ...props }: { defaultValue: string; className?: string; children: React.ReactNode | ((props: TabsRenderProps) => React.ReactNode); onChange?: (value: string) => void } & React.HTMLAttributes<HTMLDivElement>) {
+function Tabs({ defaultValue, className, children, onChange, ...props }: { defaultValue: string; className?: string; children: React.ReactNode | ((props: TabsRenderProps) => React.ReactNode); onChange?: (value: string) => void } & Omit<React.HTMLAttributes<HTMLDivElement>, "children">) {
   const [active, setActive] = useState(defaultValue)
   const setTab = (value: string) => {
     setActive(value)

@@ -1,10 +1,10 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.url import URLStatus
-from src.repositories.url_repository import URLRepository
-from src.repositories.user_repository import UserRepository
-from src.repositories.workspace_repository import WorkspaceRepository
+from src.identity.repositories.user_repository import UserRepository
+from src.links.models.url import URLStatus
+from src.links.repositories.url_repository import URLRepository
+from src.workspaces.repositories.workspace_repository import WorkspaceRepository
 
 pytestmark = pytest.mark.integration
 

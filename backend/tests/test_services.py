@@ -2,14 +2,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.errors import EmailAlreadyExists, InvalidCredentials
-from src.errors.url import URLNotFound
-from src.models.url import URLStatus
-from src.models.user import User
-from src.schemas.url import URLCreate
-from src.services.auth_service import AuthService
-from src.services.url_service import URLService
-from src.services.workspace_service import WorkspaceService
+from src.identity.models.user import User
+from src.identity.services.auth_service import AuthService
+from src.links.models.url import URLStatus
+from src.links.schemas.url import URLCreate
+from src.links.services.url_service import URLService
+from src.shared.errors import EmailAlreadyExists, InvalidCredentials
+from src.shared.errors.url import URLNotFound
+from src.workspaces.services.workspace_service import WorkspaceService
 
 
 @pytest.mark.asyncio

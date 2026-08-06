@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from src.events.schemas import SCHEMA_DIR, deserialize, serialize
+from src.shared.events.schemas import SCHEMA_DIR, deserialize, serialize
 
 
 class TestAvroSchemas:

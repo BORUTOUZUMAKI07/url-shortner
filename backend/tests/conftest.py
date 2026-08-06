@@ -3,17 +3,15 @@ import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
-import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from src.core.security import hash_password
-from src.models.url import URL, URLStatus
-from src.models.user import User
-from src.models.workspace import Workspace
+from src.identity.models.user import User
+from src.links.models.url import URL, URLStatus
+from src.shared.core.security import hash_password
+from src.workspaces.models.workspace import Workspace
 
 
 def pytest_addoption(parser):
@@ -29,15 +27,19 @@ def pytest_sessionstart(session):
     if session.config.getoption("--use-testcontainers"):
         from tests.testcontainers import start_containers
         start_containers()
-    # Clean all test data once at session start — ensures clean slate
-    # Tests using transaction rollback clean up per-test automatically.
-    # Tests that commit (worker tests) rely on their own cleanup.
+    # Clean test data once at session start — only ever runs against
+    # testcontainers, never against the real .env database.
     _clean_db_once()
 
 
 def _clean_db_once():
+    # Hard guard: never truncate anything unless testcontainers are active.
+    # _USE_TESTCONTAINERS=1 is set ONLY by tests/testcontainers.start_containers(),
+    # which redirects env vars to local Docker containers before this runs.
+    if os.environ.get("_USE_TESTCONTAINERS") != "1":
+        return
     try:
-        from src.core.config import settings
+        from src.shared.core.config import settings
         engine = create_async_engine(settings.ASYNC_DATABASE_URI, echo=False, poolclass=NullPool)
         async def _truncate():
             conn = await engine.connect()
@@ -62,7 +64,7 @@ _test_engine = None
 def _get_test_engine():
     global _test_engine
     if _test_engine is None:
-        from src.core.config import settings
+        from src.shared.core.config import settings
         _test_engine = create_async_engine(
             settings.ASYNC_DATABASE_URI,
             echo=False,
@@ -73,6 +75,11 @@ def _get_test_engine():
 
 @pytest_asyncio.fixture
 async def db():
+    if os.environ.get("_USE_TESTCONTAINERS") != "1":
+        pytest.fail(
+            "DB-backed tests require --use-testcontainers (Docker). "
+            "Refusing to connect to the real .env database. Never run the full suite without it."
+        )
     engine = _get_test_engine()
     conn = await engine.connect()
     await conn.begin()
@@ -123,7 +130,8 @@ async def test_url(db: AsyncSession, test_user: User, test_workspace: Workspace)
 @pytest_asyncio.fixture(autouse=True)
 async def fast_password_hashing():
     from passlib.context import CryptContext
-    import src.core.security as _sec
+
+    import src.shared.core.security as _sec
     fast_ctx = CryptContext(schemes=["sha256_crypt"], sha256_crypt__rounds=1000)
     original = _sec.pwd_context
     _sec.pwd_context = fast_ctx
@@ -135,19 +143,19 @@ async def fast_password_hashing():
 async def mock_external_services():
     import contextlib
     patches = [
-        patch("src.services.auth_service.EmailService.send_verification_email", AsyncMock()),
-        patch("src.services.auth_service.EmailService.send_password_reset", AsyncMock()),
-        patch("src.services.url_service.delete_url_cache", AsyncMock()),
-        patch("src.services.url_service.EventDispatcher", AsyncMock()),
-        patch("src.services.workspace_service.AuditService", AsyncMock()),
-        patch("src.services.workspace_service.WebhookService", AsyncMock()),
+        patch("src.identity.services.auth_service.EmailService.send_verification_email", AsyncMock()),
+        patch("src.identity.services.auth_service.EmailService.send_password_reset", AsyncMock()),
+        patch("src.links.services.url_service.delete_url_cache", AsyncMock()),
+        patch("src.links.services.url_service.EventDispatcher", AsyncMock()),
+        patch("src.workspaces.services.workspace_service.AuditService", AsyncMock()),
+        patch("src.workspaces.services.workspace_service.WebhookService", AsyncMock()),
     ]
     if os.environ.get("_USE_TESTCONTAINERS") != "1":
         redis_mock = AsyncMock(spec=["get"])
         redis_mock.get.return_value = None
-        patches.insert(0, patch("src.services.auth_service.redis_client", redis_mock))
-        patches.insert(0, patch("src.core.deps.redis_client", redis_mock))
-        patches.insert(0, patch("src.core.api_key_auth.redis_client", redis_mock))
+        patches.insert(0, patch("src.identity.services.auth_service.redis_client", redis_mock))
+        patches.insert(0, patch("src.shared.core.deps.redis_client", redis_mock))
+        patches.insert(0, patch("src.shared.core.api_key_auth.redis_client", redis_mock))
     with contextlib.ExitStack() as stack:
         for p in patches:
             stack.enter_context(p)
@@ -156,13 +164,13 @@ async def mock_external_services():
 
 @pytest_asyncio.fixture
 async def mock_repos():
-    from src.repositories.folder_repository import FolderRepository
-    from src.repositories.tag_repository import TagRepository
-    from src.repositories.url_repository import URLRepository
-    from src.repositories.user_repository import UserRepository
-    from src.repositories.workspace_invite_repository import WorkspaceInviteRepository
-    from src.repositories.workspace_member_repository import WorkspaceMemberRepository
-    from src.repositories.workspace_repository import WorkspaceRepository
+    from src.identity.repositories.user_repository import UserRepository
+    from src.links.repositories.folder_repository import FolderRepository
+    from src.links.repositories.tag_repository import TagRepository
+    from src.links.repositories.url_repository import URLRepository
+    from src.workspaces.repositories.workspace_invite_repository import WorkspaceInviteRepository
+    from src.workspaces.repositories.workspace_member_repository import WorkspaceMemberRepository
+    from src.workspaces.repositories.workspace_repository import WorkspaceRepository
 
     class MockRepos:
         user_repo = AsyncMock(spec=UserRepository)
@@ -178,13 +186,13 @@ async def mock_repos():
 
 @pytest_asyncio.fixture
 async def mock_audit():
-    from src.services.audit_service import AuditService
+    from src.analytics.services.audit_service import AuditService
     return AsyncMock(spec=AuditService)
 
 
 @pytest_asyncio.fixture
 async def mock_webhooks():
-    from src.services.webhook_service import WebhookService
+    from src.webhooks.services.webhook_service import WebhookService
     return AsyncMock(spec=WebhookService)
 
 
@@ -194,12 +202,12 @@ async def mock_mongodb():
         yield
     else:
         from tests.mock_mongodb import _AsyncMongoClientWrapper
-        with patch("src.core.mongodb.AsyncIOMotorClient", _AsyncMongoClientWrapper):
+        with patch("src.shared.core.mongodb.AsyncIOMotorClient", _AsyncMongoClientWrapper):
             yield
 
 
 @pytest_asyncio.fixture
 async def mock_event_dispatcher():
-    from src.services.event_dispatcher import EventDispatcher
+    from src.shared.core.event_dispatcher import EventDispatcher
     mock = AsyncMock(spec=EventDispatcher)
     return mock

@@ -1,6 +1,6 @@
 import pytest
 
-from src.errors import (
+from src.shared.errors import (
     AliasConflict,
     AliasReserved,
     AlreadyMember,

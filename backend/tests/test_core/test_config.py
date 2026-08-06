@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.core.config import Settings
+from src.shared.core.config import Settings
 
 
 class TestSettingsDefaults:

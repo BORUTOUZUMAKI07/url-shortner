@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 from jose import ExpiredSignatureError, JWTError, jwt
 
-from src.core.security import (
+from src.shared.core.security import (
     create_access_token,
     create_email_verification_token,
     create_password_reset_token,
@@ -13,7 +13,7 @@ from src.core.security import (
     hash_password,
     verify_password,
 )
-from src.errors import InvalidToken, TokenExpired
+from src.shared.errors import InvalidToken, TokenExpired
 
 
 def test_hash_password_returns_string():
@@ -37,9 +37,9 @@ def test_verify_password_empty_plain():
     assert verify_password("", hashed) is False
 
 
-@patch("src.core.security.settings.SECRET_KEY", "test-secret-key-for-testing")
-@patch("src.core.security.settings.ALGORITHM", "HS256")
-@patch("src.core.security.settings.ACCESS_TOKEN_EXPIRE_MINUTES", 60)
+@patch("src.shared.core.security.settings.SECRET_KEY", "test-secret-key-for-testing")
+@patch("src.shared.core.security.settings.ALGORITHM", "HS256")
+@patch("src.shared.core.security.settings.ACCESS_TOKEN_EXPIRE_MINUTES", 60)
 class TestJWTFunctions:
     def test_create_access_token_returns_string(self, *_):
         token = create_access_token({"sub": "1", "email": "test@example.com"})
@@ -76,7 +76,7 @@ class TestJWTFunctions:
             decode_token(token)
 
     def test_decode_token_invalid_signature(self, *_):
-        with patch("src.core.security.jwt.decode") as mock_decode:
+        with patch("src.shared.core.security.jwt.decode") as mock_decode:
             mock_decode.side_effect = JWTError()
             with pytest.raises(InvalidToken):
                 decode_token("invalid-token")
