@@ -9,8 +9,6 @@ from sqlalchemy.pool import NullPool
 
 from src.identity.models.user import User
 from src.links.models.url import URL, URLStatus
-from src.main import create_app
-from src.shared.core.deps import get_db
 from src.shared.core.security import create_access_token, hash_password
 from src.workspaces.models.workspace import Workspace
 from src.workspaces.models.workspace_member import MemberRole, WorkspaceMember
@@ -123,6 +121,12 @@ async def test_url(db: AsyncSession, test_user: User, test_workspace: Workspace)
 
 @pytest_asyncio.fixture(scope="session")
 def app():
+    # Lazy import: importing src.main at module level pulls in
+    # src.shared.core.database during pytest startup, BEFORE testcontainers
+    # re-creates settings — which would bind the pooled engine to the real
+    # .env database. Deferring to here means database.py is imported during
+    # test collection, after settings point at the container.
+    from src.main import create_app
     return create_app(lifespan_override=_test_lifespan)
 
 
@@ -134,6 +138,7 @@ async def auth_headers(test_user: User):
 
 @pytest_asyncio.fixture
 async def client(app, db, auth_headers):
+    from src.shared.core.deps import get_db
     app.dependency_overrides[get_db] = lambda: db
     from httpx import ASGITransport, AsyncClient
 
@@ -144,6 +149,7 @@ async def client(app, db, auth_headers):
 
 @pytest_asyncio.fixture
 async def unauth_client(app, db):
+    from src.shared.core.deps import get_db
     app.dependency_overrides[get_db] = lambda: db
     from httpx import ASGITransport, AsyncClient
 

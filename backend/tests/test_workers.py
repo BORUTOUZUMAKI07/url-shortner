@@ -50,6 +50,10 @@ async def cleanup_worker_tables():
         await db.execute(text("DELETE FROM workspaces WHERE name = 'Test Workspace'"))
         await db.execute(text("DELETE FROM users WHERE email = 'test@example.com'"))
         await db.commit()
+    try:
+        await ClickEvent.get_motor_collection().delete_many({})
+    except Exception:
+        pass
 
 
 @pytest_asyncio.fixture
@@ -123,6 +127,7 @@ async def test_aggregation_worker_rollup(setup_db):
 @pytest.mark.asyncio
 async def test_expiry_worker_disables_expired_urls(setup_db):
     url, user, workspace = setup_db
+    url.created_at = datetime.now(timezone.utc) - timedelta(hours=2)
     url.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
     async with _get_session_local()() as db:
         db.add(url)

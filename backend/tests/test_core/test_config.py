@@ -18,7 +18,8 @@ class TestSettingsDefaults:
         assert s.POSTGRES_HOST == "localhost"
         assert s.POSTGRES_PORT == 5432
 
-    def test_redis_defaults(self):
+    def test_redis_defaults(self, monkeypatch):
+        monkeypatch.delenv("REDIS_URL", raising=False)
         s = Settings(_env_file=None)
         assert s.REDIS_URL == "redis://localhost:6379"
 

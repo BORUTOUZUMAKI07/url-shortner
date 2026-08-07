@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-BACKEND_DIR = Path(__file__).parent
+BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 _pg = None
 _mongo = None
@@ -23,12 +23,17 @@ def start_containers() -> None:
     _pg = PostgresContainer("postgres:16")
     _pg.start()
     sync_url = _pg.get_connection_url()
-    os.environ["DATABASE_URL"] = sync_url
+    async_url = (
+        sync_url
+        .replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+        .replace("postgresql://", "postgresql+asyncpg://")
+    )
+    os.environ["DATABASE_URL"] = async_url
 
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=str(BACKEND_DIR),
-        env={**os.environ, "DATABASE_URL": sync_url},
+        env={**os.environ, "DATABASE_URL": async_url},
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -43,7 +48,7 @@ def start_containers() -> None:
 
     _redis = RedisContainer("redis:7")
     _redis.start()
-    os.environ["REDIS_URL"] = _redis.get_connection_url()
+    os.environ["REDIS_URL"] = f"redis://localhost:{_redis.get_exposed_port(6379)}"
 
     os.environ["_USE_TESTCONTAINERS"] = "1"
 

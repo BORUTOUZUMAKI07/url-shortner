@@ -1,2 +1,2 @@
-from src.identity.repositories.api_key_repository import APIKeyRepository
-from src.identity.repositories.user_repository import UserRepository
+from src.identity.repositories.api_key_repository import APIKeyRepository as APIKeyRepository
+from src.identity.repositories.user_repository import UserRepository as UserRepository

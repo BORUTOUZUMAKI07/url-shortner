@@ -20,8 +20,6 @@ _mock_redis.expire.return_value = True
 _mock_redis.eval.return_value = 1
 src.shared.core.redis.redis_client = _mock_redis
 
-from src.main import create_app
-
 pytestmark = pytest.mark.integration
 
 _test_engine = None
@@ -62,4 +60,5 @@ async def patch_async_session_local():
 
 @pytest_asyncio.fixture(scope="session")
 def app():
+    from src.main import create_app
     return create_app(lifespan_override=_test_lifespan)
