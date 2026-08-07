@@ -9,7 +9,7 @@ const protectedPaths = [
 
 const authPaths = ["/login", "/forgot-password", "/reset-password"]
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const token = request.cookies.get("access_token")?.value
   const isProtected = protectedPaths.some((p) => pathname === p || pathname.startsWith(p + "/"))
