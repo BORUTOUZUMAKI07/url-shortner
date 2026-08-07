@@ -26,8 +26,8 @@ services:
         sync: false
       - key: KAFKA_SASL_PASSWORD
         sync: false
-      - key: KAFKA_SSL_CA_PATH
-        value: ./ca.pem
+      - key: KAFKA_SSL_CA
+        sync: false
       - key: SCHEMA_REGISTRY_URL
         sync: false
       - key: SECRET_KEY

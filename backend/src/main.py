@@ -26,6 +26,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+import src.shared.events.kafka as kafka_module
 from src.admin.routes import admin
 from src.analytics.routes import analytics, audit_logs, billing
 from src.analytics.workers.aggregation_worker import start_worker as start_aggregation_worker
@@ -47,7 +48,6 @@ from src.shared.core.tracing import (
     instrument_sqlalchemy,
 )
 from src.shared.errors.base import AppError
-import src.shared.events.kafka as kafka_module
 from src.shared.events.kafka import close_kafka, init_kafka
 from src.shared.middleware.audit import AuditContextMiddleware
 from src.shared.middleware.metrics import MetricsMiddleware

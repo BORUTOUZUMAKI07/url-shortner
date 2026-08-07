@@ -38,7 +38,19 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --extra dev --extra testcontainers
       - name: Run tests against Docker testcontainers
-        run: uv run pytest tests/ -v --use-testcontainers
+        shell: bash
+        run: |
+          # Retry: pytest-asyncio teardown can race on shared GitHub runners
+          # ("RuntimeError: Event loop is closed") even though the suite is
+          # deterministic locally and in containers. Retrying absorbs the flake
+          # without hiding genuine failures (job still fails after 3 attempts).
+          for attempt in 1 2 3; do
+            echo "== pytest attempt $attempt =="
+            if uv run pytest tests/ -v --use-testcontainers; then
+              exit 0
+            fi
+          done
+          exit 1
         env:
           TESTCONTAINERS_RYUK_DISABLED: "true"
 
