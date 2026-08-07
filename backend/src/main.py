@@ -47,7 +47,8 @@ from src.shared.core.tracing import (
     instrument_sqlalchemy,
 )
 from src.shared.errors.base import AppError
-from src.shared.events.kafka import close_kafka, init_kafka, producer
+import src.shared.events.kafka as kafka_module
+from src.shared.events.kafka import close_kafka, init_kafka
 from src.shared.middleware.audit import AuditContextMiddleware
 from src.shared.middleware.metrics import MetricsMiddleware
 from src.shared.middleware.rate_limit import RateLimitMiddleware
@@ -110,7 +111,7 @@ def create_app(lifespan_override=None):
                 "status": "unhealthy" if status == 503 else "healthy",
                 "database": db_ok,
                 "redis": redis_ok,
-                "kafka": producer is not None,
+                "kafka": kafka_module.producer is not None,
             },
         )
 
