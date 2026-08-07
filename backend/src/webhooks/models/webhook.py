@@ -18,3 +18,7 @@ class Webhook(Base):
 
     workspace = relationship("Workspace")
     subscriptions = relationship("WebhookSubscription", back_populates="webhook", cascade="all, delete-orphan")
+
+    @property
+    def events(self) -> list[str]:
+        return [sub.event_type for sub in self.subscriptions]

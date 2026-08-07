@@ -8,7 +8,9 @@ from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.shared.errors import NotFoundError, WorkspaceNotFound
+from src.webhooks.models.webhook import Webhook
 from src.webhooks.models.webhook_event import WebhookEvent
+from src.webhooks.models.webhook_subscription import WebhookSubscription
 from src.webhooks.repositories.webhook_repository import WebhookRepository
 from src.workspaces.repositories.workspace_repository import WorkspaceRepository
 
@@ -43,10 +45,13 @@ class WebhookService:
 
     async def create(self, workspace_id: int, url: str, events: list[str], secret: str, user_id: int):
         await self._verify_access(workspace_id, user_id)
-        return await self.repo.create(
-            workspace_id=workspace_id, url=url,
-            events=",".join(events), secret=encrypt_secret(secret),
-        )
+        webhook = Webhook(workspace_id=workspace_id, url=str(url), secret=encrypt_secret(secret))
+        self.db.add(webhook)
+        await self.db.flush()
+        for event_type in events:
+            self.db.add(WebhookSubscription(webhook_id=webhook.id, event_type=event_type))
+        await self.db.commit()
+        return await self.repo.get(webhook.id)
 
     async def list(self, workspace_id: int, user_id: int):
         await self._verify_access(workspace_id, user_id)
@@ -60,10 +65,27 @@ class WebhookService:
         return wh
 
     async def update(self, webhook_id: int, workspace_id: int, user_id: int, **kwargs):
-        await self.get(webhook_id, workspace_id, user_id)
-        if "events" in kwargs and isinstance(kwargs["events"], list):
-            kwargs["events"] = ",".join(kwargs["events"])
-        return await self.repo.update(webhook_id, **kwargs)
+        wh = await self.get(webhook_id, workspace_id, user_id)
+        events = kwargs.pop("events", None)
+        if events is not None:
+            events = [str(e) for e in events]
+        if "url" in kwargs:
+            kwargs["url"] = str(kwargs["url"])
+        if "secret" in kwargs and kwargs["secret"]:
+            kwargs["secret"] = encrypt_secret(kwargs["secret"])
+        if kwargs:
+            await self.repo.update(webhook_id, **kwargs)
+        if events is not None:
+            existing = {sub.event_type for sub in wh.subscriptions}
+            for event_type in events:
+                if event_type not in existing:
+                    self.db.add(WebhookSubscription(webhook_id=wh.id, event_type=event_type))
+            for sub in list(wh.subscriptions):
+                if sub.event_type not in events:
+                    await self.db.delete(sub)
+            await self.db.commit()
+            self.db.expunge(wh)
+        return await self.repo.get(webhook_id)
 
     async def delete(self, webhook_id: int, workspace_id: int, user_id: int):
         await self.get(webhook_id, workspace_id, user_id)
