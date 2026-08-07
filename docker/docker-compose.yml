@@ -38,7 +38,7 @@ services:
 
   # ── Event Bus ────────────────────────────────────────────
   kafka:
-    image: bitnami/kafka:3.7.0
+    image: bitnamilegacy/kafka:3.7.1-debian-12-r11
     container_name: linkforge_kafka
     ports:
       - "9092:9092"
@@ -75,20 +75,18 @@ services:
       - DYNAMIC_CONFIG_ENABLED=true
 
   schema-registry:
-    image: aivenhq/karapace:latest
+    image: bitnamilegacy/schema-registry:8.0.0-debian-12-r5
     container_name: linkforge_schema_registry
     ports:
       - "8081:8081"
     environment:
-      - KARAPACE_ADVERTISED_URI=http://schema-registry:8081
-      - KARAPACE_BOOTSTRAP_URI=kafka:9092
-      - KARAPACE_PORT=8081
-      - KARAPACE_HOST=0.0.0.0
-      - KARAPACE_CLIENT_ID=karapace
-      - KARAPACE_GROUP_ID=karapace-registry
-      - KARAPACE_MASTER_ELIGIBILITY=true
-      - KARAPACE_TOPIC_NAME=_schemas
-      - KARAPACE_LOG_LEVEL=WARNING
+      - SCHEMA_REGISTRY_HOST_NAME=schema-registry
+      - SCHEMA_REGISTRY_KAFKA_BROKERS=PLAINTEXT://kafka:9092
+      - SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:8081
+      - SCHEMA_REGISTRY_CLIENT_ID=schema-registry
+      - SCHEMA_REGISTRY_GROUP_ID=schema-registry
+      - SCHEMA_REGISTRY_MASTER_ELIGIBILITY=true
+      - SCHEMA_REGISTRY_TOPIC_NAME=_schemas
     depends_on:
       - kafka
 
@@ -110,9 +108,9 @@ services:
       - ENVIRONMENT=development
     depends_on:
       postgres:
-        condition: service_started
+        condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       mongodb:
         condition: service_started
       kafka:
@@ -128,7 +126,8 @@ services:
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   # ── Workers ──────────────────────────────────────────────
   expiry-worker:
@@ -136,22 +135,26 @@ services:
       context: ../backend
       dockerfile: Dockerfile
     container_name: linkforge_expiry_worker
-    command: python -m src.workers.expiry_worker
+    command: python -m src.links.workers.expiry_worker
     environment:
       - DATABASE_URL=postgresql://linkforge_user:linkforge_password@postgres:5432/linkforge_db
       - REDIS_URL=redis://redis:6379
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - ENVIRONMENT=development
     depends_on:
-      - postgres
-      - redis
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   cleanup-worker:
     build:
       context: ../backend
       dockerfile: Dockerfile
     container_name: linkforge_cleanup_worker
-    command: python -m src.workers.cleanup_worker
+    command: python -m src.links.workers.cleanup_worker
     environment:
       - DATABASE_URL=postgresql://linkforge_user:linkforge_password@postgres:5432/linkforge_db
       - MONGODB_URI=mongodb://admin:adminpassword@mongodb:27017
@@ -159,15 +162,19 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - ENVIRONMENT=development
     depends_on:
-      - postgres
-      - mongodb
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_started
 
   aggregation-worker:
     build:
       context: ../backend
       dockerfile: Dockerfile
     container_name: linkforge_aggregation_worker
-    command: python -m src.workers.aggregation_worker
+    command: python -m src.analytics.workers.aggregation_worker
     environment:
       - DATABASE_URL=postgresql://linkforge_user:linkforge_password@postgres:5432/linkforge_db
       - MONGODB_URI=mongodb://admin:adminpassword@mongodb:27017
@@ -175,15 +182,19 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - ENVIRONMENT=development
     depends_on:
-      - postgres
-      - mongodb
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_started
 
   analytics-worker:
     build:
       context: ../backend
       dockerfile: Dockerfile
     container_name: linkforge_analytics_worker
-    command: python -m src.workers.analytics_worker
+    command: python -m src.analytics.workers.analytics_worker
     environment:
       - DATABASE_URL=postgresql://linkforge_user:linkforge_password@postgres:5432/linkforge_db
       - MONGODB_URI=mongodb://admin:adminpassword@mongodb:27017
@@ -191,22 +202,30 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - ENVIRONMENT=development
     depends_on:
-      - postgres
-      - mongodb
-      - kafka
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_started
+      kafka:
+        condition: service_started
 
   webhook-retry-worker:
     build:
       context: ../backend
       dockerfile: Dockerfile
     container_name: linkforge_webhook_retry_worker
-    command: python -m src.workers.webhook_retry_worker
+    command: python -m src.webhooks.workers.webhook_retry_worker
     environment:
       - DATABASE_URL=postgresql://linkforge_user:linkforge_password@postgres:5432/linkforge_db
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - ENVIRONMENT=development
     depends_on:
-      - postgres
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
 
 volumes:
   postgres_data:

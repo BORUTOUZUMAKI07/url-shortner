@@ -1,5 +1,29 @@
 # Critical Fixes
 
+## Redis — Plain-Redis Fallback (docker-compose / local)
+
+**File:** `backend/src/shared/core/redis.py`
+
+`redis_client` was hard-wired to the Upstash REST client built from `UPSTASH_REDIS_REST_URL/TOKEN`; it never read `REDIS_URL`. docker-compose only sets `REDIS_URL` (plain Redis), so `/health` returned 503, cache/rate-limiting silently failed, and a `depends_on: service_healthy` on backend would hang forever.
+
+**Fix:** `_build_redis_client()` uses the Upstash REST client when both `UPSTASH_REDIS_REST_URL` AND `UPSTASH_REDIS_REST_TOKEN` are set; otherwise it falls back to `redis.asyncio.Redis.from_url(settings.REDIS_URL, decode_responses=True)`. Both paths share the `RedisAdapter` (same `ping/get/setex/delete/incr/expire/eval` surface). Production Render sets the Upstash vars → Upstash path unchanged; compose/local get plain Redis.
+
+## Logging — Non-root Containers Can't Create `logs/`
+
+**File:** `backend/src/shared/logging.py` function `setup_logging`
+
+The app runs as non-root `app` (uid 1001) on a root-owned `/app`; `log_dir.mkdir()` raised `PermissionError` and killed startup in Docker/Render.
+
+**Fix:** Wrap the file-handler setup in `try/except OSError` → log a warning and continue with console-only logging. Docker/Render ship logs to stdout anyway.
+
+## Migrations — Alembic Not in the Wheel, Run at Boot
+
+**File:** `backend/Dockerfile`, `backend/entrypoint.sh`
+
+Hatchling only packages `src/`, so `alembic/` + `alembic.ini` were absent from the wheel → fresh databases had no schema. `force-include` was rejected: it dumps the migrations at the site-packages root, colliding with the installed `alembic` package.
+
+**Fix:** `COPY --from=builder /app/alembic /app/alembic` (and `alembic.ini`, `entrypoint.sh`) into the runtime image; `CMD ["sh", "/app/entrypoint.sh"]` runs `alembic -c alembic.ini upgrade head` then `exec uvicorn`. `SKIP_MIGRATIONS=1` disables it. Compose workers/frontend use `depends_on: backend: condition: service_healthy` so they start only after migrations complete.
+
 ## Python 3.13 SNI — Patch `wrap_bio`, not just `wrap_socket`
 
 **File:** `backend/src/shared/workers/_sni_patch.py`

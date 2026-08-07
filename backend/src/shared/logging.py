@@ -63,13 +63,18 @@ def setup_logging(correlation_id: Optional[str] = None):
     logger.addHandler(console_handler)
 
     log_dir = Path(os.getenv("LOG_DIR", "logs"))
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{logger.name.replace('url-shortener.', '')}.log"
-    file_handler = logging.FileHandler(filename=log_file, encoding="utf-8")
-    file_handler.setLevel(log_level)
-    file_handler.setFormatter(formatter)
-    file_handler.addFilter(correlation_filter)
-    logger.addHandler(file_handler)
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / f"{logger.name.replace('url-shortener.', '')}.log"
+        file_handler = logging.FileHandler(filename=log_file, encoding="utf-8")
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(formatter)
+        file_handler.addFilter(correlation_filter)
+        logger.addHandler(file_handler)
+    except OSError as e:
+        # e.g. read-only filesystem in a container running as non-root.
+        # Console logging is unaffected.
+        logger.warning("File logging disabled: %s", e)
 
     if settings.OTLP_ENABLED and settings.OTEL_EXPORTER_OTLP_ENDPOINT:
         os.environ.setdefault("OTEL_SEMCONV_STABILITY_OPT_IN", "http/dup")

@@ -1,7 +1,9 @@
 import asyncio
 import json
 import time
+from typing import Any
 
+from redis.asyncio import Redis as AsyncRedis
 from upstash_redis.asyncio import Redis as UpstashRedis
 
 from src.shared import get_logger
@@ -10,9 +12,16 @@ from src.shared.core.config import settings
 logger = get_logger(__name__)
 
 
-class UpstashRedisAdapter:
-    def __init__(self, url: str, token: str):
-        self._client = UpstashRedis(url=url, token=token)
+class RedisAdapter:
+    """Unified adapter for Upstash REST and plain Redis.
+
+    Production uses Upstash (REST) when credentials are provided; local
+    development and docker-compose use a plain Redis instance via REDIS_URL.
+    """
+
+    def __init__(self, client: Any):
+        self._client = client
+        self._is_upstash = isinstance(client, UpstashRedis)
 
     async def ping(self):
         return await self._client.ping()
@@ -33,14 +42,23 @@ class UpstashRedisAdapter:
         return await self._client.expire(key, ttl)
 
     async def eval(self, script: str, numkeys: int, *args):
-        cmd = ["EVAL", script, str(numkeys)] + list(args)
-        return await self._client.execute(cmd)
+        if self._is_upstash:
+            cmd = ["EVAL", script, str(numkeys)] + list(args)
+            return await self._client.execute(cmd)
+        return await self._client.eval(script, numkeys, *args)
 
 
-redis_client: UpstashRedisAdapter = UpstashRedisAdapter(
-    url=settings.UPSTASH_REDIS_REST_URL or "",
-    token=settings.UPSTASH_REDIS_REST_TOKEN or "",
-)
+def _build_redis_client() -> RedisAdapter:
+    if settings.UPSTASH_REDIS_REST_URL and settings.UPSTASH_REDIS_REST_TOKEN:
+        logger.info("Redis client: Upstash REST")
+        return RedisAdapter(
+            UpstashRedis(url=settings.UPSTASH_REDIS_REST_URL, token=settings.UPSTASH_REDIS_REST_TOKEN)
+        )
+    logger.info("Redis client: plain Redis at %s", settings.REDIS_URL)
+    return RedisAdapter(AsyncRedis.from_url(settings.REDIS_URL, decode_responses=True))
+
+
+redis_client: RedisAdapter = _build_redis_client()
 
 _RETRY_DELAYS = [1, 2, 4, 8, 16]
 
