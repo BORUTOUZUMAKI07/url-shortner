@@ -9,8 +9,9 @@ import {
   Key, Webhook, Upload, Settings, Users, LogOut,
   Heart, History, Crown, Shield, Menu, X,
 } from "lucide-react"
+import { toast } from "sonner"
 import { useAuthStore } from "@/store/auth"
-import { auth } from "@/lib/api"
+import { adminApi, auth, getErrorMessage } from "@/lib/api"
 
 interface NavItem {
   href: string
@@ -51,8 +52,23 @@ const sections: { label: string; items: NavItem[] }[] = [
 
 export function Sidebar() {
   const [open, setOpen] = useState(false)
+  const [seedingAdmin, setSeedingAdmin] = useState(false)
   const pathname = usePathname()
-  const { user, logout: storeLogout } = useAuthStore()
+  const { user, setUser, logout: storeLogout } = useAuthStore()
+
+  async function handleSeedAdmin() {
+    setSeedingAdmin(true)
+    try {
+      await adminApi.seed()
+      const me = await auth.me()
+      setUser(me)
+      toast.success("Admin panel enabled")
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "Could not enable admin panel"))
+    } finally {
+      setSeedingAdmin(false)
+    }
+  }
 
   const allSections = user?.is_superadmin
     ? [...sections.slice(0, -1), { label: sections[2].label, items: [...sections[2].items, { href: "/admin", label: "Admin", icon: Shield }] }]
@@ -115,6 +131,16 @@ export function Sidebar() {
               <p className="truncate text-xs text-zinc-500">{user.email}</p>
             </div>
           </div>
+          {!user.is_superadmin && (
+            <button
+              onClick={handleSeedAdmin}
+              disabled={seedingAdmin}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-purple-400 hover:bg-purple-500/10 disabled:opacity-60"
+            >
+              <Crown className="size-4" />
+              {seedingAdmin ? "Enabling..." : "Enable Admin Panel"}
+            </button>
+          )}
           <button
             onClick={() => { auth.logout().catch(() => {}); storeLogout(); window.location.href = "/login" }}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-red-400 hover:bg-red-500/10"

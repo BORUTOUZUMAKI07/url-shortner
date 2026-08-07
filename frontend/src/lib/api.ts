@@ -208,6 +208,7 @@ export const workspacesApi = {
 export interface AdminStats { total_users: number; total_workspaces: number; total_urls: number }
 export interface AdminListResponse<T> { total: number; items: T[] }
 export const adminApi = {
+  seed: () => apiFetch<{ detail: string }>("/admin/seed", { method: "POST" }),
   stats: () => apiFetch<AdminStats>("/admin/stats"),
   listUsers: (skip = 0, limit = 50) => apiFetch<{ total: number; users: User[] }>(`/admin/users?skip=${skip}&limit=${limit}`),
   getUser: (id: number) => apiFetch<User>(`/admin/users/${id}`),

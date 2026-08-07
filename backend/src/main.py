@@ -47,7 +47,7 @@ from src.shared.core.tracing import (
     instrument_sqlalchemy,
 )
 from src.shared.errors.base import AppError
-from src.shared.events.kafka import close_kafka, init_kafka
+from src.shared.events.kafka import close_kafka, init_kafka, producer
 from src.shared.middleware.audit import AuditContextMiddleware
 from src.shared.middleware.metrics import MetricsMiddleware
 from src.shared.middleware.rate_limit import RateLimitMiddleware
@@ -106,7 +106,12 @@ def create_app(lifespan_override=None):
         status = 503 if not db_ok or not redis_ok else 200
         return JSONResponse(
             status_code=status,
-            content={"status": "unhealthy" if status == 503 else "healthy", "database": db_ok, "redis": redis_ok},
+            content={
+                "status": "unhealthy" if status == 503 else "healthy",
+                "database": db_ok,
+                "redis": redis_ok,
+                "kafka": producer is not None,
+            },
         )
 
     # Include routers (bulk must be before urls to avoid /urls/{id}/qr catching /urls/bulk/qr)
