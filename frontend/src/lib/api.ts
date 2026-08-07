@@ -29,6 +29,8 @@ async function tryRefresh(): Promise<boolean> {
 function clearTokens() {
   document.cookie = "access_token=; path=/; max-age=0"
   document.cookie = "refresh_token=; path=/; max-age=0"
+  localStorage.removeItem("access_token")
+  localStorage.removeItem("refresh_token")
 }
 
 async function handleUnauthorized() {

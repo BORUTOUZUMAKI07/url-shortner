@@ -9,9 +9,30 @@ const protectedPaths = [
 
 const authPaths = ["/login", "/forgot-password", "/reset-password"]
 
+function decodeTokenExp(token: string): number | null {
+  try {
+    const part = token.split(".")[1]
+    if (!part) return null
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/")
+    const padded = b64.padEnd(b64.length + ((4 - (b64.length % 4)) % 4), "=")
+    const payload = JSON.parse(atob(padded))
+    return typeof payload.exp === "number" ? payload.exp : null
+  } catch {
+    return null
+  }
+}
+
+function isTokenValid(token: string | undefined): boolean {
+  if (!token) return false
+  const exp = decodeTokenExp(token)
+  if (exp === null) return false
+  return exp * 1000 > Date.now()
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const token = request.cookies.get("access_token")?.value
+  const cookieToken = request.cookies.get("access_token")?.value
+  const token = isTokenValid(cookieToken) ? cookieToken : undefined
   const isProtected = protectedPaths.some((p) => pathname === p || pathname.startsWith(p + "/"))
   const isAuthPage = authPaths.some((p) => pathname === p || pathname.startsWith(p + "/"))
 
@@ -40,6 +61,8 @@ export function proxy(request: NextRequest) {
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
     })
+  } else if (cookieToken) {
+    response.cookies.set("access_token", "", { path: "/", maxAge: 0 })
   }
 
   return response
