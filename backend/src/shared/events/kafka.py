@@ -17,6 +17,9 @@ _RETRY_DELAYS = [1, 2, 4, 8, 16]  # exponential backoff seconds
 
 async def init_kafka():
     global producer
+    if producer is not None:
+        logger.info("Kafka Producer already initialized.")
+        return
     kwargs: dict[str, Any] = {
         "bootstrap_servers": settings.KAFKA_BOOTSTRAP_SERVERS,
         "security_protocol": settings.KAFKA_SECURITY_PROTOCOL,
