@@ -52,7 +52,7 @@ export default function FavoritesPage() {
     removeMutation.mutate(url_id)
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace("/api/v1", "") || "http://127.0.0.1:8000"
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : ""
 
   return (
     <div className="p-6">

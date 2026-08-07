@@ -140,7 +140,7 @@ export default function URLDetailPage() {
     </div>
   )
 
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace("/api/v1", "") || "http://127.0.0.1:8000"
+  const baseUrl = window.location.origin
 
   const infoItems: InfoItem[] = [
     { label: "Short Code", value: url.short_code, icon: Hash, link: `${baseUrl}/${url.short_code}` },
