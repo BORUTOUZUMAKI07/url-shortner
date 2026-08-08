@@ -1,5 +1,18 @@
 # Critical Fixes
 
+## Testcontainers — `Settings()` Rebuilt Too Early (CI "localhost:27017 refused")
+
+**File:** `backend/tests/testcontainers.py` function `start_containers`
+
+`config.settings` was rebuilt with `Settings()` right after `DATABASE_URL` was set, but **before** `MONGODB_URI` / `REDIS_URL` were written to the environment. pydantic-settings keeps the already-constructed defaults, so `init_mongodb()` used `mongodb://admin:adminpassword@localhost:27017` (the default) instead of the container's mapped port.
+
+- **Locally this was masked** by a stray local MongoDB on `127.0.0.1:27017` — Mongo tests "passed" against it, not the container.
+- **On GitHub runners** it failed deterministically: 5 × `pymongo.errors.ServerSelectionTimeoutError: localhost:27017: Connection refused` in `test_workers.py`.
+
+**Fix:** set ALL of `DATABASE_URL`, `MONGODB_URI`, `REDIS_URL` (and `_USE_TESTCONTAINERS`) first, then rebuild `config.settings = Settings()` as the last step of `start_containers()`.
+
+Related noise: `reset_pooled_engine` in `tests/test_workers.py` disposes the shared app engine whose asyncpg connections live on earlier function-scoped loops → asyncpg logs benign `RuntimeError: Event loop is closed` / "attached to a different loop" (GitHub surfaced these as 10× error annotations). The fixture suppresses the `sqlalchemy.pool` logger during dispose.
+
 ## Redis — Plain-Redis Fallback (docker-compose / local)
 
 **File:** `backend/src/shared/core/redis.py`
