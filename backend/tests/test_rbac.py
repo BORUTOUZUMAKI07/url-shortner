@@ -3,6 +3,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.identity.models.user import User
+from src.shared.core.security import hash_password
 from src.shared.middleware.rbac import require_role
 from src.workspaces.models.workspace import Workspace
 from src.workspaces.models.workspace_member import MemberRole, WorkspaceMember
@@ -37,7 +38,30 @@ async def test_require_role_editor_has_admin(db: AsyncSession, test_user: User, 
 
 
 @pytest.mark.asyncio
-async def test_require_role_viewer_denied_for_editor(db: AsyncSession, test_user: User, test_workspace: Workspace):
+async def test_require_role_viewer_denied_for_editor(db: AsyncSession, test_workspace: Workspace):
+    viewer = User(
+        email="viewer@example.com",
+        password_hash=hash_password("testpass123"),
+        is_verified=True,
+    )
+    db.add(viewer)
+    await db.flush()
+
+    member = WorkspaceMember(
+        workspace_id=test_workspace.id,
+        user_id=viewer.id,
+        role=MemberRole.viewer,
+    )
+    db.add(member)
+    await db.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        await require_role(workspace_id=test_workspace.id, user_id=viewer.id, min_role=MemberRole.editor, db=db)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_require_role_owner_always_allowed(db: AsyncSession, test_user: User, test_workspace: Workspace):
     member = WorkspaceMember(
         workspace_id=test_workspace.id,
         user_id=test_user.id,
@@ -46,9 +70,8 @@ async def test_require_role_viewer_denied_for_editor(db: AsyncSession, test_user
     db.add(member)
     await db.flush()
 
-    with pytest.raises(HTTPException) as exc:
-        await require_role(workspace_id=test_workspace.id, user_id=test_user.id, min_role=MemberRole.editor, db=db)
-    assert exc.value.status_code == 403
+    result = await require_role(workspace_id=test_workspace.id, user_id=test_user.id, min_role=MemberRole.editor, db=db)
+    assert result is True
 
 
 @pytest.mark.asyncio
