@@ -1,6 +1,7 @@
 
 from src.links.repositories.tag_repository import TagRepository
-from src.shared.errors import ConflictError, NotFoundError, WorkspaceNotFound
+from src.shared.errors import ConflictError, NotFoundError, RoleTooLow, WorkspaceNotFound
+from src.workspaces.models.workspace_member import MemberRole
 from src.workspaces.repositories.workspace_repository import WorkspaceRepository
 
 
@@ -14,8 +15,13 @@ class TagService:
         if not ws:
             raise WorkspaceNotFound()
 
+    async def _verify_write_role(self, workspace_id: int, user_id: int):
+        if not await self.workspace_repo.verify_role(workspace_id, user_id, MemberRole.editor):
+            raise RoleTooLow("editor")
+
     async def create(self, name: str, workspace_id: int, user_id: int):
         await self._verify_workspace(workspace_id, user_id)
+        await self._verify_write_role(workspace_id, user_id)
         if await self.repo.name_exists_in_workspace(name, workspace_id):
             raise ConflictError("Tag already exists in this workspace.")
         return await self.repo.create(name=name.strip().lower(), workspace_id=workspace_id)
@@ -29,4 +35,5 @@ class TagService:
         if not tag:
             raise NotFoundError("Tag not found.")
         await self._verify_workspace(tag.workspace_id, user_id)
+        await self._verify_write_role(tag.workspace_id, user_id)
         await self.repo.delete(id)

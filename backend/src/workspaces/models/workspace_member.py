@@ -13,6 +13,13 @@ class MemberRole(str, enum.Enum):
     viewer = "viewer"
 
 
+ROLE_HIERARCHY = {
+    MemberRole.admin: 3,
+    MemberRole.editor: 2,
+    MemberRole.viewer: 1,
+}
+
+
 class WorkspaceMember(Base):
     __tablename__ = "workspace_members"
 

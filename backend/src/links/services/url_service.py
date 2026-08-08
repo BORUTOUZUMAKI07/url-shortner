@@ -15,11 +15,13 @@ from src.shared.errors import (
     AliasConflict,
     AliasReserved,
     FolderNotInWorkspace,
+    RoleTooLow,
     URLNotFound,
     WorkspaceNotFound,
 )
 from src.shared.events.dispatcher import EventDispatcher
 from src.webhooks.services.webhook_service import WebhookService
+from src.workspaces.models.workspace_member import MemberRole
 from src.workspaces.repositories.workspace_repository import WorkspaceRepository
 
 logger = get_logger(__name__)
@@ -53,8 +55,13 @@ class URLService:
         if not ws:
             raise WorkspaceNotFound()
 
+    async def _verify_write_role(self, workspace_id: int, user_id: int):
+        if not await self.workspace_repo.verify_role(workspace_id, user_id, MemberRole.editor):
+            raise RoleTooLow("editor")
+
     async def create(self, payload, user_id: int) -> URL:
         await self._verify_workspace_access(payload.workspace_id, user_id)
+        await self._verify_write_role(payload.workspace_id, user_id)
 
         if payload.folder_id:
             if not await self.folder_repo.folder_belongs_to_workspace(payload.folder_id, payload.workspace_id):
@@ -158,6 +165,7 @@ class URLService:
 
     async def update(self, id: int, payload, user_id: int) -> URL:
         url = await self.get(id, user_id)
+        await self._verify_write_role(url.workspace_id, user_id)
         before = {"original_url": url.original_url, "status": url.status.value, "folder_id": url.folder_id}
         if payload.folder_id is not None:
             if not await self.folder_repo.folder_belongs_to_workspace(payload.folder_id, url.workspace_id):
@@ -214,11 +222,13 @@ class URLService:
         return result
 
     async def update_qr(self, id: int, qr_b64: str, user_id: int) -> None:
-        await self.get(id, user_id)
+        url = await self.get(id, user_id)
+        await self._verify_write_role(url.workspace_id, user_id)
         await self.url_repo.update(id, qr_code=qr_b64)
 
     async def delete(self, id: int, user_id: int) -> None:
         url = await self.get(id, user_id)
+        await self._verify_write_role(url.workspace_id, user_id)
         await self.url_repo.soft_delete(id)
         await delete_url_cache(url.short_code)
         try:

@@ -1,3 +1,4 @@
+import asyncio
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -62,6 +63,10 @@ class EmailService:
         if not cls.is_configured():
             logger.info(f"[EMAIL] Would send email to {to_email}: {subject}")
             return
+        await asyncio.to_thread(cls._send_sync, to_email, subject, html, logger)
+
+    @classmethod
+    def _send_sync(cls, to_email: str, subject: str, html: str, logger) -> None:
         try:
             msg = MIMEMultipart("alternative")
             msg["From"] = f"{cls.FROM_NAME} <{cls.FROM_EMAIL}>"

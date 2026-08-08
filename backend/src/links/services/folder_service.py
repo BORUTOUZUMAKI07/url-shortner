@@ -1,6 +1,7 @@
 
 from src.links.repositories.folder_repository import FolderRepository
-from src.shared.errors import ConflictError, NotFoundError, WorkspaceNotFound
+from src.shared.errors import ConflictError, NotFoundError, RoleTooLow, WorkspaceNotFound
+from src.workspaces.models.workspace_member import MemberRole
 from src.workspaces.repositories.workspace_repository import WorkspaceRepository
 
 
@@ -14,8 +15,13 @@ class FolderService:
         if not ws:
             raise WorkspaceNotFound()
 
+    async def _verify_write_role(self, workspace_id: int, user_id: int):
+        if not await self.workspace_repo.verify_role(workspace_id, user_id, MemberRole.editor):
+            raise RoleTooLow("editor")
+
     async def create(self, name: str, workspace_id: int, user_id: int):
         await self._verify_workspace(workspace_id, user_id)
+        await self._verify_write_role(workspace_id, user_id)
         if await self.repo.name_exists_in_workspace(name, workspace_id):
             raise ConflictError("Folder name already exists in this workspace.")
         return await self.repo.create(name=name, workspace_id=workspace_id)
@@ -29,6 +35,7 @@ class FolderService:
         if not folder:
             raise NotFoundError("Folder not found.")
         await self._verify_workspace(folder.workspace_id, user_id)
+        await self._verify_write_role(folder.workspace_id, user_id)
         if await self.repo.name_exists_in_workspace(name, folder.workspace_id, exclude_id=id):
             raise ConflictError("Another folder with this name already exists.")
         return await self.repo.update(id, name=name)
@@ -38,4 +45,5 @@ class FolderService:
         if not folder:
             raise NotFoundError("Folder not found.")
         await self._verify_workspace(folder.workspace_id, user_id)
+        await self._verify_write_role(folder.workspace_id, user_id)
         await self.repo.delete(id)

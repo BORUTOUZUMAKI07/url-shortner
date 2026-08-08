@@ -84,6 +84,21 @@ def _validate_short_code(short_code: str) -> None:
         raise URLNotFound()
 
 
+def _client_ip(request: Request) -> str:
+    """Resolve the client IP without trusting spoofed X-Forwarded-For values.
+
+    The leftmost XFF entry is client-controlled; the rightmost entry is appended
+    by the trusted reverse proxy (Render) and reflects the real client. When no
+    proxy is in front, fall back to the socket peer address.
+    """
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    return request.client.host if request.client else "unknown"
+
+
 def _check_same_origin(request: Request) -> None:
     """Reject requests whose ``Referer`` does not match the backend origin."""
     from urllib.parse import urlparse
@@ -136,9 +151,7 @@ async def redirect_to_url(
     referer: Optional[str] = Header(None),
     svc: RedirectService = Depends(get_redirect_service),
 ):
-    x_forwarded_for = request.headers.get("X-Forwarded-For")
-    client_host = request.client.host if request.client else "127.0.0.1"
-    ip = x_forwarded_for.split(",")[0].strip() if x_forwarded_for else client_host
+    ip = _client_ip(request)
 
     return await _resolve_and_redirect(short_code, ip, user_agent, referer, None, svc)
 
@@ -156,9 +169,7 @@ async def redirect_with_password(
     svc: RedirectService = Depends(get_redirect_service),
 ):
     _check_same_origin(request)
-    x_forwarded_for = request.headers.get("X-Forwarded-For")
-    client_host = request.client.host if request.client else "127.0.0.1"
-    ip = x_forwarded_for.split(",")[0].strip() if x_forwarded_for else client_host
+    ip = _client_ip(request)
 
     rate_key = f"pw_attempt:{ip}:{short_code}"
     limited = await check_rate_limit(rate_key, capacity=10, refill_rate_per_sec=1.0 / 6.0)

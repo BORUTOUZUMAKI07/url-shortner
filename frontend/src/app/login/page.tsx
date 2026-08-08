@@ -8,7 +8,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { Button } from "@/components/ui/button"
 import { auth, getErrorMessage } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
-import { setTokenCookie, setRefreshTokenCookie } from "@/lib/token-cookie"
 import { loginSchema, type LoginFormData } from "@/lib/schemas"
 import { motion } from "motion/react"
 
@@ -35,17 +34,14 @@ function LoginForm() {
 
   useEffect(() => {
     if (processedRef.current) return
-    const accessToken = searchParams.get("access_token")
     const refreshToken = searchParams.get("refresh_token")
-    if (accessToken) {
+    if (refreshToken) {
       processedRef.current = true
-      localStorage.setItem("access_token", accessToken)
-      setTokenCookie(accessToken)
-      if (refreshToken) {
-        localStorage.setItem("refresh_token", refreshToken)
-        setRefreshTokenCookie(refreshToken)
-      }
-      auth.me().then(setUser).then(redirectAfterLogin)
+      auth.refresh(refreshToken)
+        .then(() => auth.me())
+        .then(setUser)
+        .then(redirectAfterLogin)
+        .catch(() => setError("root", { message: "OAuth login failed. Please try again." }))
       return
     }
     const inviteToken = searchParams.get("invite_token")
@@ -56,13 +52,7 @@ function LoginForm() {
 
   async function onSubmit(data: LoginFormData) {
     try {
-      const tokens = await auth.login(data.email, data.password)
-      localStorage.setItem("access_token", tokens.access_token)
-      setTokenCookie(tokens.access_token)
-      if (tokens.refresh_token) {
-        localStorage.setItem("refresh_token", tokens.refresh_token)
-        setRefreshTokenCookie(tokens.refresh_token)
-      }
+      await auth.login(data.email, data.password)
       const user = await auth.me()
       setUser(user)
       redirectAfterLogin()

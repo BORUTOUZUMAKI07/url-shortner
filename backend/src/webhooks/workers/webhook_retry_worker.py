@@ -65,9 +65,21 @@ async def retry_failed_events(logger):
                         },
                         timeout=10.0,
                     )
-                event.status = "delivered"
-                event.response_code = resp.status_code
-                event.error = None
+                if resp.is_success:
+                    event.status = "delivered"
+                    event.response_code = resp.status_code
+                    event.error = None
+                else:
+                    event.retry_count += 1
+                    event.response_code = resp.status_code
+                    event.error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                    logger.warning(
+                        "Webhook %s returned %s for event %s (retry %d)",
+                        wh.url, resp.status_code, event.event_type, event.retry_count,
+                    )
+                    if event.retry_count >= MAX_RETRIES:
+                        await _move_to_dlq(db, event, event.error)
+                        await db.delete(event)
             except Exception as e:
                 event.retry_count += 1
                 event.error = str(e)

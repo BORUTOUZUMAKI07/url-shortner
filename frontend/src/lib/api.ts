@@ -1,36 +1,21 @@
-import { setTokenCookie, setRefreshTokenCookie } from "@/lib/token-cookie"
-
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
 
 async function tryRefresh(): Promise<boolean> {
   try {
-    const refreshToken = typeof window !== "undefined" ? localStorage.getItem("refresh_token") : null
-    if (!refreshToken) return false
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken }),
       credentials: "include",
     })
     if (!res.ok) return false
     const data = await res.json()
-    if (data.access_token) {
-      localStorage.setItem("access_token", data.access_token)
-      setTokenCookie(data.access_token)
-    }
-    if (data.refresh_token) {
-      localStorage.setItem("refresh_token", data.refresh_token)
-      setRefreshTokenCookie(data.refresh_token)
-    }
-    return true
+    return !!data.access_token
   } catch { return false }
 }
 
 function clearTokens() {
   document.cookie = "access_token=; path=/; max-age=0"
   document.cookie = "refresh_token=; path=/; max-age=0"
-  localStorage.removeItem("access_token")
-  localStorage.removeItem("refresh_token")
 }
 
 async function handleUnauthorized() {

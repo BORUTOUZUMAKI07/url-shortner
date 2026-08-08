@@ -5,6 +5,7 @@ from src.analytics.schemas.billing import UpgradePlanRequest, UpgradePlanRespons
 from src.identity.models.user import PlanEnum, User
 from src.identity.repositories.user_repository import UserRepository
 from src.shared.core.deps import get_current_user, get_db
+from src.shared.middleware.rate_limit import invalidate_user_plan_cache
 
 router = APIRouter(prefix="/billing", tags=["Billing"])
 
@@ -27,4 +28,5 @@ async def upgrade_plan(
 
     repo = UserRepository(db)
     await repo.update(current_user.id, plan=PlanEnum(plan))
+    invalidate_user_plan_cache(current_user.id)
     return UpgradePlanResponse(detail=f"Plan upgraded to {plan}.", plan=plan)

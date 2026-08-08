@@ -7,11 +7,12 @@ import httpx
 from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.shared.errors import NotFoundError, WorkspaceNotFound
+from src.shared.errors import NotFoundError, RoleTooLow, WorkspaceNotFound
 from src.webhooks.models.webhook import Webhook
 from src.webhooks.models.webhook_event import WebhookEvent
 from src.webhooks.models.webhook_subscription import WebhookSubscription
 from src.webhooks.repositories.webhook_repository import WebhookRepository
+from src.workspaces.models.workspace_member import MemberRole
 from src.workspaces.repositories.workspace_repository import WorkspaceRepository
 
 
@@ -43,8 +44,13 @@ class WebhookService:
         if not ws:
             raise WorkspaceNotFound()
 
+    async def _verify_write_role(self, workspace_id: int, user_id: int):
+        if not await self.workspace_repo.verify_role(workspace_id, user_id, MemberRole.editor):
+            raise RoleTooLow("editor")
+
     async def create(self, workspace_id: int, url: str, events: list[str], secret: str, user_id: int):
         await self._verify_access(workspace_id, user_id)
+        await self._verify_write_role(workspace_id, user_id)
         webhook = Webhook(workspace_id=workspace_id, url=str(url), secret=encrypt_secret(secret))
         self.db.add(webhook)
         await self.db.flush()
@@ -66,6 +72,7 @@ class WebhookService:
 
     async def update(self, webhook_id: int, workspace_id: int, user_id: int, **kwargs):
         wh = await self.get(webhook_id, workspace_id, user_id)
+        await self._verify_write_role(workspace_id, user_id)
         events = kwargs.pop("events", None)
         if events is not None:
             events = [str(e) for e in events]
@@ -89,6 +96,7 @@ class WebhookService:
 
     async def delete(self, webhook_id: int, workspace_id: int, user_id: int):
         await self.get(webhook_id, workspace_id, user_id)
+        await self._verify_write_role(workspace_id, user_id)
         await self.repo.delete(webhook_id)
 
     async def deliver_event(self, workspace_id: int, event_type: str, payload: dict):
@@ -109,11 +117,19 @@ class WebhookService:
                         },
                         timeout=10.0,
                     )
-                self.db.add(WebhookEvent(
-                    webhook_id=wh.id, event_type=event_type,
-                    payload=json.dumps(payload), status="delivered",
-                    response_code=resp.status_code,
-                ))
+                if resp.is_success:
+                    self.db.add(WebhookEvent(
+                        webhook_id=wh.id, event_type=event_type,
+                        payload=json.dumps(payload), status="delivered",
+                        response_code=resp.status_code,
+                    ))
+                else:
+                    self.db.add(WebhookEvent(
+                        webhook_id=wh.id, event_type=event_type,
+                        payload=json.dumps(payload), status="failed",
+                        response_code=resp.status_code,
+                        error=f"HTTP {resp.status_code}: {resp.text[:200]}",
+                    ))
             except Exception as e:
                 self.db.add(WebhookEvent(
                     webhook_id=wh.id, event_type=event_type,

@@ -38,9 +38,14 @@ def deserialize(topic: str, data: bytes) -> dict[str, object]:
     buf = io.BytesIO(data)
     try:
         return fastavro.schemaless_reader(buf, schema)  # type: ignore[return-value]
-    except Exception:
+    except Exception as e:
         old_schema = _evolve_schema(schema)
         buf.seek(0)
+        logger.warning(
+            "Deserialization failed for topic %s with current schema (%s); retrying with evolved schema",
+            topic,
+            e,
+        )
         return fastavro.schemaless_reader(buf, old_schema)  # type: ignore[return-value]
 
 

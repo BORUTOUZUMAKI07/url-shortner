@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Response, status
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 
@@ -39,8 +41,16 @@ async def login(response: Response, payload: UserLogin, svc: AuthService = Depen
 
 @router.post("/refresh", response_model=Token,
     summary="Refresh access token")
-async def refresh(response: Response, payload: RefreshTokenRequest, svc: AuthService = Depends(get_auth_service)):
-    token = await svc.refresh(payload.refresh_token)
+async def refresh(
+    request: Request,
+    response: Response,
+    payload: Optional[RefreshTokenRequest] = None,
+    svc: AuthService = Depends(get_auth_service),
+):
+    refresh_token = payload.refresh_token if payload and payload.refresh_token else request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
+    token = await svc.refresh(refresh_token)
     _set_auth_cookies(response, token.access_token, token.refresh_token)
     return token
 
@@ -49,11 +59,18 @@ async def refresh(response: Response, payload: RefreshTokenRequest, svc: AuthSer
     summary="Logout",
     description="Blacklists the current access token and clears auth cookies.")
 async def logout(
+    request: Request,
     response: Response,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     svc: AuthService = Depends(get_auth_service),
 ):
     await svc.logout(credentials.credentials)
+    refresh_cookie = request.cookies.get("refresh_token")
+    if refresh_cookie:
+        try:
+            await svc.logout(refresh_cookie)
+        except Exception:
+            pass
     response.delete_cookie(key="access_token", path="/")
     response.delete_cookie(key="refresh_token", path="/")
     return {"detail": "Successfully logged out"}
@@ -105,7 +122,10 @@ async def initiate_oauth(provider: str, svc: AuthService = Depends(get_auth_serv
     description="Exchange the OAuth authorization code for a JWT token pair, then redirect to frontend.")
 async def oauth_callback(provider: str, code: str, state: str, svc: AuthService = Depends(get_auth_service)):
     tokens = await svc.oauth_callback(provider, code, state)
-    redirect_url = f"{settings.FRONTEND_URL}/login?access_token={tokens.access_token}&refresh_token={tokens.refresh_token}"
+    # Only the refresh token travels via the URL (cross-origin handoff); the
+    # login page exchanges it for a fresh access token via /auth/refresh, which
+    # sets HttpOnly cookies on the frontend origin.
+    redirect_url = f"{settings.FRONTEND_URL}/login?refresh_token={tokens.refresh_token}"
     return RedirectResponse(url=redirect_url, status_code=302)
 
 

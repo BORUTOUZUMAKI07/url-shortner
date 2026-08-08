@@ -12,7 +12,7 @@ class KafkaConnectionPool:
         self.bootstrap_servers = bootstrap_servers
         self.consumer_config = consumer_config
         self._connection_lock = asyncio.Lock()
-        self._backoff_factor = 1.0
+        self._backoff_factor = 2.0
         self._max_backoff = 30.0
         self._current_backoff = 1.0
 

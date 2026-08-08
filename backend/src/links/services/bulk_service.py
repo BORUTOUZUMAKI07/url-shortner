@@ -18,7 +18,8 @@ from src.shared.core.base62 import hashid_encode
 from src.shared.core.config import settings
 from src.shared.core.redis import delete_url_cache
 from src.shared.core.security import hash_password
-from src.shared.errors import BadRequestError, FolderNotInWorkspace, NotFoundError, WorkspaceNotFound
+from src.shared.errors import BadRequestError, FolderNotInWorkspace, NotFoundError, RoleTooLow, WorkspaceNotFound
+from src.workspaces.models.workspace_member import MemberRole
 from src.workspaces.repositories.workspace_repository import WorkspaceRepository
 
 
@@ -32,6 +33,10 @@ class BulkService:
         ws = await self.workspace_repo.verify_access(workspace_id, user_id)
         if not ws:
             raise WorkspaceNotFound()
+
+    async def _verify_write_role(self, workspace_id: int, user_id: int):
+        if not await self.workspace_repo.verify_role(workspace_id, user_id, MemberRole.editor):
+            raise RoleTooLow("editor")
 
     async def _resolve_folder(self, folder_id_str: str | None, workspace_id: int) -> int | None:
         if not folder_id_str:
@@ -58,6 +63,7 @@ class BulkService:
 
     async def create_from_csv(self, workspace_id: int, user_id: int, contents: bytes):
         await self._verify_workspace(workspace_id, user_id)
+        await self._verify_write_role(workspace_id, user_id)
         try:
             reader = csv.DictReader(io.StringIO(contents.decode("utf-8")))
         except Exception:
@@ -136,12 +142,14 @@ class BulkService:
 
     async def update(self, workspace_id: int, user_id: int, url_ids: list[int], **kwargs):
         await self._verify_workspace(workspace_id, user_id)
+        await self._verify_write_role(workspace_id, user_id)
         if not kwargs:
             raise BadRequestError("No update fields provided.")
         await self.url_repo.bulk_update(url_ids, workspace_id, **kwargs)
 
     async def disable(self, workspace_id: int, user_id: int, url_ids: list[int]):
         await self._verify_workspace(workspace_id, user_id)
+        await self._verify_write_role(workspace_id, user_id)
         rows = await self.url_repo.get_short_codes_by_ids(url_ids, workspace_id)
         await self.url_repo.bulk_update(url_ids, workspace_id, status=URLStatus.disabled)
         for row in rows:
@@ -151,6 +159,7 @@ class BulkService:
     async def reactivate(self, workspace_id: int, user_id: int, url_ids: list[int]):
         from sqlalchemy import and_, update
         await self._verify_workspace(workspace_id, user_id)
+        await self._verify_write_role(workspace_id, user_id)
         await self.db.execute(
             update(URL)
             .where(and_(URL.id.in_(url_ids), URL.workspace_id == workspace_id, URL.status == URLStatus.disabled))
@@ -161,6 +170,7 @@ class BulkService:
 
     async def delete(self, workspace_id: int, user_id: int, url_ids: list[int]):
         await self._verify_workspace(workspace_id, user_id)
+        await self._verify_write_role(workspace_id, user_id)
         rows = await self.url_repo.get_short_codes_by_ids(url_ids, workspace_id)
         await self.url_repo.bulk_update(url_ids, workspace_id, status=URLStatus.deleted)
         for row in rows:

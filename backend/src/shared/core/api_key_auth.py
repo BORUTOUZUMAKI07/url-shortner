@@ -21,37 +21,28 @@ class APIKeyQuotaManager:
     QUOTA_FREE = 1_000  # 1,000 requests/day for free tier
     QUOTA_PREMIUM = 100_000  # 100,000 requests/day for premium tier
 
+    # Atomic check-and-increment: returns 1 and increments when the quota is
+    # available, otherwise 0 without incrementing. Eliminates the race between
+    # the previous GET-then-INCR that could overrun the daily cap.
+    CHECK_AND_INCREMENT_LUA = """
+local key = KEYS[1]
+local quota = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
+local current = tonumber(redis.call('GET', key) or '0')
+if current >= quota then
+    return 0
+end
+redis.call('INCR', key)
+redis.call('EXPIRE', key, ttl)
+return 1
+"""
+
     @staticmethod
     def get_quota_for_user(user_plan: str) -> int:
         """Get daily quota based on user's plan."""
         if user_plan in ("premium", "enterprise"):
             return APIKeyQuotaManager.QUOTA_PREMIUM
         return APIKeyQuotaManager.QUOTA_FREE
-
-    @staticmethod
-    async def check_quota(api_key_id: int, user_plan: str) -> bool:
-        """
-        Check if API key has remaining quota for today.
-        Returns True if quota available, False if exceeded.
-        """
-        quota = APIKeyQuotaManager.get_quota_for_user(user_plan)
-        redis_key = f"api_key_quota:{api_key_id}:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
-
-        # Get current usage from Redis
-        current_usage = await redis_client.get(redis_key)
-        current_usage = int(current_usage) if current_usage else 0
-
-        return current_usage < quota
-
-    @staticmethod
-    async def increment_quota(api_key_id: int) -> None:
-        """Increment quota usage for today."""
-        today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-        redis_key = f"api_key_quota:{api_key_id}:{today}"
-
-        # Increment and set expiry to end of day (24 hours)
-        await redis_client.incr(redis_key)
-        await redis_client.expire(redis_key, 86400)  # 86400 seconds = 24 hours
 
     @staticmethod
     async def get_remaining_quota(api_key_id: int, user_plan: str) -> int:
@@ -110,7 +101,7 @@ async def authenticate_api_key(request: Request) -> tuple[User, APIKey]:
 
 async def verify_api_key_quota(user_id: int, api_key_id: int) -> None:
     """
-    Verify that API key has remaining quota.
+    Verify that API key has remaining quota, atomically consuming one request.
     Raises HTTPException if quota exceeded.
     """
     async with AsyncSessionLocal() as db:
@@ -119,10 +110,15 @@ async def verify_api_key_quota(user_id: int, api_key_id: int) -> None:
         if not user:
             raise NotFoundError("User not found")
 
-        has_quota = await APIKeyQuotaManager.check_quota(api_key_id, user.plan)
-        if not has_quota:
+        quota = APIKeyQuotaManager.get_quota_for_user(user.plan)
+        redis_key = f"api_key_quota:{api_key_id}:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+        allowed = await redis_client.eval(
+            APIKeyQuotaManager.CHECK_AND_INCREMENT_LUA,
+            1,
+            redis_key,
+            str(quota),
+            "86400",
+        )
+        if allowed != 1:
             remaining = await APIKeyQuotaManager.get_remaining_quota(api_key_id, user.plan)
-            raise RateLimitError(f"API key quota exceeded. Limit: {APIKeyQuotaManager.get_quota_for_user(user.plan)} requests/day. Remaining: {remaining}")
-
-        # Increment usage
-        await APIKeyQuotaManager.increment_quota(api_key_id)
+            raise RateLimitError(f"API key quota exceeded. Limit: {quota} requests/day. Remaining: {remaining}")

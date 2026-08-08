@@ -9,13 +9,37 @@ from src.shared import get_logger, setup_logging
 from src.shared.core.click_event import ClickEvent
 from src.shared.core.database import AsyncSessionLocal
 from src.shared.core.mongodb import init_mongodb
+from src.shared.core.redis import redis_client
 
+_CUTOFF_KEY = "aggregation:last_cutoff"
 _last_cutoff: datetime | None = None
 
 
-async def run_aggregation_rollup(logger):
+async def _load_cutoff() -> datetime | None:
     global _last_cutoff
+    if _last_cutoff is not None:
+        return _last_cutoff
+    try:
+        raw = await redis_client.get(_CUTOFF_KEY)
+        if raw:
+            _last_cutoff = datetime.fromisoformat(raw)
+    except Exception:
+        pass
+    return _last_cutoff
+
+
+async def _save_cutoff(cutoff: datetime) -> None:
+    global _last_cutoff
+    _last_cutoff = cutoff
+    try:
+        await redis_client.setex(_CUTOFF_KEY, 90 * 86400, cutoff.isoformat())
+    except Exception:
+        pass
+
+
+async def run_aggregation_rollup(logger):
     match: dict[str, object] = {}
+    _last_cutoff = await _load_cutoff()
     if _last_cutoff:
         match["clicked_at"] = {"$gt": _last_cutoff}
     pipeline: list[dict[str, object]] = []
@@ -40,11 +64,10 @@ async def run_aggregation_rollup(logger):
         logger.error("Failed to aggregate MongoDB events: %s\n%s", str(e), traceback.format_exc())
         return
 
-    if not mongo_results:
-        _last_cutoff = datetime.now(timezone.utc) - timedelta(seconds=1)
-        return
+    await _save_cutoff(datetime.now(timezone.utc) - timedelta(seconds=1))
 
-    _last_cutoff = datetime.now(timezone.utc) - timedelta(seconds=1)
+    if not mongo_results:
+        return
 
     async with AsyncSessionLocal() as db:
         url_repo = URLRepository(db)

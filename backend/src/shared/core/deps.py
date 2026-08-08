@@ -10,11 +10,11 @@ from src.shared.core.database import get_db
 from src.shared.core.redis import redis_client
 from src.shared.core.security import decode_token, verify_password
 
-# In-memory cache for JWT blacklist checks — avoids Redis REST round-trip on every request
-# Trade-off: entries are lost on process restart, and a blacklisted token remains usable
-# for up to _BLACKLIST_CACHE_TTL seconds after being seen here. Acceptable because
-# the cache only speeds up repeated checks — the authoritative source is always Redis.
-# If the process restarts, the cache is empty and every check hits Redis once.
+# Positive-only cache for JWT blacklist checks — avoids a Redis REST round-trip
+# on every request while a token is known to be revoked. A token that is NOT in
+# the cache is never treated as revoked, so revocation is immediate: the first
+# check after blacklisting hits Redis and returns TokenRevoked. The cache entry
+# is short-lived and the authoritative source is always Redis.
 _blacklist_cache: dict[str, float] = {}
 _BLACKLIST_CACHE_TTL = 60  # seconds
 from src.analytics.repositories.analytics_repository import AnalyticsRepository
