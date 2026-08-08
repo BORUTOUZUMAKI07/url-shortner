@@ -39,7 +39,17 @@ def _get_session_local():
 @pytest_asyncio.fixture(autouse=True)
 async def reset_pooled_engine():
     from src.shared.core.database import engine as _pooled_engine
-    await _pooled_engine.dispose()
+    # The shared app engine accumulates asyncpg connections on per-test
+    # function-scoped loops. Disposing them from a later test's loop makes
+    # asyncpg log "Event loop is closed" / "attached to a different loop"
+    # (benign — SQLAlchemy catches it) — suppress that known noise.
+    pool_logger = logging.getLogger("sqlalchemy.pool")
+    prev_level = pool_logger.level
+    pool_logger.setLevel(logging.CRITICAL)
+    try:
+        await _pooled_engine.dispose()
+    finally:
+        pool_logger.setLevel(prev_level)
 
 
 @pytest_asyncio.fixture(autouse=True)

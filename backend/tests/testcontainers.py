@@ -52,6 +52,14 @@ def start_containers() -> None:
 
     os.environ["_USE_TESTCONTAINERS"] = "1"
 
+    # Rebuild Settings() only AFTER every *_URI/_URL env var is set. Otherwise
+    # pydantic-settings keeps the defaults (e.g. mongodb://localhost:27017) and
+    # tests connect to nothing — or, worse, to a stray local service — instead
+    # of the containers. On CI runners this made every init_mongodb() test fail
+    # with "localhost:27017: Connection refused".
+    import src.shared.core.config
+    src.shared.core.config.settings = src.shared.core.config.Settings()
+
 
 def stop_containers() -> None:
     global _pg, _mongo, _redis
