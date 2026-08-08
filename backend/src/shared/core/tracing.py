@@ -42,10 +42,17 @@ def _get_otlp_headers() -> dict:
     return headers
 
 
+_otlp_tracing_initialized = False
+
+
 def init_tracing():
+    global _otlp_tracing_initialized
+    if _otlp_tracing_initialized:
+        return
     if not settings.OTLP_ENABLED:
         logger.info("Tracing disabled, using no-op tracer")
         trace.set_tracer_provider(TracerProvider())
+        _otlp_tracing_initialized = True
         return
 
     resource = Resource.create({
@@ -65,15 +72,24 @@ def init_tracing():
         tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
         trace.set_tracer_provider(tracer_provider)
         logger.info("OTLP tracing initialized")
+        _otlp_tracing_initialized = True
     except Exception as e:
         logger.warning("Failed to initialize OTLP tracing: %s", e)
         trace.set_tracer_provider(TracerProvider(resource=resource))
+        _otlp_tracing_initialized = True
+
+
+_otlp_metrics_initialized = False
 
 
 def init_metrics():
+    global _otlp_metrics_initialized
+    if _otlp_metrics_initialized:
+        return
     if not settings.OTLP_ENABLED:
         logger.info("Metrics disabled, using no-op meter")
         metrics.set_meter_provider(MeterProvider())
+        _otlp_metrics_initialized = True
         return
 
     try:
@@ -90,14 +106,17 @@ def init_metrics():
         meter_provider = MeterProvider(metric_readers=[reader], resource=resource)
         metrics.set_meter_provider(meter_provider)
         logger.info("OTLP metrics initialized")
+        _otlp_metrics_initialized = True
     except Exception as e:
         logger.warning("Failed to initialize OTLP metrics: %s", e)
         metrics.set_meter_provider(MeterProvider())
+        _otlp_metrics_initialized = True
 
 
 def instrument_fastapi(app):
     try:
         FastAPIInstrumentor.instrument_app(app, excluded_urls="/health")
+        app.middleware_stack = None
         logger.info("FastAPI instrumented")
     except Exception as e:
         logger.warning("Failed to instrument FastAPI: %s", e)
@@ -105,7 +124,7 @@ def instrument_fastapi(app):
 
 def instrument_sqlalchemy(engine):
     try:
-        SQLAlchemyInstrumentor().instrument(engine=engine, service=settings.PROJECT_NAME)
+        SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine, service=settings.PROJECT_NAME)
         logger.info("SQLAlchemy instrumented")
     except Exception as e:
         logger.warning("Failed to instrument SQLAlchemy: %s", e)
