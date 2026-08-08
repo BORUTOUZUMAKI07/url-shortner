@@ -44,14 +44,8 @@ class WorkspaceRepository(BaseRepository[Workspace]):
         return None
 
     async def verify_role(self, workspace_id: int, user_id: int, min_role: MemberRole) -> bool:
-        """True if the user owns the workspace or is a member with a role >= min_role."""
-        owner = await self.db.execute(
-            select(Workspace).where(
-                and_(Workspace.id == workspace_id, Workspace.owner_id == user_id)
-            )
-        )
-        if owner.scalar_one_or_none():
-            return True
+        """True if the user has a membership role >= min_role; an explicit membership always wins.
+        Without a membership, the workspace owner is treated as admin."""
         member = await self.db.execute(
             select(WorkspaceMember).where(
                 and_(
@@ -61,9 +55,14 @@ class WorkspaceRepository(BaseRepository[Workspace]):
             )
         )
         m = member.scalar_one_or_none()
-        if not m:
-            return False
-        return ROLE_HIERARCHY.get(m.role, 0) >= ROLE_HIERARCHY.get(min_role, 0)
+        if m:
+            return ROLE_HIERARCHY.get(m.role, 0) >= ROLE_HIERARCHY.get(min_role, 0)
+        owner = await self.db.execute(
+            select(Workspace).where(
+                and_(Workspace.id == workspace_id, Workspace.owner_id == user_id)
+            )
+        )
+        return owner.scalar_one_or_none() is not None
 
     async def create_default(self, user_id: int) -> Workspace:
         ws = await self.create(name="Personal Workspace", owner_id=user_id)
