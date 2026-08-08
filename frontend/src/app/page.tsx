@@ -5,7 +5,7 @@ import Link from "next/link"
 import { motion, useInView } from "motion/react"
 import {
   Link2, BarChart3, Users, Upload, Key, Shield,
-  Check, ChevronDown, ExternalLink,
+  Check, ChevronDown,
   ArrowRight, Sparkles, Zap, Code,
 } from "lucide-react"
 

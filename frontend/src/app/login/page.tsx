@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect, useRef } from "react"
+import { Suspense, useCallback, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
@@ -20,7 +20,7 @@ function LoginForm() {
     resolver: zodResolver(loginSchema),
   })
 
-  function redirectAfterLogin() {
+  const redirectAfterLogin = useCallback(() => {
     const inviteToken = sessionStorage.getItem("invite_token")
     if (inviteToken) {
       sessionStorage.removeItem("invite_token")
@@ -28,7 +28,7 @@ function LoginForm() {
     } else {
       router.push("/dashboard")
     }
-  }
+  }, [router])
 
   const processedRef = useRef(false)
 
@@ -48,7 +48,7 @@ function LoginForm() {
     if (inviteToken) {
       sessionStorage.setItem("invite_token", inviteToken)
     }
-  }, [searchParams])
+  }, [searchParams, redirectAfterLogin, setError, setUser])
 
   async function onSubmit(data: LoginFormData) {
     try {
