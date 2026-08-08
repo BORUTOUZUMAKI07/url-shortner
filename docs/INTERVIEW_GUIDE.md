@@ -467,4 +467,161 @@ Every story follows **Situation → Task → Action → Result**. These are your
 
 ---
 
-*Generated from the real development history of this repository. Re-read Part 4 out loud before interviews — the STAR structure is what interviewers remember.*
+# PART 7 — File-by-file map ("what does this file do?")
+
+Use this when an interviewer says *"walk me through your codebase"* or when you are studying.
+The pattern everywhere is: **routes → services → repositories → models**. Routes parse HTTP, services hold business logic + authorization, repositories do database queries, models define tables.
+
+## Backend — `backend/src/`
+
+### Entry point
+| File | What it does |
+|---|---|
+| `main.py` | The FastAPI app. `create_app()` wires middleware, exception handlers, `/health`, routers, and the **lifespan** which starts the 8 background workers (unless `STANDALONE_WORKERS=1`). |
+
+### `shared/` — cross-cutting everything uses
+| File | What it does |
+|---|---|
+| `core/config.py` | `Settings` (pydantic-settings) — all environment variables, with defaults. Rebuilt once at startup (this caused the testcontainers bug in Story 1). |
+| `core/database.py` | SQLAlchemy async **engine**, `AsyncSessionLocal` factory, `init_db()`, health check. |
+| `core/base.py` | Declarative `Base` + shared model fields (id, timestamps). |
+| `core/base_repository.py` | Generic CRUD (`get`, `get_many`, `create`, `update`, `delete`) every repository inherits. |
+| `core/security.py` | Password hashing, JWT create/decode for access + refresh tokens. |
+| `core/redis.py` | `RedisAdapter` and `_build_redis_client()` — chooses Upstash or plain Redis (Story 3). |
+| `core/mongodb.py` | Async Mongo client init + health check. |
+| `core/click_event.py` | MongoDB `ClickEvent` model + Postgres `URLAnalyticsSummary` model (the cross-DB analytics pair). |
+| `core/deps.py` | FastAPI dependencies: `get_db` (session per request), `get_current_user`. |
+| `core/rbac.py` | `check_role` — core role-hierarchy helper. |
+| `core/api_key_auth.py` | API-key authentication dependency. |
+| `core/geo_service.py` | IP → location resolution (ipinfo.io). |
+| `core/base62.py` | Base62 encoding used for short codes. |
+| `core/metrics.py`, `core/tracing.py` | Prometheus metrics + OpenTelemetry init/instrumentation. |
+| `core/event_dispatcher.py`, `events/dispatcher.py`, `events/schemas.py` | Event publishing plumbing + Kafka payload schemas. |
+| `events/kafka.py` | Kafka producer/consumer helpers, `publish_raw` (with the one-shot producer fallback from Story 7). |
+| `errors/*.py` | Error classes (`AppError` base, auth/common/url/workspace) → HTTP status codes. |
+| `logging.py` | `setup_logging()` — console + file handler with graceful fallback (Story 4). |
+| `middleware/audit.py` | `AuditContextMiddleware` — attaches audit context to requests. |
+| `middleware/metrics.py` | `MetricsMiddleware` — request metrics. |
+| `middleware/rate_limit.py` | `RateLimitMiddleware` — Redis-based rate limiting (uses `database.AsyncSessionLocal` at call time, Story 2 fix). |
+| `middleware/rbac.py` | Only `require_role` helper now (middleware class removed, Story 10). |
+| `middleware/tracing.py` | `TracingMiddleware` — OTel request tracing (Story 9). |
+| `workers/_sni_patch.py` | SNI monkey-patch for Python 3.13 Windows Kafka TLS — patches `wrap_socket` AND `wrap_bio` (Story 6). |
+| `workers/kafka_consumer_pool.py` | Kafka consumer pool with connection backoff. |
+| `workers/shutdown.py` | Graceful shutdown helpers. |
+
+### `identity/` — auth & users
+| File | What it does |
+|---|---|
+| `models/user.py`, `models/api_key.py` | User and ApiKey tables. |
+| `repositories/user_repository.py`, `api_key_repository.py` | User/API-key DB queries. |
+| `services/auth_service.py` | Register, login, refresh, logout; issues **HttpOnly cookies**; OAuth callbacks (Story 12). |
+| `services/api_key_service.py` | Create/list/revoke API keys. |
+| `services/email_service.py` | Verification + password-reset emails. |
+| `services/sso/google_oauth.py`, `github_oauth.py` | OAuth2 login flows. |
+| `routes/auth.py`, `routes/profile.py`, `routes/api_keys.py` | HTTP endpoints under `/api/v1/auth`, `/profile`, `/api-keys`. |
+| `schemas/*.py` | Request/response validation models. |
+
+### `links/` — the URL core
+| File | What it does |
+|---|---|
+| `models/url.py` | URL table — short_code, original_url, status, expiry, optional password, UTM fields. |
+| `models/folder.py`, `models/tag.py`, `models/favorite.py` | Folder, tag, favorite tables. |
+| `services/url_service.py` | Create/update/delete URLs; `_verify_write_role(editor+)`; cache invalidation; publishes events. |
+| `services/redirect_service.py` | Resolves a short code → redirect; records the click; publishes `url-clicked`. |
+| `services/bulk_service.py` | CSV bulk create/export (with role checks). |
+| `services/folder_service.py`, `tag_service.py`, `favorite_service.py`, `utm_service.py` | Their domain logic. |
+| `routes/urls.py`, `redirect.py`, `bulk.py`, `folders.py`, `tags.py`, `favorites.py` | HTTP endpoints. |
+| `workers/expiry_worker.py`, `workers/cleanup_worker.py` | Background jobs: expire links, clean stale data. |
+
+### `workspaces/` — multi-tenant teams
+| File | What it does |
+|---|---|
+| `models/workspace.py`, `models/workspace_member.py`, `models/workspace_invite.py` | Workspace, membership (with `MemberRole` + `ROLE_HIERARCHY`), invites. |
+| `repositories/workspace_repository.py` | `verify_access` (owner-or-member), `verify_role` (owner-first, Story 11), `get_user_workspaces`, `create_default`. |
+| `repositories/workspace_member_repository.py`, `workspace_invite_repository.py` | Membership/invite queries. |
+| `services/workspace_service.py` | Create, rename, delete, invite, accept invite, change roles, remove members — with owner/admin checks (Story 10). |
+| `routes/workspaces.py` | HTTP endpoints. |
+
+### `webhooks/` — external notifications
+| File | What it does |
+|---|---|
+| `models/webhook.py`, `models/webhook_event.py`, `models/webhook_subscription.py`, `models/webhook_received_event.py` | Webhook config, event junction table (Story 16), subscriptions, delivery log. |
+| `services/webhook_service.py` | Webhook CRUD + `_verify_write_role`. |
+| `services/webhook_receiver_service.py` | Delivers events to subscribers. |
+| `routes/webhooks.py`, `routes/webhook_receiver.py` | Management + public receiver endpoints. |
+| `workers/webhook_click_consumer.py`, `webhook_retry_worker.py`, `metadata_worker.py`, `dlq_replay_worker.py` | Background delivery, retries, metadata fetch, DLQ replay. |
+
+### `analytics/` — click analytics
+| File | What it does |
+|---|---|
+| `models/analytics.py`, `models/audit_log.py`, `models/dead_letter.py` | Analytics summary, audit log, dead-letter tables. |
+| `services/analytics_service.py` | Dashboard queries — aggregate by browser/OS/device/geo from Mongo. |
+| `services/audit_service.py` | Audit logging. |
+| `routes/analytics.py`, `routes/audit_logs.py`, `routes/billing.py` | HTTP endpoints. |
+| `workers/analytics_worker.py` | Consumes `url-clicked` → parses user-agent → writes Mongo (Story 8). |
+| `workers/aggregation_worker.py` | Aggregates Mongo → `URLAnalyticsSummary` in Postgres (the cross-DB write from Story 15). |
+| `repositories/analytics_repository.py`, `audit_log_repository.py` | DB queries for summaries/audit logs. |
+
+### `admin/`
+| File | What it does |
+|---|---|
+| `routes/admin.py` | Admin endpoints (bootstrap/seed admin, etc.). |
+
+## Frontend — `frontend/src/`
+
+### Core plumbing
+| File | What it does |
+|---|---|
+| `proxy.ts` | Next.js proxy (replaced middleware.ts, Next 16 convention) — validates tokens, manages cookies on the server side. |
+| `lib/api.ts` | API client — fetch wrapper, `auth.refresh` via HttpOnly cookie, error handling. |
+| `lib/auth-prefetcher.tsx` | Boots auth state on app load. |
+| `lib/providers.tsx` | React Query provider wrapper. |
+| `lib/schemas.ts` | Zod validation schemas shared by forms. |
+| `lib/utils.ts` | Small helpers (classnames, etc.). |
+| `store/auth.ts` | Zustand auth store (user, loading, setUser). |
+| `queries/index.ts` | TanStack Query hooks for every API resource (useUrls, useWorkspaces, etc.). |
+| `hooks/useDashboard.ts` | Dashboard data aggregation hook. |
+| `components/layout/sidebar.tsx` | App navigation sidebar. |
+| `components/ui/*` | Reusable UI kit (button, card, dialog, dropdown, input, select, table, tabs, etc.). |
+
+### Pages
+| File | What it does |
+|---|---|
+| `app/layout.tsx` | Root layout + providers. |
+| `app/page.tsx` | Public landing page (marketing). |
+| `app/login/page.tsx`, `register`, `forgot-password`, `reset-password`, `verify-email` | Auth pages (Story 12 for the cookie/OAuth flow). |
+| `app/(authenticated)/layout.tsx` | Protected app shell (sidebar, auth guard). |
+| `app/(authenticated)/dashboard/page.tsx` | Overview analytics. |
+| `app/(authenticated)/urls/page.tsx` | URL list + search/filters. |
+| `app/(authenticated)/urls/new/page.tsx` | Create URL form. |
+| `app/(authenticated)/urls/[id]/page.tsx` | URL detail. |
+| `app/(authenticated)/urls/[id]/analytics/page.tsx` | Per-URL click analytics charts. |
+| `app/(authenticated)/favorites`, `folders`, `tags`, `bulk`, `workspaces`, `webhooks`, `webhooks/receiver`, `api-keys`, `billing`, `audit-logs`, `admin`, `profile` | The rest of the feature pages. |
+| Each folder's `loading.tsx` / `error.tsx` | Next.js loading and error UI states. |
+
+### Tests
+| File | What it does |
+|---|---|
+| `test/*.test.ts(x)` | Vitest unit/component tests (153 total). |
+| `test/mocks/handlers.ts`, `test/mocks/server.ts` | MSW (Mock Service Worker) fake API for tests. |
+| `test/setup.ts`, `test/test-utils.tsx` | Test bootstrap + render helpers. |
+
+## Repo-level files
+| File | What it does |
+|---|---|
+| `backend/src/` | All Python backend code. |
+| `frontend/src/` | All React/TypeScript frontend code. |
+| `backend/alembic/`, `alembic.ini` | Database migrations (run at boot, Story 5). |
+| `backend/tests/` | Backend test suite (unit + integration/testcontainers). |
+| `backend/render.yaml` | Render deployment config (Story 14). |
+| `backend/Dockerfile`, `entrypoint.sh` | Image build + migration-at-boot entrypoint. |
+| `docker/docker-compose.yml` | Local full-stack (Postgres, Mongo, Redis, Kafka, backend, frontend). |
+| `.github/workflows/ci.yml` | CI pipeline (Story 13). |
+| `AGENTS.md` | Operational rules + critical-fix documentation (our "institutional memory"). |
+| `docs/INTERVIEW_GUIDE.md` | This file. |
+
+**Study tip:** the highest-value files to actually read are `main.py`, `config.py`, `database.py`, `workspace_repository.py`, `url_service.py`, `redirect_service.py`, `analytics_worker.py`, `kafka.py`, and `proxy.ts`. If you can explain those from memory, you can explain the whole project.
+
+---
+
+*Generated from the real development history of this repository. Re-read Part 4 out loud before interviews — the STAR structure is what interviewers remember. Use Part 7 to actually learn what each file does so you can discuss the code honestly.*
