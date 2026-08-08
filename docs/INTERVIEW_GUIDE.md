@@ -484,20 +484,20 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 |---|---|
 | `core/config.py` | `Settings` (pydantic-settings) — all environment variables, with defaults. Rebuilt once at startup (this caused the testcontainers bug in Story 1). |
 | `core/database.py` | SQLAlchemy async **engine**, `AsyncSessionLocal` factory, `init_db()`, health check. |
-| `core/base.py` | Declarative `Base` + shared model fields (id, timestamps). |
-| `core/base_repository.py` | Generic CRUD (`get`, `get_many`, `create`, `update`, `delete`) every repository inherits. |
-| `core/security.py` | Password hashing, JWT create/decode for access + refresh tokens. |
+| `core/base.py` | Declarative `Base` with a metadata **naming convention** (no shared model fields). |
+| `core/base_repository.py` | Generic CRUD (`get`, `get_by`, `get_many`, `create`, `update`, `delete`) every repository inherits. |
+| `core/security.py` | Password hashing (argon2), JWT create/decode for access + refresh tokens. |
 | `core/redis.py` | `RedisAdapter` and `_build_redis_client()` — chooses Upstash or plain Redis (Story 3). |
-| `core/mongodb.py` | Async Mongo client init + health check. |
-| `core/click_event.py` | MongoDB `ClickEvent` model + Postgres `URLAnalyticsSummary` model (the cross-DB analytics pair). |
-| `core/deps.py` | FastAPI dependencies: `get_db` (session per request), `get_current_user`. |
+| `core/mongodb.py` | Async Mongo init via Motor + Beanie (no health check here). |
+| `core/click_event.py` | MongoDB `ClickEvent` model only (`URLAnalyticsSummary` lives in `analytics/models/analytics.py`). |
+| `core/deps.py` | FastAPI dependencies: `get_db` (session per request), `get_current_user`, plus service factories. |
 | `core/rbac.py` | `check_role` — core role-hierarchy helper. |
-| `core/api_key_auth.py` | API-key authentication dependency. |
-| `core/geo_service.py` | IP → location resolution (ipinfo.io). |
+| `core/api_key_auth.py` | API-key auth + quota helpers (`authenticate_api_key`, `verify_api_key_quota`) — standalone, not a FastAPI dependency. |
+| `core/geo_service.py` | IP → location resolution (ipinfo.io), Redis-cached. |
 | `core/base62.py` | Base62 encoding used for short codes. |
-| `core/metrics.py`, `core/tracing.py` | Prometheus metrics + OpenTelemetry init/instrumentation. |
-| `core/event_dispatcher.py`, `events/dispatcher.py`, `events/schemas.py` | Event publishing plumbing + Kafka payload schemas. |
-| `events/kafka.py` | Kafka producer/consumer helpers, `publish_raw` (with the one-shot producer fallback from Story 7). |
+| `core/metrics.py`, `core/tracing.py` | OpenTelemetry metrics + tracing init/instrumentation (OTel API, not the Prometheus client). |
+| `core/event_dispatcher.py`, `events/dispatcher.py`, `events/schemas.py` | Event publishing plumbing (`EventDispatcher`) + Avro schema serialize/deserialize/register. |
+| `events/kafka.py` | Kafka **producer** helpers only (`init_kafka`, `publish_event`, `publish_raw` with the one-shot fallback from Story 7); consumers live in `workers/kafka_consumer_pool.py`. |
 | `errors/*.py` | Error classes (`AppError` base, auth/common/url/workspace) → HTTP status codes. |
 | `logging.py` | `setup_logging()` — console + file handler with graceful fallback (Story 4). |
 | `middleware/audit.py` | `AuditContextMiddleware` — attaches audit context to requests. |
@@ -514,9 +514,9 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 |---|---|
 | `models/user.py`, `models/api_key.py` | User and ApiKey tables. |
 | `repositories/user_repository.py`, `api_key_repository.py` | User/API-key DB queries. |
-| `services/auth_service.py` | Register, login, refresh, logout; issues **HttpOnly cookies**; OAuth callbacks (Story 12). |
-| `services/api_key_service.py` | Create/list/revoke API keys. |
-| `services/email_service.py` | Verification + password-reset emails. |
+| `services/auth_service.py` | Register, login, refresh, logout, forgot/reset password, email verification, OAuth init/callback; returns JWT pairs (HttpOnly cookies are set in `routes/auth.py`, Story 12). |
+| `services/api_key_service.py` | Create/list/revoke/rotate API keys + daily-quota lookups. |
+| `services/email_service.py` | Verification, password-reset, and workspace-invite emails. |
 | `services/sso/google_oauth.py`, `github_oauth.py` | OAuth2 login flows. |
 | `routes/auth.py`, `routes/profile.py`, `routes/api_keys.py` | HTTP endpoints under `/api/v1/auth`, `/profile`, `/api-keys`. |
 | `schemas/*.py` | Request/response validation models. |
@@ -524,14 +524,14 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 ### `links/` — the URL core
 | File | What it does |
 |---|---|
-| `models/url.py` | URL table — short_code, original_url, status, expiry, optional password, UTM fields. |
+| `models/url.py` | URL table — short_code, original_url, status, expiry, optional password. (UTM params are parsed at click time, not stored.) |
 | `models/folder.py`, `models/tag.py`, `models/favorite.py` | Folder, tag, favorite tables. |
 | `services/url_service.py` | Create/update/delete URLs; `_verify_write_role(editor+)`; cache invalidation; publishes events. |
 | `services/redirect_service.py` | Resolves a short code → redirect; records the click; publishes `url-clicked`. |
-| `services/bulk_service.py` | CSV bulk create/export (with role checks). |
-| `services/folder_service.py`, `tag_service.py`, `favorite_service.py`, `utm_service.py` | Their domain logic. |
-| `routes/urls.py`, `redirect.py`, `bulk.py`, `folders.py`, `tags.py`, `favorites.py` | HTTP endpoints. |
-| `workers/expiry_worker.py`, `workers/cleanup_worker.py` | Background jobs: expire links, clean stale data. |
+| `services/bulk_service.py` | Bulk create/update/disable/reactivate/delete/export + QR zip (with role checks). |
+| `services/folder_service.py`, `tag_service.py`, `favorite_service.py`, `utm_service.py` | Domain logic for folders/tags/favorites; `utm_service` is just a query-string parser (utm_source/medium/campaign) that enriches click events. |
+| `routes/urls.py`, `redirect.py`, `bulk.py`, `folders.py`, `tags.py`, `favorites.py` | HTTP endpoints (`redirect.py` is the public `/{short_code}` 302, mounted at app root). |
+| `workers/expiry_worker.py`, `workers/cleanup_worker.py` | Background jobs: expire links (disable + evict cache); purge soft-deleted URLs and their click/analytics data. |
 
 ### `workspaces/` — multi-tenant teams
 | File | What it does |
@@ -545,27 +545,27 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 ### `webhooks/` — external notifications
 | File | What it does |
 |---|---|
-| `models/webhook.py`, `models/webhook_event.py`, `models/webhook_subscription.py`, `models/webhook_received_event.py` | Webhook config, event junction table (Story 16), subscriptions, delivery log. |
-| `services/webhook_service.py` | Webhook CRUD + `_verify_write_role`. |
-| `services/webhook_receiver_service.py` | Delivers events to subscribers. |
-| `routes/webhooks.py`, `routes/webhook_receiver.py` | Management + public receiver endpoints. |
-| `workers/webhook_click_consumer.py`, `webhook_retry_worker.py`, `metadata_worker.py`, `dlq_replay_worker.py` | Background delivery, retries, metadata fetch, DLQ replay. |
+| `models/webhook.py`, `models/webhook_event.py`, `models/webhook_subscription.py`, `models/webhook_received_event.py` | Webhook config, **outbound delivery log** (`webhook_events`), **subscription junction** (webhook↔event type), inbound received-events log. |
+| `services/webhook_service.py` | Webhook CRUD + `_verify_write_role`; secret encrypt/decrypt, subscription sync, and `deliver_event` (HMAC-signed POST). |
+| `services/webhook_receiver_service.py` | **Inbound** receiver — verifies HMAC signature on incoming deliveries, logs them to `webhook_received_events`. |
+| `routes/webhooks.py`, `routes/webhook_receiver.py` | Management endpoints + public `POST /webhook-receiver` (HMAC-verified inbound) + authenticated `GET /webhook-receiver/events/{workspace_id}`. |
+| `workers/webhook_click_consumer.py`, `webhook_retry_worker.py`, `metadata_worker.py`, `dlq_replay_worker.py` | Kafka consumer → HMAC delivery (Story 16); 60s DB poller retrying failed deliveries → Postgres DLQ; page-metadata fetcher (title/description/og:image); Kafka DLQ topic replayer. |
 
 ### `analytics/` — click analytics
 | File | What it does |
 |---|---|
-| `models/analytics.py`, `models/audit_log.py`, `models/dead_letter.py` | Analytics summary, audit log, dead-letter tables. |
-| `services/analytics_service.py` | Dashboard queries — aggregate by browser/OS/device/geo from Mongo. |
+| `models/analytics.py`, `models/audit_log.py`, `models/dead_letter.py` | Analytics summary, audit log, and Postgres DLQ table (`dead_letter_events`). |
+| `services/analytics_service.py` | Dashboard queries — summary from Postgres, breakdowns (browser/OS/device/geo/UTM/referrers) from Mongo aggregation. |
 | `services/audit_service.py` | Audit logging. |
-| `routes/analytics.py`, `routes/audit_logs.py`, `routes/billing.py` | HTTP endpoints. |
-| `workers/analytics_worker.py` | Consumes `url-clicked` → parses user-agent → writes Mongo (Story 8). |
-| `workers/aggregation_worker.py` | Aggregates Mongo → `URLAnalyticsSummary` in Postgres (the cross-DB write from Story 15). |
+| `routes/analytics.py`, `routes/audit_logs.py`, `routes/billing.py` | HTTP endpoints (note: `billing.py` is **plan upgrade only** — no payments/Stripe). |
+| `workers/analytics_worker.py` | Consumes `url-clicked` → parses user-agent → writes Mongo `ClickEvent` + upserts Postgres summary counters (Story 8). |
+| `workers/aggregation_worker.py` | Periodic 60s loop — aggregates Mongo click events → `URLAnalyticsSummary` in Postgres (the cross-DB write from Story 15). |
 | `repositories/analytics_repository.py`, `audit_log_repository.py` | DB queries for summaries/audit logs. |
 
 ### `admin/`
 | File | What it does |
 |---|---|
-| `routes/admin.py` | Admin endpoints (bootstrap/seed admin, etc.). |
+| `routes/admin.py` | Admin endpoints: seed superadmin, user management (list/toggle-superadmin/delete), workspace + URL listing, platform stats. |
 
 ## Frontend — `frontend/src/`
 
@@ -574,12 +574,12 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 |---|---|
 | `proxy.ts` | Next.js proxy (replaced middleware.ts, Next 16 convention) — validates tokens, manages cookies on the server side. |
 | `lib/api.ts` | API client — fetch wrapper, `auth.refresh` via HttpOnly cookie, error handling. |
-| `lib/auth-prefetcher.tsx` | Boots auth state on app load. |
+| `lib/auth-prefetcher.tsx` | Prefetches the `me` auth query into the React Query cache on mount (renders null); used in the authenticated layout. |
 | `lib/providers.tsx` | React Query provider wrapper. |
 | `lib/schemas.ts` | Zod validation schemas shared by forms. |
-| `lib/utils.ts` | Small helpers (classnames, etc.). |
-| `store/auth.ts` | Zustand auth store (user, loading, setUser). |
-| `queries/index.ts` | TanStack Query hooks for every API resource (useUrls, useWorkspaces, etc.). |
+| `lib/utils.ts` | `cn()` helper (clsx + tailwind-merge). |
+| `store/auth.ts` | Zustand auth store (user, isLoading, setUser, logout). |
+| `queries/index.ts` | TanStack Query hooks for a subset of resources — auth, urls, workspaces, folders, tags, api-keys, favorites, webhooks, audit-logs (18 hooks). |
 | `hooks/useDashboard.ts` | Dashboard data aggregation hook. |
 | `components/layout/sidebar.tsx` | App navigation sidebar. |
 | `components/ui/*` | Reusable UI kit (button, card, dialog, dropdown, input, select, table, tabs, etc.). |
@@ -590,14 +590,14 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `app/layout.tsx` | Root layout + providers. |
 | `app/page.tsx` | Public landing page (marketing). |
 | `app/login/page.tsx`, `register`, `forgot-password`, `reset-password`, `verify-email` | Auth pages (Story 12 for the cookie/OAuth flow). |
-| `app/(authenticated)/layout.tsx` | Protected app shell (sidebar, auth guard). |
+| `app/(authenticated)/layout.tsx` | Protected app shell — `<Sidebar>` + `<AuthPrefetcher>` (the auth guard is per-page via `auth.me()`). |
 | `app/(authenticated)/dashboard/page.tsx` | Overview analytics. |
 | `app/(authenticated)/urls/page.tsx` | URL list + search/filters. |
 | `app/(authenticated)/urls/new/page.tsx` | Create URL form. |
 | `app/(authenticated)/urls/[id]/page.tsx` | URL detail. |
 | `app/(authenticated)/urls/[id]/analytics/page.tsx` | Per-URL click analytics charts. |
 | `app/(authenticated)/favorites`, `folders`, `tags`, `bulk`, `workspaces`, `webhooks`, `webhooks/receiver`, `api-keys`, `billing`, `audit-logs`, `admin`, `profile` | The rest of the feature pages. |
-| Each folder's `loading.tsx` / `error.tsx` | Next.js loading and error UI states. |
+| Each folder's `loading.tsx` / `error.tsx` | Next.js loading and error UI states (note: `profile` and `login` have `loading.tsx` but no `error.tsx`). |
 
 ### Tests
 | File | What it does |
@@ -613,7 +613,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `frontend/src/` | All React/TypeScript frontend code. |
 | `backend/alembic/`, `alembic.ini` | Database migrations (run at boot, Story 5). |
 | `backend/tests/` | Backend test suite (unit + integration/testcontainers). |
-| `backend/render.yaml` | Render deployment config (Story 14). |
+| `backend/render.yaml` | Render deployment config for the **backend only** (Story 14). |
 | `backend/Dockerfile`, `entrypoint.sh` | Image build + migration-at-boot entrypoint. |
 | `docker/docker-compose.yml` | Local full-stack (Postgres, Mongo, Redis, Kafka, backend, frontend). |
 | `.github/workflows/ci.yml` | CI pipeline (Story 13). |
