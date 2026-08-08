@@ -1,0 +1,470 @@
+# LinkForge — Interview Preparation Guide
+
+> Everything we built, every tool we chose, every bug we fixed — written the way you explain it in an interview.
+> Read this before any interview. It is written as if you know nothing, so every concept is explained in plain words first.
+
+---
+
+## How to use this file
+
+1. **Part 1 — The project in plain words** (what you built and why it matters)
+2. **Part 2 — Tool dictionary** (every tool, explained simply, with "why we chose it")
+3. **Part 3 — Architecture walkthrough** (how the pieces talk to each other)
+4. **Part 4 — STAR stories** (every major step: **S**ituation, **T**ask, **A**ction, **R**esult). These are your interview answers.
+5. **Part 5 — One-sentence answers** (quick revision cheat sheet)
+6. **Part 6 — Likely interview questions**
+
+---
+
+# PART 1 — The project in plain words
+
+LinkForge is an **enterprise-grade URL shortener**. A URL shortener takes a long link like
+`https://example.com/very/long/path?utm_source=newsletter` and returns a short link like `https://short.ly/Ab3xQ9`.
+When someone visits the short link, they are redirected to the original long link.
+
+But this is NOT a beginner URL shortener. It adds:
+
+- **Accounts & auth** — register, login, Google/GitHub OAuth, password reset, refresh tokens stored in `HttpOnly` cookies.
+- **Workspaces (multi-tenant teams)** — teams of users with roles (viewer / editor / admin / owner) sharing links.
+- **Analytics** — every click records device, browser, operating system, geography, referrer, UTM parameters.
+- **QR codes, password-protected links, expiring links, custom aliases, folders, tags, favorites, bulk CSV import/export.**
+- **Webhooks** — when a URL is clicked or created, external services can be notified.
+- **API + API keys** — programmatic access with rate limiting.
+- **Observability** — traces, metrics, and logs sent to New Relic.
+- **Event-driven background processing with Kafka** — heavy work (analytics, webhooks) does NOT happen in the web request; it happens asynchronously in separate worker processes.
+
+The stack: **FastAPI (Python) backend + Next.js (React/TypeScript) frontend + PostgreSQL + MongoDB + Redis + Apache Kafka**, deployed on **Render** free tier with **GitHub Actions** CI.
+
+---
+
+# PART 2 — Tool dictionary
+
+Every tool we used, why we picked it, and the plain-words explanation.
+
+## Backend
+
+| Tool | What it is (plain words) | Why we chose it |
+|---|---|---|
+| **Python 3.13** | Programming language. | Huge ecosystem, great for async, easy to hire for. |
+| **FastAPI** | Python web framework. | Async-native (handles many concurrent requests without blocking), automatic OpenAPI docs at `/docs`, **Pydantic** validation built in (type-safe request/response). Compared to Flask/Django: async + auto-docs + type hints. |
+| **Uvicorn** | ASGI server that actually runs FastAPI. | The standard async server for FastAPI. |
+| **SQLAlchemy 2.0** | ORM — maps Python classes to database tables. | Mature, supports **async** with the `asyncpg` driver, lets us use the Repository pattern. |
+| **asyncpg** | Async PostgreSQL driver. | Never blocks the event loop during database queries (critical for a high-traffic API). |
+| **Alembic** | Database migration tool (works with SQLAlchemy). | Version-controlled schema changes — the database schema evolves with the code, not manually. |
+| **Pydantic v2 + pydantic-settings** | Validation + config from environment variables. | Request validation and `.env`-driven config (`settings.DATABASE_URL`, etc.). |
+| **MongoDB + Motor** | NoSQL document database + async driver. | Analytics click-events are high-volume and unstructured; Mongo handles this better than Postgres. `Motor` gives us an async driver. |
+| **Redis** | In-memory key-value store. | Super-fast cache for short-code → URL lookups, rate limiting counters, refresh-token blacklist. |
+| **Apache Kafka (managed by Aiven)** | Distributed message broker (a "queue on steroids"). | Decouples the web API from heavy background work. Events are **durable** (survive crashes) and support **consumer groups** (multiple workers). |
+| **aiokafka** | Async Python client for Kafka. | Async-native Kafka producer/consumer. |
+| **OpenTelemetry** | Vendor-neutral tracing/metrics instrumentation. | One API that sends traces/metrics to New Relic. Also instrumented FastAPI, Redis, SQLAlchemy. |
+| **uv** | Super-fast Python package/venv manager. | Way faster than pip + venv, single tool. |
+| **ruff** | Fast Python linter + import sorter. | Catches bugs/style issues; enforces import order in CI. |
+| **mypy** | Static type checker. | Catches type errors before runtime; runs in CI. |
+| **pytest + pytest-asyncio** | Test framework + async test support. | Unit and integration tests, including async handlers. |
+| **testcontainers** | Spins up real Docker containers (Postgres/Mongo/Redis) for tests. | Tests run against **real databases** in CI instead of mocks — catches real integration bugs. |
+| **httpx** | HTTP client. | Used in tests to hit the API via `ASGITransport` (in-process, no network). |
+| **hashids** | Library that encodes numbers into short unique strings. | Generating short codes for URLs. |
+| **user-agents** | Library to parse User-Agent strings. | Extract device/browser/OS from a click for analytics. |
+| **ipinfo.io** | IP geolocation API. | Resolve click IP → country/city for analytics. |
+| **passlib/bcrypt** | Password hashing. | Store only hashes, never plaintext passwords. |
+
+## Frontend
+
+| Tool | Why |
+|---|---|
+| **Next.js (App Router, "use client")** | React framework with SSR/SSG, routing, and a built-in proxy layer. |
+| **TypeScript** | Type safety across the whole frontend. |
+| **Tailwind CSS** | Fast utility-first styling. |
+| **react-hook-form + zod** | Form state management + schema validation. |
+| **zustand** | Tiny, fast global state store (auth state). |
+| **motion (framer-motion)** | Animations. |
+| **lucide-react** | Icons. |
+| **vitest** | Fast unit tests for the frontend. |
+| **eslint + tsc** | Code quality + type checks in CI. |
+
+## Infra / Deploy / CI
+
+| Tool | Why |
+|---|---|
+| **Docker + docker-compose** | Local stack that matches production (Postgres, Mongo, Redis, Kafka all in one command). |
+| **Render (free tier)** | Deployment. Free web service + free Postgres/Redis/managed DBs. |
+| **Neon** | Serverless PostgreSQL (free tier). Production Postgres. |
+| **Upstash** | Serverless Redis (free tier). Production Redis. |
+| **Aiven** | Managed Kafka (30-day free trial). Production Kafka. |
+| **GitHub Actions** | CI/CD — runs on every push to `main`. 6 parallel jobs: Backend Tests, Backend Lint (ruff+mypy), Frontend Build, Frontend Test, Frontend Lint, Docker Build (pushes images to GHCR). |
+| **GHCR** | GitHub Container Registry — stores Docker images. |
+| **New Relic** | Observability backend (free tier). Receives OTel traces/metrics. |
+| **AGENTS.md** | Repo file that documents critical fixes and operational rules (e.g., "never run pytest against production"). It's our institutional memory — a good practice to mention in interviews. |
+
+---
+
+# PART 3 — Architecture walkthrough
+
+## Plain-words mental model
+
+```
+User clicks short link
+        │
+        ▼
+┌────────────────────────────┐
+│  Next.js frontend (browser)│
+└────────────┬───────────────┘
+             │ HTTPS
+             ▼
+┌────────────────────────────┐        ┌──────────────────────────┐
+│  FastAPI backend  (1 proc) │        │  PostgreSQL (Neon)        │
+│  - auth, urls, workspaces  │◄──────►│  users, urls, workspaces, │
+│  - redirect /{short_code}  │        │  webhooks, audit, summary │
+│  - embedded/worker tasks   │        └──────────────────────────┘
+└──────┬──────────────┬──────┘        ┌──────────────────────────┐
+       │              │               │  Redis (Upstash)         │
+       │  publish     │  read/write   │  cache, rate limit,      │
+       ▼              ▼               │  refresh-token blacklist │
+┌──────────────┐  ┌──────────┐        └──────────────────────────┘
+│  Kafka       │  │ MongoDB  │        ┌──────────────────────────┐
+│ url-clicked  │  │ click     │        │  8 background workers    │
+│ url-created  │◄─┤ events,   │        │  analytics, aggregation, │
+│ dlq topics   │  │ timeseries│        │  webhooks, metadata,     │
+└──────────────┘  └──────────┘        │  expiry, cleanup, dlq     │
+                                      └──────────────────────────┘
+```
+
+Key idea: **the web API never does slow work inline.** When a link is clicked:
+1. Redis cache is checked; if miss, Postgres is queried.
+2. The user is redirected immediately (fast).
+3. A `url-clicked` event is **published to Kafka**.
+4. A separate **worker** consumes that event, parses the user-agent, resolves geolocation, writes to MongoDB, triggers webhooks, and later aggregation rolls up totals into Postgres.
+
+If the analytics worker crashes, **redirects still work** — the events wait safely in Kafka (within retention).
+
+## The 8 workers
+
+| Worker | What it does |
+|---|---|
+| analytics_worker | Consumes `url-clicked`, parses device/browser/OS/geo, writes to MongoDB. |
+| aggregation_worker | Periodically aggregates MongoDB click events into `URLAnalyticsSummary` in Postgres. |
+| metadata_worker | Consumes `url-created`, fetches page title/metadata. |
+| webhook_click_consumer | On clicks, delivers webhooks to external subscribers. |
+| webhook_retry_worker | Retries failed webhook deliveries. |
+| dlq_replay_worker | Consumes dead-letter-queue topics and retries them. |
+| expiry_worker | Marks expired links. |
+| cleanup_worker | Deletes stale data (old refresh tokens, etc.). |
+
+In production, these run as `asyncio` tasks inside the same FastAPI process (to stay inside Render free tier memory). They can also run as fully separate processes via `STANDALONE_WORKERS=1` and `run_worker_*.py` scripts.
+
+## API routes (all under `/api/v1/`)
+
+- `/api/v1/auth/me`, `/register`, `/login`, OAuth flows
+- `/api/v1/urls`, `/bulk`, `/favorites`, `/folders`, `/tags`, `/redirect`
+- `/api/v1/workspaces`, invites, members, roles
+- `/api/v1/webhooks/workspace/{id}/...`, `/api/v1/analytics`, `/api/v1/audit-logs`, `/api/v1/admin`
+- `/{short_code}` (public redirect, outside `/api/v1`)
+
+---
+
+# PART 4 — STAR stories
+
+Every story follows **Situation → Task → Action → Result**. These are your actual interview answers. Practise saying them out loud.
+
+---
+
+## STORY 1 — Tests hit `localhost:27017` instead of the test database (CI bug)
+
+**Situation:** Our test suite uses **testcontainers** — it spins up real PostgreSQL, MongoDB, and Redis in Docker, then points the app at them via environment variables. Locally, tests seemed to pass. On GitHub CI, 5 tests failed deterministically with `pymongo.errors.ServerSelectionTimeoutError: localhost:27017: Connection refused`.
+
+**Task:** Figure out why CI couldn't reach the MongoDB container and fix it.
+
+**Action:**
+- I read `tests/testcontainers.py`, which starts the containers and then rebuilds the app config.
+- Found the bug: the code wrote `DATABASE_URL` to the environment and then immediately did `Settings()`. But `MONGODB_URI` and `REDIS_URL` were written **after** the `Settings()` rebuild.
+- `pydantic-settings` only reads env vars **once**, at construction time. So the app was created with default values (`mongodb://admin:adminpassword@localhost:27017`) instead of the container's mapped port.
+- Locally this was masked by a stray local MongoDB running on `127.0.0.1:27017` — tests were "passing" against the wrong database.
+- Fix: set **all** env vars (`DATABASE_URL`, `MONGODB_URI`, `REDIS_URL`, `_USE_TESTCONTAINERS`) first, then rebuild `Settings()` **as the last step**.
+
+**Result:** CI tests now connect to the real containers. This taught us: **never assume env-dependent config is read lazily — pydantic-settings reads once.**
+
+---
+
+## STORY 2 — `asyncpg` connections reused across event loops (116 CI failures)
+
+**Situation:** After enabling the new middleware, CI exploded with 116 failures: `asyncpg.exceptions.InterfaceError: cannot perform operation: another operation is in progress`. Locally the same code passed.
+
+**Task:** Find why asyncpg connections were being shared across test runs and fix it.
+
+**Action:**
+- I learned that **pytest-asyncio gives each test a fresh event loop**.
+- `asyncpg` connections are **bound to the event loop that created them** (thread/loop affinity). Reusing a pooled connection from a different loop causes that error.
+- Root cause: the new `rbac.py` and `rate_limit.py` middleware did `from src.shared.core.database import AsyncSessionLocal` at **module import time**. That bound the **global engine with a connection pool** (`pool_size=20`) before tests replaced `AsyncSessionLocal` with a `NullPool` version. So the middleware used the global pooled engine, and pooled asyncpg connections were reused across event loops.
+- Fix: change the middleware to `from src.shared.core import database` and call `database.AsyncSessionLocal()` **at request time**, so the test patch is respected and each test gets a fresh connection.
+
+**Result:** The asyncpg cascade disappeared. Lesson: **import-time side effects are dangerous — defer engine/session creation to call time.**
+
+---
+
+## STORY 3 — Redis hard-wired to Upstash, broke docker-compose (health 503)
+
+**Situation:** `/health` reported `redis: false` and rate limiting silently failed when running via docker-compose, which only sets `REDIS_URL` (a plain Redis).
+
+**Task:** Make Redis work with both Upstash (production) and plain Redis (local/CI).
+
+**Action:**
+- Found `redis_client` was built **only** from `UPSTASH_REDIS_REST_URL/TOKEN`, ignoring `REDIS_URL`.
+- Rewrote `_build_redis_client()`: if **both** Upstash vars are set → use the Upstash REST client (production path, unchanged). Otherwise → fall back to `redis.asyncio.Redis.from_url(settings.REDIS_URL)`.
+- Both paths share the same `RedisAdapter` interface (`ping/get/setex/delete/incr/expire/eval`), so no caller changes.
+
+**Result:** `/health` is green in both environments. Lesson: **don't hard-wire external services to one vendor; read config and provide a fallback.**
+
+---
+
+## STORY 4 — Non-root container can't create `logs/` (startup crash)
+
+**Situation:** The app crashed on startup in Docker/Render: `PermissionError` when creating a `logs/` directory. The container runs as non-root user `app` (uid 1001) on a root-owned `/app`.
+
+**Task:** Stop the crash without weakening container security.
+
+**Action:**
+- Wrapped the file-handler setup in `setup_logging()` in `try/except OSError`.
+- On failure, log a warning and continue with **console-only logging** (Docker/Render ship stdout to logs anyway).
+
+**Result:** App starts everywhere. Lesson: **make filesystem features degrade gracefully in restricted environments.**
+
+---
+
+## STORY 5 — Database migrations missing from the built image (fresh DBs had no schema)
+
+**Situation:** The Python package build tool (Hatchling) only packages `src/`, so `alembic/` and `alembic.ini` were **not** in the deployed wheel. Fresh databases had zero tables.
+
+**Task:** Get migrations into production and run them before the app starts.
+
+**Action:**
+- Tried `force-include` in Hatchling — rejected, because it dumped migrations at the site-packages root and collided with the installed `alembic` package.
+- Fix in the Dockerfile: `COPY --from=builder /app/alembic /app/alembic` plus `alembic.ini` and `entrypoint.sh` into the runtime image.
+- `CMD ["sh", "/app/entrypoint.sh"]` runs `alembic -c alembic.ini upgrade head` then `exec uvicorn`. `SKIP_MIGRATIONS=1` disables it.
+- Compose workers/frontend use `depends_on: backend: condition: service_healthy` so they only start after migrations complete.
+
+**Result:** Fresh databases get the full schema automatically at boot.
+
+---
+
+## STORY 6 — Python 3.13 SNI bug on Windows (Kafka TLS handshake failed)
+
+**Situation:** On Windows (Python 3.13) with asyncio + Aiven Kafka (TLS), connections failed with `WinError 10054`. A monkey-patch injecting the SNI hostname existed but didn't work.
+
+**Task:** Fix TLS SNI injection for asyncio-managed Kafka connections on Python 3.13.
+
+**Action:**
+- Learned that Python 3.13 on Windows uses `ProactorEventLoop`, which calls **`sslcontext.wrap_bio()`**, not `wrap_socket()`, inside `create_connection()`.
+- The existing patch only covered `wrap_socket`, so SNI was never injected — the broker received the raw IP as SNI and rejected the handshake.
+- Fix: patch **both** `wrap_socket` and `wrap_bio`, force-injecting the bootstrap hostname as `server_hostname`.
+
+**Result:** Kafka TLS works on Windows dev. Lesson: **"works in prod" ≠ "works everywhere" — platform event-loop differences matter.**
+
+---
+
+## STORY 7 — Dead-letter-queue messages were silently dropped
+
+**Situation:** Workers never call `init_kafka()`, so the global Kafka `producer` was `None`. DLQ (dead-letter-queue) messages were silently dropped.
+
+**Task:** Ensure DLQ publishes always send, even from worker processes.
+
+**Action:**
+- In `publish_raw`, when the global producer is `None`, create a **temporary one-shot** `AIOKafkaProducer`, send the message, then stop it (`_send_and_stop`).
+- This avoids managing producer lifecycle across separate worker processes.
+
+**Result:** Failed messages always land in the DLQ topics (`dlq-url-clicked`, `dlq-url-created`) and can be replayed by `dlq_replay_worker`.
+
+---
+
+## STORY 8 — `KeyError` on optional event fields
+
+**Situation:** Analytics worker crashed with `KeyError` when event payloads were missing optional fields (`original_url`, `workspace_id`, `ip_address`, `clicked_at`).
+
+**Task:** Make the worker resilient to incomplete data without losing type safety.
+
+**Action:**
+- Replaced direct indexing with `.get()` + defaults for all optional fields in `process_event`.
+- Pydantic validation still catches wrong types (e.g., `workspace_id` string vs int).
+
+**Result:** Worker survives partial/malformed events.
+
+---
+
+## STORY 9 — Tracing middleware broken after FastAPI startup rebuild
+
+**Situation:** OpenTelemetry instrumentation of FastAPI stopped working — the middleware that instruments routes was created **before** FastAPI rebuilt its middleware stack during startup, so it was discarded.
+
+**Task:** Keep OTel middleware alive across the startup rebuild.
+
+**Action:**
+- Moved `instrument_fastapi` (and Redis/SQLAlchemy instrumentation) to run **inside** the app lifespan, after FastAPI's own startup, so the instrumented middleware survives.
+
+**Result:** Traces/metrics flow to New Relic correctly. Lesson: **FastAPI rebuilds its middleware stack at startup — instrument after that.**
+
+---
+
+## STORY 10 — RBAC middleware authorized writes in a separate DB session (24 CI failures)
+
+**Situation:** After adding middleware-level RBAC ("viewers must not write"), CI showed 24 failures — bulk and webhook tests getting `403 Requires editor role or higher.` on valid requests.
+
+**Task:** Make role enforcement correct in both tests and production.
+
+**Action:**
+- Diagnosed: the middleware opened its **own** DB session to check roles. In tests, fixture data lives in the request's session **inside an open transaction** — a second session cannot see uncommitted rows, so it denied valid requests. In production it also meant **two DB round-trips per write request**.
+- Investigated the service layer: url/folder/tag/bulk/webhook services already enforce editor+ via `verify_role` using the **request's own session**; the workspace service enforces owner/admin checks via `verify_access`.
+- Decision: **remove the middleware's DB checks entirely** and rely on the service layer — the security guarantee (viewers can't write) is preserved, tests see fixture data, and we cut a redundant DB call per request.
+
+**Result:** 24 failures → 0. CI green. Lesson: **authorization belongs at the operation boundary where the transaction lives, not in a side session.**
+
+---
+
+## STORY 11 — Workspace owner could be locked out by a viewer membership row
+
+**Situation:** `verify_role` checked memberships **first** and fell back to the owner only if no membership existed. An owner who also had a `viewer` membership row would be **denied** editor operations — a latent lockout bug.
+
+**Task:** Decide the correct rule and make code + tests agree.
+
+**Action:**
+- The sane rule: **the owner always retains full access** regardless of any membership row.
+- Reordered `verify_role` to check `Workspace.owner_id` first and return `True`.
+- Updated `test_require_role_viewer_denied_for_editor` to use a real **non-owner** viewer (preserving its intent: viewers can't edit), and added `test_require_role_owner_always_allowed` to pin the new rule.
+
+**Result:** Owners can never be locked out; viewers still can't write. CI green.
+
+---
+
+## STORY 12 — HttpOnly cookie migration (security)
+
+**Situation:** Access/refresh tokens were stored in `localStorage` on the frontend — vulnerable to XSS (any injected script could steal them).
+
+**Task:** Move tokens out of JavaScript's reach.
+
+**Action:**
+- Backend sets tokens in **`HttpOnly`** cookies (`SameSite=Lax`, secure in prod) — JavaScript cannot read them, so XSS can't exfiltrate them.
+- Frontend: removed all `localStorage` token usage; `api.ts` refreshes via cookie (`credentials: "include"`); OAuth flow uses a `refresh_token` query param fed to `auth.refresh()`; deleted `token-cookie.ts` and its tests.
+- Explicit CORS origins (browsers reject `*` with credentials).
+
+**Result:** Token theft via XSS is no longer possible. This is a classic security story to tell.
+
+---
+
+## STORY 13 — CI/CD pipeline journey (the debugging arc)
+
+**Situation:** We wanted every push to `main` to be validated by CI and every deploy to be reproducible.
+
+**Task:** Build a CI pipeline that catches real bugs.
+
+**Action:**
+- GitHub Actions workflow with **6 parallel jobs**: Backend Tests (testcontainers), Backend Lint (ruff + mypy), Frontend Build, Frontend Tests, Frontend Lint, and Docker Build (pushes images to GHCR).
+- Learned to surface failures well: failing-test summaries as **error annotations**, and test logs uploaded as **artifacts** on failure (this is how we diagnosed the testcontainers and asyncpg bugs).
+- Iterated through several red CI runs (testcontainers config, ruff import order, asyncpg loop bug, RBAC 403s) until everything was green.
+- Render auto-deploys from the Docker image on every push.
+
+**Result:** Every commit is verified end-to-end. This story shows debugging discipline — good to tell.
+
+---
+
+## STORY 14 — Deploying a heavy app on Render free tier
+
+**Situation:** Render free tier gives **512 MB RAM**, sleeps after 15 minutes of inactivity, and has no free background workers.
+
+**Task:** Run a Kafka-driven, multi-database app within those limits.
+
+**Action:**
+- **Single worker**: `uvicorn src.main:app --host 0.0.0.0 --port $PORT` (default = 1 worker) to stay under 512 MB.
+- **Embedded workers**: the 8 Kafka/scheduled workers run as `asyncio` tasks inside the same process (with `STANDALONE_WORKERS=1` as the escape hatch for running them as separate processes).
+- **Migrations at boot**: entrypoint runs `alembic upgrade head` before `exec uvicorn`.
+- **Health endpoint** `/health` checks database, redis, kafka — used by Render and by uptime pings.
+- Managed services: Neon Postgres, Upstash Redis, Aiven Kafka, MongoDB — free tiers keep memory off the web instance.
+
+**Result:** The whole stack runs on free tier. Mention the tradeoffs honestly in interviews (cold starts, sleep, Kafka consumer reconnection).
+
+---
+
+## STORY 15 — "Should we split into microservices?" (the design decision)
+
+**Situation:** The codebase is event-driven (Kafka) and modular. Someone suggested splitting into a `core-service` and an `analytics-service`.
+
+**Task:** Decide if a microservices split is worth it.
+
+**Action:**
+- I evaluated honestly. A monorepo *can* host multiple deployable services — that's standard. But I mapped the proposed split against the real code:
+  - Only **2 of 8** workers are analytics; the other 6 (webhooks, metadata, expiry, cleanup, DLQ) need Postgres.
+  - The **aggregation worker writes analytics summaries into Postgres** — so "analytics owns MongoDB only" was false; a clean split forces a decision on where that data lives.
+  - Render free tier: two services = twice the memory (each ~300 MB boots FastAPI+Kafka+SQLAlchemy+PyMongo) and **two services that sleep** and disconnect Kafka consumers.
+  - Conclusion: **stay a modular monolith**, and get the one real microservice benefit (fault isolation) as a **deployment** change — run the analytics workers as a separate Render web service with a dummy `/health` when needed, since workers already run as separate processes.
+
+**Result:** No rewrite. This is a strong "senior" story: showing you can say *no* to over-engineering with concrete evidence.
+
+---
+
+## STORY 16 — Webhook events junction table
+
+**Situation:** Webhooks stored events as a list (unstructured) — hard to query and validate.
+
+**Task:** Normalize event subscriptions.
+
+**Action:** Introduced a **junction table** (`webhook_events`) between webhooks and event types, with `CHECK` constraints, so each webhook subscribes to explicit events.
+
+**Result:** Data integrity enforced at the database level.
+
+---
+
+## STORY 17 — Modular monolith restructure
+
+**Situation:** Code was scattered; tests were risky (one session actually truncated production data once).
+
+**Task:** Make the codebase domain-organized and make tests safe.
+
+**Action:**
+- Restructured into **domain folders** (`identity`, `links`, `workspaces`, `analytics`, `webhooks`, `admin`) each with `routes / services / repositories / models / workers`.
+- Added hard guards: DB-backed tests **refuse to run** without `--use-testcontainers`, and cleanup only runs when `_USE_TESTCONTAINERS=1` — so the test suite can never touch the production `.env` database again.
+
+**Result:** Clean, navigable codebase and safe tests.
+
+---
+
+## STORY 18 — Kafka worker reliability hardening
+
+**Situation:** Two reliability bugs: `init_kafka()` wasn't idempotent (leaked producers in embedded workers) and `/health` showed a stale Kafka status.
+
+**Task:** Make Kafka lifecycle reliable.
+
+**Action:**
+- Made `init_kafka` idempotent (guard against re-init).
+- `/health` now imports the Kafka **module** and checks live state instead of a cached boolean.
+
+**Result:** Stable workers and accurate health checks.
+
+---
+
+# PART 5 — One-sentence answers (cheat sheet)
+
+- **What is this project?** An enterprise URL shortener with auth, workspaces, analytics, webhooks, and an API, built on FastAPI + Next.js + PostgreSQL + MongoDB + Redis + Kafka.
+- **Why FastAPI?** Async by default (handles concurrent I/O without blocking) + automatic OpenAPI docs + Pydantic type-safe validation.
+- **Why Kafka instead of doing work inline?** Slow work (analytics, webhooks) would slow every click; Kafka makes work durable, asynchronous, retryable, and isolated.
+- **Why MongoDB for analytics?** High-volume, unstructured click events and time-series aggregations fit a document store better than a relational table.
+- **Why Redis?** Microsecond caching for short-code→URL lookups, rate limiting, and refresh-token blacklist.
+- **Why SQLAlchemy + asyncpg?** ORM productivity with a true async Postgres driver so queries never block the event loop.
+- **Why testcontainers?** Tests should run against *real* databases, not mocks — it caught the `localhost:27017` bug mocks never would.
+- **Why did we drop the RBAC middleware?** It authorized writes in a separate DB session (2 round-trips per request, invisible-to-transaction data). The service layer already enforces roles using the request's own session, so the middleware was redundant.
+- **How do workers stay up on Render free tier?** They run as asyncio tasks inside the one uvicorn process (single worker to fit 512 MB); `STANDALONE_WORKERS=1` runs them as separate processes.
+- **Did you consider microservices?** Yes — and rejected it: only 2 of 8 workers are analytics, the aggregation worker writes to Postgres (boundary leaks), and free tier can't afford two 300 MB instances. Modular monolith + optional deployment split is the right call.
+- **How do you keep tests from touching production?** Hard guards: DB tests fail without `--use-testcontainers`, and session cleanup runs only when `_USE_TESTCONTAINERS=1`.
+- **What was the hardest bug?** The asyncpg cross-event-loop pooling bug: 116 CI failures caused by module-import-time engine binding. Fixed by deferring session creation to request time.
+
+---
+
+# PART 6 — Likely interview questions
+
+1. **"Walk me through this project."** → Parts 1 + 3, then one STAR story of your choice (pick Story 2, 10, or 15 — they show the most depth).
+2. **"Why did you choose these technologies?"** → Part 2.
+3. **"Tell me about a hard bug."** → Story 2 (asyncpg) or Story 1 (testcontainers) or Story 6 (SNI).
+4. **"How do you ensure code quality?"** → CI with ruff + mypy + unit/integration tests, testcontainers, linting, PR review.
+5. **"How do you keep data safe in tests?"** → Story 17 (hard guards, `--use-testcontainers`).
+6. **"Have you ever over-engineered something?"** → Story 15 (microservices) — and mention you know when NOT to build microservices.
+7. **"How would you scale this?"** → Separate the analytics workers into their own service (Story 15), add more Kafka partitions/consumer groups, cache more aggressively, move to a paid Render/cloud tier, add a CDN for redirects.
+8. **"What would you do next?"** → Uptime pinger for the free-tier sleep, Redis write-through on redirects, webhook idempotency keys, feature branches + PRs.
+
+---
+
+*Generated from the real development history of this repository. Re-read Part 4 out loud before interviews — the STAR structure is what interviewers remember.*
