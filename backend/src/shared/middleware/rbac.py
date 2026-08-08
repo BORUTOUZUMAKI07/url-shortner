@@ -5,7 +5,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from src.links.models.folder import Folder
 from src.links.models.tag import Tag
 from src.links.models.url import URL
-from src.shared.core.database import AsyncSessionLocal
+from src.shared.core import database
 from src.shared.core.security import decode_token
 from src.workspaces.models.workspace_member import MemberRole
 from src.workspaces.repositories.workspace_repository import WorkspaceRepository
@@ -76,7 +76,7 @@ class RBACMiddleware(BaseHTTPMiddleware):
                     except ValueError:
                         continue
 
-        async with AsyncSessionLocal() as db:
+        async with database.AsyncSessionLocal() as db:
             if "urls" in parts:
                 idx = parts.index("urls")
                 if idx + 1 < len(parts) and parts[idx + 1].isdigit():
@@ -99,7 +99,7 @@ async def require_role(workspace_id: int, user_id: int, min_role: MemberRole, db
     if db is not None:
         allowed = await WorkspaceRepository(db).verify_role(workspace_id, user_id, min_role)
     else:
-        async with AsyncSessionLocal() as session:
+        async with database.AsyncSessionLocal() as session:
             allowed = await WorkspaceRepository(session).verify_role(workspace_id, user_id, min_role)
     if not allowed:
         raise HTTPException(

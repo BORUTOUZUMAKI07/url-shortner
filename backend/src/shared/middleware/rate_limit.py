@@ -5,8 +5,8 @@ from jose import JWTError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.identity.models.user import User
+from src.shared.core import database
 from src.shared.core.config import settings
-from src.shared.core.database import AsyncSessionLocal
 from src.shared.core.redis import check_rate_limit
 
 # Short-lived in-process plan cache so premium upgrades take effect without a
@@ -20,7 +20,7 @@ async def _get_user_plan(user_id: int) -> str:
     cached = _user_plan_cache.get(user_id)
     if cached and cached[1] > now:
         return cached[0]
-    async with AsyncSessionLocal() as db:
+    async with database.AsyncSessionLocal() as db:
         user = await db.get(User, user_id)
         plan = user.plan if user else "free"
     _user_plan_cache[user_id] = (plan, now + _USER_PLAN_CACHE_TTL)

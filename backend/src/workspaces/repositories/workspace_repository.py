@@ -2,7 +2,7 @@ from sqlalchemy import and_, select
 
 from src.shared.core.base_repository import BaseRepository
 from src.workspaces.models.workspace import Workspace
-from src.workspaces.models.workspace_member import MemberRole, ROLE_HIERARCHY, WorkspaceMember
+from src.workspaces.models.workspace_member import ROLE_HIERARCHY, MemberRole, WorkspaceMember
 
 
 class WorkspaceRepository(BaseRepository[Workspace]):
