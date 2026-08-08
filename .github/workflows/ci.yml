@@ -51,6 +51,12 @@ jobs:
               exit 0
             fi
           done
+          echo "::group::Which tests failed"
+          grep -E "^(tests/|FAILED|ERROR)" "$log" | tail -n 40 | sed 's/^/::error::/' || true
+          echo "::endgroup::"
+          echo "::group::Last 40 lines of pytest output"
+          tail -n 40 "$log" | sed 's/^/::error::/' || true
+          echo "::endgroup::"
           exit 1
         env:
           TESTCONTAINERS_RYUK_DISABLED: "true"
@@ -60,10 +66,6 @@ jobs:
         with:
           name: backend-tests-log
           path: /tmp/backend-tests.log
-      - name: Surface test log tail as annotations
-        if: failure()
-        shell: bash
-        run: tail -n 60 /tmp/backend-tests.log | sed 's/^/::error::/'
 
   frontend-lint:
     name: Frontend Lint
