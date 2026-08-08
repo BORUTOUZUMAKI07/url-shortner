@@ -44,15 +44,26 @@ jobs:
           # ("RuntimeError: Event loop is closed") even though the suite is
           # deterministic locally and in containers. Retrying absorbs the flake
           # without hiding genuine failures (job still fails after 3 attempts).
+          log=/tmp/backend-tests.log
           for attempt in 1 2 3; do
-            echo "== pytest attempt $attempt =="
-            if uv run pytest tests/ -v --use-testcontainers; then
+            echo "== pytest attempt $attempt ==" | tee -a "$log"
+            if uv run pytest tests/ -v --use-testcontainers 2>&1 | tee -a "$log"; then
               exit 0
             fi
           done
           exit 1
         env:
           TESTCONTAINERS_RYUK_DISABLED: "true"
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-tests-log
+          path: /tmp/backend-tests.log
+      - name: Surface test log tail as annotations
+        if: failure()
+        shell: bash
+        run: tail -n 60 /tmp/backend-tests.log | sed 's/^/::error::/'
 
   frontend-lint:
     name: Frontend Lint
