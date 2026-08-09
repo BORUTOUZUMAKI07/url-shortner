@@ -10,6 +10,7 @@ from src.shared import get_logger, setup_logging
 from src.shared.core.click_event import ClickEvent
 from src.shared.core.config import settings
 from src.shared.core.database import AsyncSessionLocal
+from src.shared.core.geo_service import GeoService
 from src.shared.core.mongodb import init_mongodb
 from src.shared.events.kafka import publish_raw
 from src.shared.events.schemas import deserialize
@@ -88,6 +89,10 @@ async def process_event(event_data: dict, logger):
         os = user_agent.os.family
         device = user_agent.device.family
 
+    # Geo is resolved here (off the redirect hot path). Cached in Redis, and
+    # private/reserved IPs are skipped without an external lookup.
+    geo = await GeoService().resolve(event_data.get("ip_address") or "")
+
     click_kwargs = dict(
         short_code=event_data["short_code"],
         original_url=event_data.get("original_url", ""),
@@ -96,8 +101,8 @@ async def process_event(event_data: dict, logger):
         user_agent=ua_string,
         referer=event_data.get("referer"),
         browser=browser, os=os, device=device,
-        country=event_data.get("country"),
-        city=event_data.get("city"),
+        country=geo.get("country"),
+        city=geo.get("city"),
         utm_source=event_data.get("utm_source"),
         utm_medium=event_data.get("utm_medium"),
         utm_campaign=event_data.get("utm_campaign"),

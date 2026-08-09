@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { renderHook, act } from "@testing-library/react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import React from "react"
 import { useDashboard } from "@/hooks/useDashboard"
 
 const { mockMutateAsync, mockUseMe, mockUseWorkspaces, mockUseUrls, mockUseWorkspaceMembers } = vi.hoisted(() => {
@@ -23,6 +25,11 @@ vi.mock("@/queries", () => ({
   useDeleteUrlMutation: vi.fn(() => ({ mutateAsync: mockMutateAsync })),
 }))
 
+function wrapper({ children }: { children: React.ReactNode }) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return React.createElement(QueryClientProvider, { client: queryClient }, children)
+}
+
 describe("useDashboard", () => {
   beforeEach(() => {
     mockMutateAsync.mockReset()
@@ -33,7 +40,7 @@ describe("useDashboard", () => {
   })
 
   it("returns initial state with data", () => {
-    const { result } = renderHook(() => useDashboard())
+    const { result } = renderHook(() => useDashboard(), { wrapper })
     expect(result.current.urlList).toHaveLength(1)
     expect(result.current.totalUrlsCount).toBe(1)
     expect(result.current.activeUrls).toHaveLength(1)
@@ -44,13 +51,13 @@ describe("useDashboard", () => {
   })
 
   it("sets wsId", () => {
-    const { result } = renderHook(() => useDashboard())
+    const { result } = renderHook(() => useDashboard(), { wrapper })
     act(() => result.current.setWsId(5))
     expect(result.current.wsId).toBe(5)
   })
 
   it("calls handleDelete", async () => {
-    const { result } = renderHook(() => useDashboard())
+    const { result } = renderHook(() => useDashboard(), { wrapper })
     await act(async () => result.current.handleDelete(1))
     expect(mockMutateAsync).toHaveBeenCalledWith(1)
   })
@@ -59,19 +66,19 @@ describe("useDashboard", () => {
     mockUseUrls.mockReturnValueOnce({
       data: null, error: new Error("Something went wrong"), isLoading: false,
     } as any)
-    const { result } = renderHook(() => useDashboard())
+    const { result } = renderHook(() => useDashboard(), { wrapper })
     expect(result.current.error).toBe("Something went wrong")
   })
 
   it("sets canEdit to false for viewers", () => {
     mockUseWorkspaceMembers.mockReturnValueOnce({ data: [{ user_id: 1, role: "viewer" }], isLoading: false })
-    const { result } = renderHook(() => useDashboard())
+    const { result } = renderHook(() => useDashboard(), { wrapper })
     expect(result.current.canEdit).toBe(false)
   })
 
   it("sets isLoading true when user is loading", () => {
     mockUseMe.mockReturnValueOnce({ data: null, isLoading: true } as any)
-    const { result } = renderHook(() => useDashboard())
+    const { result } = renderHook(() => useDashboard(), { wrapper })
     expect(result.current.isLoading).toBe(true)
   })
 })

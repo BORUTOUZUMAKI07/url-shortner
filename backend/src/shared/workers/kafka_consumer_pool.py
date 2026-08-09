@@ -50,21 +50,29 @@ class KafkaConnectionPool:
                     try:
                         msg = await consumer.getone()
                     except asyncio.CancelledError:
-                        logger.info("Fetch cancelled (rebalance), yielding for rebalance...")
-                        await asyncio.sleep(1)
-                        continue
+                        # Must propagate, NOT swallow: a swallowed CancelledError
+                        # keeps the worker task alive forever on shutdown.
+                        raise
                     try:
                         await callback(msg, consumer)
                         if auto_commit:
                             await consumer.commit()
                     except Exception as cb_e:
                         logger.exception("Callback error: %s", str(cb_e))
+            except asyncio.CancelledError:
+                logger.info("Consumer task cancelled, stopping consumer...")
+                raise
             except Exception as conn_e:
                 logger.error("Consumer error for %s (will reconnect): %s", topics, str(conn_e))
             finally:
                 if consumer:
+                    # asyncio.shield lets consumer.stop() actually run even while
+                    # this task is being cancelled.
                     try:
-                        await consumer.stop()
+                        await asyncio.shield(consumer.stop())
                     except Exception:
                         pass
-                await asyncio.sleep(self._current_backoff)
+                try:
+                    await asyncio.sleep(self._current_backoff)
+                except asyncio.CancelledError:
+                    raise

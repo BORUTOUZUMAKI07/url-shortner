@@ -7,6 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from src.identity.models.user import User
 from src.identity.schemas.user import (
     ForgotPasswordRequest,
+    OAuthExchangeRequest,
     RefreshTokenRequest,
     ResetPasswordRequest,
     Token,
@@ -122,11 +123,22 @@ async def initiate_oauth(provider: str, svc: AuthService = Depends(get_auth_serv
     description="Exchange the OAuth authorization code for a JWT token pair, then redirect to frontend.")
 async def oauth_callback(provider: str, code: str, state: str, svc: AuthService = Depends(get_auth_service)):
     tokens = await svc.oauth_callback(provider, code, state)
-    # Only the refresh token travels via the URL (cross-origin handoff); the
-    # login page exchanges it for a fresh access token via /auth/refresh, which
-    # sets HttpOnly cookies on the frontend origin.
-    redirect_url = f"{settings.FRONTEND_URL}/login?refresh_token={tokens.refresh_token}"
+    # The refresh token is never put in the redirect URL (it would leak through
+    # access logs and Referer headers). Instead a short-lived one-time handoff
+    # code is passed; the login page exchanges it for the token pair.
+    if not tokens.refresh_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OAuth login failed")
+    handoff = await svc.create_oauth_handoff(tokens.refresh_token)
+    redirect_url = f"{settings.FRONTEND_URL}/login?code={handoff}"
     return RedirectResponse(url=redirect_url, status_code=302)
+
+
+@router.post("/oauth/exchange",
+    summary="Exchange OAuth handoff code",
+    description="One-time exchange of the OAuth callback handoff code for a refresh token.")
+async def oauth_exchange(payload: OAuthExchangeRequest, svc: AuthService = Depends(get_auth_service)):
+    refresh_token = await svc.exchange_oauth_handoff(payload.code)
+    return {"refresh_token": refresh_token}
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str | None) -> None:

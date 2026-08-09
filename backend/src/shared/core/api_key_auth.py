@@ -9,10 +9,13 @@ from sqlalchemy import select
 
 from src.identity.models.api_key import APIKey, APIKeyStatus
 from src.identity.models.user import User
+from src.shared import get_logger
 from src.shared.core.database import AsyncSessionLocal
-from src.shared.core.redis import redis_client
+from src.shared.core.redis import in_process_consume_quota, redis_client
 from src.shared.core.security import verify_password
-from src.shared.errors import ForbiddenError, NotFoundError, RateLimitError, UnauthorizedError
+from src.shared.errors import ForbiddenError, RateLimitError, UnauthorizedError
+
+logger = get_logger(__name__)
 
 
 class APIKeyQuotaManager:
@@ -99,19 +102,15 @@ async def authenticate_api_key(request: Request) -> tuple[User, APIKey]:
         return user, api_key
 
 
-async def verify_api_key_quota(user_id: int, api_key_id: int) -> None:
+async def verify_api_key_quota(api_key_id: int, user_plan: str) -> None:
     """
     Verify that API key has remaining quota, atomically consuming one request.
-    Raises HTTPException if quota exceeded.
+    Raises RateLimitError when the daily quota is exhausted.
+    Falls back to a process-local counter when Redis is unreachable.
     """
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
-        if not user:
-            raise NotFoundError("User not found")
-
-        quota = APIKeyQuotaManager.get_quota_for_user(user.plan)
-        redis_key = f"api_key_quota:{api_key_id}:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+    quota = APIKeyQuotaManager.get_quota_for_user(user_plan)
+    redis_key = f"api_key_quota:{api_key_id}:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+    try:
         allowed = await redis_client.eval(
             APIKeyQuotaManager.CHECK_AND_INCREMENT_LUA,
             1,
@@ -119,6 +118,12 @@ async def verify_api_key_quota(user_id: int, api_key_id: int) -> None:
             str(quota),
             "86400",
         )
-        if allowed != 1:
-            remaining = await APIKeyQuotaManager.get_remaining_quota(api_key_id, user.plan)
-            raise RateLimitError(f"API key quota exceeded. Limit: {quota} requests/day. Remaining: {remaining}")
+    except Exception as e:
+        logger.error("API key quota check failed for key %d (falling back to in-process counter): %s", api_key_id, e)
+        allowed = await in_process_consume_quota(f"api_key_quota:{api_key_id}", quota)
+    if allowed != 1:
+        try:
+            remaining = await APIKeyQuotaManager.get_remaining_quota(api_key_id, user_plan)
+        except Exception:
+            remaining = 0
+        raise RateLimitError(f"API key quota exceeded. Limit: {quota} requests/day. Remaining: {remaining}")

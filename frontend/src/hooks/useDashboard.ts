@@ -1,7 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { useMe, useWorkspaces, useUrls, useWorkspaceMembers, useApiKeys, useApiKeyQuota, useDeleteUrlMutation } from "@/queries"
+import { useQuery } from "@tanstack/react-query"
+import { useMe, useWorkspaces, useUrls, useWorkspaceMembers, useApiKeys, useDeleteUrlMutation } from "@/queries"
+import { apiKeysApi } from "@/lib/api"
 
 export function useDashboard() {
   const { data: user, isLoading: userLoading } = useMe()
@@ -12,8 +14,29 @@ export function useDashboard() {
   const urlList = urlsData?.items || []
   const totalUrlsCount = urlsData?.total || 0
 
+  // The "Active" stat must count every active URL across the workspace, not
+  // just the ones in the currently-fetched page (limit 50). A second query with
+  // status=active uses the API's `total` field for an accurate count.
+  const { data: activeData } = useUrls(wsId, { status: "active", limit: 1 })
+  const activeUrlsCount = activeData?.total || 0
+
   const { data: keys = [] } = useApiKeys()
-  const { data: quota } = useApiKeyQuota(keys[0]?.id ?? null)
+
+  // The daily API-key quota is enforced per-user (by plan) but tracked per key
+  // in Redis, so usage is aggregated across all of the user's keys while the
+  // limit comes from the plan.
+  const keyIds = keys.filter((k) => k.status === "active").map((k) => k.id).join(",")
+  const { data: quota } = useQuery({
+    queryKey: ["api-key-quota", keyIds],
+    queryFn: async () => {
+      const ids = keyIds.split(",").map(Number).filter(Boolean)
+      const quotas = await Promise.all(ids.map((id) => apiKeysApi.quota(id)))
+      const used = quotas.reduce((sum, q) => sum + Math.max(0, q.daily_limit - q.remaining_quota), 0)
+      const limit = quotas[0]?.daily_limit ?? 0
+      return { used, limit }
+    },
+    enabled: !!keyIds,
+  })
 
   const deleteUrl = useDeleteUrlMutation()
 
@@ -30,7 +53,7 @@ export function useDashboard() {
 
   return {
     urlList, totalUrlsCount, workspaces, wsId, members, error, quota,
-    myRole, canEdit, activeUrls, isLoading,
+    myRole, canEdit, activeUrls, activeUrlsCount, isLoading,
     setWsId, handleDelete,
   }
 }

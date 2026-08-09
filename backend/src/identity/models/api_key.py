@@ -19,7 +19,7 @@ class APIKey(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     name: Mapped[str] = mapped_column(String(100), nullable=False)       # human-readable label
-    prefix: Mapped[str] = mapped_column(String(8), nullable=False)        # first 8 chars shown in UI
+    prefix: Mapped[str] = mapped_column(String(8), index=True, nullable=False)  # first 8 chars shown in UI
     key_hash: Mapped[str] = mapped_column(String, nullable=False)          # Argon2id hash of the full key
     status: Mapped[APIKeyStatus] = mapped_column(Enum(APIKeyStatus), default=APIKeyStatus.active)
 

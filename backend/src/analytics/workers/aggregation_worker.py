@@ -1,5 +1,4 @@
 import asyncio
-import signal
 import traceback
 from datetime import datetime, timedelta, timezone
 
@@ -10,6 +9,7 @@ from src.shared.core.click_event import ClickEvent
 from src.shared.core.database import AsyncSessionLocal
 from src.shared.core.mongodb import init_mongodb
 from src.shared.core.redis import redis_client
+from src.shared.workers.shutdown import install_signal_handlers, wait_for_shutdown
 
 _CUTOFF_KEY = "aggregation:last_cutoff"
 _last_cutoff: datetime | None = None
@@ -39,9 +39,9 @@ async def _save_cutoff(cutoff: datetime) -> None:
 
 async def run_aggregation_rollup(logger):
     match: dict[str, object] = {}
-    _last_cutoff = await _load_cutoff()
-    if _last_cutoff:
-        match["clicked_at"] = {"$gt": _last_cutoff}
+    cutoff = await _load_cutoff()
+    if cutoff:
+        match["clicked_at"] = {"$gt": cutoff}
     pipeline: list[dict[str, object]] = []
     if match:
         pipeline.append({"$match": match})
@@ -50,11 +50,13 @@ async def run_aggregation_rollup(logger):
             "_id": "$short_code",
             "unique_ips": {"$addToSet": "$ip_address"},
             "total_clicks": {"$sum": 1},
+            "max_clicked_at": {"$max": "$clicked_at"},
         }},
         {"$project": {
             "short_code": "$_id",
             "unique_clicks": {"$size": "$unique_ips"},
             "total_clicks": "$total_clicks",
+            "max_clicked_at": 1,
         }},
     ])
 
@@ -64,9 +66,8 @@ async def run_aggregation_rollup(logger):
         logger.error("Failed to aggregate MongoDB events: %s\n%s", str(e), traceback.format_exc())
         return
 
-    await _save_cutoff(datetime.now(timezone.utc) - timedelta(seconds=1))
-
     if not mongo_results:
+        await _save_cutoff(datetime.now(timezone.utc) - timedelta(seconds=1))
         return
 
     async with AsyncSessionLocal() as db:
@@ -84,6 +85,16 @@ async def run_aggregation_rollup(logger):
 
         logger.info("Rolled up %d analytics summaries.", updated_count)
 
+    # Persist the watermark ONLY after the DB writes succeed. The cutoff is the
+    # newest clicked_at among the events that were actually aggregated, so a
+    # crash between aggregation and persistence re-runs the same window instead
+    # of permanently dropping it (the old code saved a wall-clock cutoff BEFORE
+    # writing, so a crash lost that window forever).
+    window_max = max(item["max_clicked_at"] for item in mongo_results)
+    if window_max.tzinfo is None:
+        window_max = window_max.replace(tzinfo=timezone.utc)
+    await _save_cutoff(window_max)
+
 
 async def start_worker():
     setup_logging()
@@ -98,23 +109,17 @@ async def start_worker():
     except Exception as e:
         logger.warning("MongoDB connection failed (aggregation will retry): %s", str(e))
     interval = 60
-    loop = asyncio.get_event_loop()
-    stop = asyncio.Event()
+    install_signal_handlers()
 
-    for sig_name in ("SIGTERM", "SIGINT"):
-        sig = getattr(signal, sig_name, None)
-        if sig is not None:
-            try:
-                loop.add_signal_handler(sig, stop.set)
-            except NotImplementedError:
-                pass
-
-    while not stop.is_set():
+    while not await wait_for_shutdown():
         try:
             await run_aggregation_rollup(logger)
         except Exception as e:
             logger.warning("Error in aggregation loop: %s", str(e))
-        await asyncio.sleep(interval)
+        try:
+            await asyncio.wait_for(asyncio.shield(wait_for_shutdown()), timeout=interval)
+        except asyncio.TimeoutError:
+            pass
 
     logger.info("Aggregation Worker stopped")
 

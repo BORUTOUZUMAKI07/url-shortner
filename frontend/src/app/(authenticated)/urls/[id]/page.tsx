@@ -57,19 +57,20 @@ export default function URLDetailPage() {
 
   const urlId = Number(id)
 
-  const { data: url } = useQuery({
+  const { data: url, isError: urlError, refetch: refetchUrl } = useQuery({
     queryKey: ["url", urlId],
     queryFn: () => urls.get(urlId),
     enabled: !!urlId,
+    retry: false,
   })
 
-  const { data: folders = [] } = useQuery({
+  const { data: folders = [], isError: foldersError, refetch: refetchFolders } = useQuery({
     queryKey: ["folders", url?.workspace_id],
     queryFn: () => foldersApi.list(url!.workspace_id),
     enabled: !!url?.workspace_id,
   })
 
-  const { data: allTags = [] } = useQuery({
+  const { data: allTags = [], isError: tagsError, refetch: refetchTags } = useQuery({
     queryKey: ["tags", url?.workspace_id],
     queryFn: () => tagsApi.list(url!.workspace_id),
     enabled: !!url?.workspace_id,
@@ -82,7 +83,14 @@ export default function URLDetailPage() {
       setIsAbTest(url.is_ab_test)
       setIosUrl(url.ios_url || "")
       setAndroidUrl(url.android_url || "")
-      if (url.expires_at) setExpiresAt(new Date(url.expires_at).toISOString().slice(0, 16))
+      if (url.expires_at) {
+        // datetime-local inputs expect local wall-clock time, not UTC. Using
+        // toISOString() here showed the UTC time (misleading when the browser
+        // is not in UTC).
+        const d = new Date(url.expires_at)
+        const pad = (n: number) => String(n).padStart(2, "0")
+        setExpiresAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`)
+      }
       setSelectedFolder(url.folder_id ? String(url.folder_id) : "")
       setSelectedTags(url.tags || [])
     })
@@ -130,6 +138,19 @@ export default function URLDetailPage() {
     link.click()
     URL.revokeObjectURL(link.href)
   }
+
+  if (urlError) return (
+    <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <p className="text-lg font-medium text-red-400">Failed to load URL</p>
+        <p className="text-sm text-muted-foreground">This URL may have been deleted or you don&apos;t have access to it.</p>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => router.push("/urls")}>Back to URLs</Button>
+          <Button variant="outline" onClick={() => refetchUrl()}>Try again</Button>
+        </div>
+      </div>
+    </div>
+  )
 
   if (!url) return (
     <div className="flex min-h-[60vh] items-center justify-center">
@@ -202,6 +223,7 @@ export default function URLDetailPage() {
                   <option value="">No folder</option>
                   {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </Select>
+                {foldersError && <p className="mt-1 text-xs text-red-400">Failed to load folders. <button className="underline" onClick={() => refetchFolders()}>Retry</button></p>}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -218,6 +240,7 @@ export default function URLDetailPage() {
                   {t.name}
                 </button>
               ))}
+              {tagsError && <p className="text-xs text-red-400">Failed to load tags. <button className="underline" onClick={() => refetchTags()}>Retry</button></p>}
             </div>
             <Separator />
             <div className="flex items-center justify-between rounded-lg border p-3">

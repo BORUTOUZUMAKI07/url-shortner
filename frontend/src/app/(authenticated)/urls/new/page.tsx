@@ -13,7 +13,7 @@ import { Separator } from "@/components/ui/separator"
 import { useWorkspaces, useFolders, useTags, useCreateUrlMutation } from "@/queries"
 import { createUrlSchema, type CreateUrlFormData } from "@/lib/schemas"
 import { Link2, ArrowLeft } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 
 export default function CreateURLPage() {
   const router = useRouter()
@@ -25,8 +25,18 @@ export default function CreateURLPage() {
 
   const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting } } = useForm<CreateUrlFormData>({
     resolver: zodResolver(createUrlSchema),
-    defaultValues: { workspace_id: selectedWs },
+    defaultValues: { workspace_id: 0 },
   })
+
+  // Default the workspace to the user's first workspace instead of leaving
+  // workspace_id at 0 (a 0 workspace_id would otherwise be submitted and fail
+  // server-side).
+  useEffect(() => {
+    if (selectedWs === 0 && workspaces.length > 0) {
+      setSelectedWs(workspaces[0].id)
+      setValue("workspace_id", workspaces[0].id)
+    }
+  }, [workspaces, selectedWs, setValue])
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const isAbTest = watch("is_ab_test")
@@ -96,6 +106,7 @@ export default function CreateURLPage() {
                     <option value="">Select...</option>
                     {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
                   </Select>
+                  {errors.workspace_id && <p className="mt-1 text-xs text-red-400">{errors.workspace_id.message}</p>}
                 </div>
                 <div>
                   <Label>Folder <span className="text-muted-foreground">(optional)</span></Label>
@@ -143,7 +154,7 @@ export default function CreateURLPage() {
 
               <div className="flex flex-col gap-3 pt-2 sm:flex-row">
                 <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
-                <Button type="submit" disabled={isSubmitting} className="bg-blue-600 text-white hover:bg-blue-700">
+                <Button type="submit" disabled={isSubmitting || selectedWs === 0} className="bg-blue-600 text-white hover:bg-blue-700">
                   {isSubmitting ? "Creating..." : "Create URL"}
                 </Button>
               </div>

@@ -19,6 +19,18 @@ def _fernet() -> Fernet:
     return Fernet(key)
 
 
+# Shared AsyncClient — creating one per webhook delivery wastes a connection
+# pool per delivery. AsyncClient is designed to be reused across requests.
+_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=10.0)
+    return _client
+
+
 def encrypt_secret(plain: str) -> str:
     return _fernet().encrypt(plain.encode()).decode()
 
@@ -89,17 +101,16 @@ class WebhookService:
             payload_bytes = json.dumps(payload).encode()
             signature = hmac.new(secret.encode(), payload_bytes, hashlib.sha256).hexdigest()
             try:
-                async with httpx.AsyncClient() as client:
-                    resp = await client.post(
-                        wh.url,
-                        content=payload_bytes,
-                        headers={
-                            "Content-Type": "application/json",
-                            "X-Webhook-Signature": signature,
-                            "X-Webhook-Event": event_type,
-                        },
-                        timeout=10.0,
-                    )
+                resp = await _get_client().post(
+                    wh.url,
+                    content=payload_bytes,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Webhook-Signature": signature,
+                        "X-Webhook-Event": event_type,
+                    },
+                    timeout=10.0,
+                )
                 if resp.is_success:
                     await self.repo.record_delivery(
                         wh.id, event_type, json.dumps(payload), "delivered",

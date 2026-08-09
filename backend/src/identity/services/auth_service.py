@@ -88,6 +88,27 @@ class AuthService:
 
         return Token(access_token=new_access, token_type="bearer", refresh_token=new_refresh)
 
+    async def create_oauth_handoff(self, refresh_token: str) -> str:
+        """Issue a short-lived one-time code exchangeable for the refresh token.
+
+        The refresh token itself is never placed in the OAuth callback redirect
+        URL (URLs leak via access logs / Referer headers).
+        """
+        code = secrets.token_urlsafe(32)
+        await redis_client.setex(f"oauth:handoff:{code}", 120, refresh_token)
+        return code
+
+    async def exchange_oauth_handoff(self, code: str) -> str:
+        """One-time exchange of an OAuth handoff code for the refresh token."""
+        if not code:
+            raise InvalidToken()
+        key = f"oauth:handoff:{code}"
+        token = await redis_client.get(key)
+        await redis_client.delete(key)
+        if not token:
+            raise InvalidToken()
+        return token  # type: ignore[no-any-return]
+
     async def logout(self, token: str) -> None:
         try:
             payload = decode_token(token)

@@ -5,7 +5,6 @@ from typing import Optional
 
 from src.links.repositories.url_repository import URLRepository
 from src.links.services.utm_service import parse_utm
-from src.shared.core.geo_service import GeoService
 from src.shared.core.redis import check_rate_limit, delete_url_cache, get_url_cache, set_url_cache
 from src.shared.core.security import verify_password
 from src.shared.errors.common import RateLimitError
@@ -28,7 +27,6 @@ class RedirectService:
         self.url_repo = url_repo
         self.workspace_repo = workspace_repo
         self.events = events
-        self.geo = GeoService()
 
     async def resolve(
         self,
@@ -48,9 +46,11 @@ class RedirectService:
         destination = self._apply_deep_link(url_data, user_agent)
         await self._handle_one_time(url_data)
 
-        geo = await self.geo.resolve(ip)
         utm = parse_utm(url_data["original_url"])
 
+        # Geo resolution is intentionally NOT done here — it is an external HTTP
+        # call (ipinfo.io) that would add latency to the redirect hot path. The
+        # analytics worker resolves country/city after consuming the event.
         await self.events.dispatch("url-clicked", {
             "event_id": str(uuid.uuid4()),
             "short_code": short_code,
@@ -59,8 +59,6 @@ class RedirectService:
             "ip_address": ip,
             "user_agent": user_agent,
             "referer": referer,
-            "country": geo.get("country"),
-            "city": geo.get("city"),
             "utm_source": utm.get("utm_source"),
             "utm_medium": utm.get("utm_medium"),
             "utm_campaign": utm.get("utm_campaign"),
@@ -125,5 +123,8 @@ class RedirectService:
 
     async def _handle_one_time(self, url_data: dict):
         if url_data.get("is_one_time"):
-            await self.url_repo.soft_delete(url_data["id"])
+            consumed = await self.url_repo.consume_one_time(url_data["id"])
+            if consumed == 0:
+                # Another request already consumed the link — stop redirecting.
+                raise URLNotFound()
             await delete_url_cache(url_data["short_code"])

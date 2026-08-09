@@ -20,13 +20,13 @@ export default function DashboardPage() {
 
   const {
     urlList, totalUrlsCount, workspaces, wsId, error, quota,
-    canEdit, activeUrls, isLoading,
+    canEdit, activeUrlsCount, isLoading,
     setWsId,
   } = useDashboard()
 
   const stats = [
     { title: "Total URLs", value: totalUrlsCount, icon: Link2, color: "blue" },
-    { title: "Active", value: activeUrls.length, icon: Activity, color: "green" },
+    { title: "Active", value: activeUrlsCount, icon: Activity, color: "green" },
   ]
 
   const colorMap: Record<string, { ring: string; text: string; bg: string }> = {

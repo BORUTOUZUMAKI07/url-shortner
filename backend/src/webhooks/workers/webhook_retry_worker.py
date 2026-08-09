@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import json
-import signal
+import time
 
 import httpx
 from sqlalchemy import select
@@ -10,6 +10,8 @@ from sqlalchemy import select
 from src.analytics.models.dead_letter import DeadLetterEvent
 from src.shared import get_logger, setup_logging
 from src.shared.core.database import AsyncSessionLocal
+from src.shared.core.redis import redis_client
+from src.shared.workers.shutdown import install_signal_handlers, wait_for_shutdown
 from src.webhooks.models.webhook import Webhook
 from src.webhooks.models.webhook_event import WebhookEvent
 from src.webhooks.services.webhook_service import decrypt_secret
@@ -22,6 +24,36 @@ MAX_DELAY = 3600
 def backoff_delay(retry_count: int) -> int:
     delay = BASE_DELAY * (2 ** (retry_count - 1))
     return min(delay, MAX_DELAY)  # type: ignore[no-any-return]
+
+
+def _last_attempt_key(event_id: int) -> str:
+    return f"webhook_retry:{event_id}"
+
+
+async def _mark_attempt(event) -> None:
+    """Record when the event was last retried so backoff_delay can be enforced."""
+    try:
+        await redis_client.setex(_last_attempt_key(event.id), 2 * 3600, str(time.time()))
+    except Exception:
+        pass
+
+
+async def _clear_attempt(event) -> None:
+    try:
+        await redis_client.delete(_last_attempt_key(event.id))
+    except Exception:
+        pass
+
+
+async def _too_soon(event) -> bool:
+    """True when the event's exponential backoff has not elapsed yet."""
+    try:
+        raw = await redis_client.get(_last_attempt_key(event.id))
+        if not raw:
+            return False
+        return (time.time() - float(raw)) < backoff_delay(event.retry_count)
+    except Exception:
+        return False
 
 
 async def retry_failed_events(logger):
@@ -40,9 +72,15 @@ async def retry_failed_events(logger):
         logger.info("Found %d failed events to retry.", len(failed_events))
 
         for event in failed_events:
+            # Respect the exponential backoff between attempts (previously the
+            # constants existed but the worker retried everything every 60s).
+            if await _too_soon(event):
+                continue
+
             wh = await db.get(Webhook, event.webhook_id)
             if not wh or not wh.is_active:
                 event.retry_count += 1
+                await _mark_attempt(event)
                 if event.retry_count >= MAX_RETRIES:
                     await _move_to_dlq(db, event, "Webhook inactive")
                     await db.delete(event)
@@ -69,6 +107,7 @@ async def retry_failed_events(logger):
                     event.status = "delivered"
                     event.response_code = resp.status_code
                     event.error = None
+                    await _clear_attempt(event)
                 else:
                     event.retry_count += 1
                     event.response_code = resp.status_code
@@ -77,12 +116,14 @@ async def retry_failed_events(logger):
                         "Webhook %s returned %s for event %s (retry %d)",
                         wh.url, resp.status_code, event.event_type, event.retry_count,
                     )
+                    await _mark_attempt(event)
                     if event.retry_count >= MAX_RETRIES:
                         await _move_to_dlq(db, event, event.error)
                         await db.delete(event)
             except Exception as e:
                 event.retry_count += 1
                 event.error = str(e)
+                await _mark_attempt(event)
                 if event.retry_count >= MAX_RETRIES:
                     await _move_to_dlq(db, event, str(e))
                     await db.delete(event)
@@ -109,23 +150,17 @@ async def start_worker():
     init_metrics()
     logger = get_logger("webhook-retry-worker")
     logger.info("Webhook Retry Worker started (max_retries=%d, base_delay=%ds)", MAX_RETRIES, BASE_DELAY)
-    loop = asyncio.get_event_loop()
-    stop = asyncio.Event()
+    install_signal_handlers()
 
-    for sig_name in ("SIGTERM", "SIGINT"):
-        sig = getattr(signal, sig_name, None)
-        if sig is not None:
-            try:
-                loop.add_signal_handler(sig, stop.set)
-            except NotImplementedError:
-                pass
-
-    while not stop.is_set():
+    while not await wait_for_shutdown():
         try:
             await retry_failed_events(logger)
         except Exception as e:
             logger.warning("Error in webhook retry loop: %s", str(e))
-        await asyncio.sleep(60)
+        try:
+            await asyncio.wait_for(asyncio.shield(wait_for_shutdown()), timeout=60)
+        except asyncio.TimeoutError:
+            pass
 
     logger.info("Webhook Retry Worker stopped")
 

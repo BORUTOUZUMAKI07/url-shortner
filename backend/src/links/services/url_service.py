@@ -1,3 +1,5 @@
+from sqlalchemy.exc import IntegrityError
+
 from src.analytics.services.audit_service import AuditService
 from src.links.models.url import URL, URLStatus
 from src.links.repositories.folder_repository import FolderRepository
@@ -98,7 +100,14 @@ class URLService:
                 db_tags.append(tag)
             url.tags = db_tags
 
-        url = await self.url_repo.create_url(url)
+        try:
+            url = await self.url_repo.create_url(url)
+        except IntegrityError:
+            # Two concurrent creates raced past alias_exists(); the unique
+            # constraint is the source of truth — surface a clean 409 instead
+            # of an unhandled IntegrityError 500.
+            await self.url_repo.rollback()
+            raise AliasConflict()
         _ = [t.name for t in url.tags]
 
         try:

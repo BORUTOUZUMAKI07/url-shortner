@@ -1,5 +1,4 @@
 import asyncio
-import signal
 
 from sqlalchemy import select
 
@@ -9,6 +8,7 @@ from src.links.repositories.url_repository import URLRepository
 from src.shared import get_logger, setup_logging
 from src.shared.core.click_event import ClickEvent
 from src.shared.core.database import AsyncSessionLocal
+from src.shared.workers.shutdown import install_signal_handlers, wait_for_shutdown
 
 
 async def run_cleanup(logger, db):
@@ -48,24 +48,18 @@ async def start_worker():
     logger = get_logger("cleanup-worker")
     logger.info("Cleanup Worker started")
     interval = 45
-    loop = asyncio.get_event_loop()
-    stop = asyncio.Event()
+    install_signal_handlers()
 
-    for sig_name in ("SIGTERM", "SIGINT"):
-        sig = getattr(signal, sig_name, None)
-        if sig is not None:
-            try:
-                loop.add_signal_handler(sig, stop.set)
-            except NotImplementedError:
-                pass
-
-    while not stop.is_set():
+    while not await wait_for_shutdown():
         try:
             async with AsyncSessionLocal() as db:
                 await run_cleanup(logger, db)
         except Exception as e:
             logger.warning("Error in cleanup loop: %s", str(e))
-        await asyncio.sleep(interval)
+        try:
+            await asyncio.wait_for(asyncio.shield(wait_for_shutdown()), timeout=interval)
+        except asyncio.TimeoutError:
+            pass
 
     logger.info("Cleanup Worker stopped")
 

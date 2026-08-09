@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from redis.asyncio import Redis as AsyncRedis
@@ -124,8 +125,75 @@ async def check_rate_limit(key: str, capacity: int, refill_rate_per_sec: float) 
         )
         return result == 0  # type: ignore[no-any-return]
     except Exception as e:
-        logger.error("Rate limit check failed for key %s: %s", key, e)
-        return False
+        logger.error("Rate limit check failed for key %s (falling back to in-process limiter): %s", key, e)
+        return await _limiter.token_bucket(key, float(capacity), refill_rate_per_sec)
+
+
+class _InProcessLimiter:
+    """Process-local fallback used when Redis is unreachable.
+
+    This is a per-instance approximation (N app instances get ~Nx capacity) but
+    it keeps the service enforcing limits instead of silently failing open. The
+    token bucket mirrors ``TOKEN_BUCKET_LUA`` and the quota counter mirrors the
+    daily API-key quota. Stale entries are pruned on each call once the dicts
+    grow large, so memory stays bounded.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._buckets: dict[str, list[float]] = {}          # key -> [tokens, last_updated]
+        self._quotas: dict[str, tuple[int, str]] = {}       # key -> (used, day)
+        self._last_prune = 0.0
+
+    async def _prune(self, now: float) -> None:
+        if now - self._last_prune < 60.0:
+            return
+        self._last_prune = now
+        for bkey, bucket in list(self._buckets.items()):
+            if now - bucket[1] > 3600.0:
+                self._buckets.pop(bkey, None)
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        for qkey, quota_state in list(self._quotas.items()):
+            if quota_state[1] != today:
+                self._quotas.pop(qkey, None)
+
+    async def token_bucket(self, key: str, capacity: float, refill_rate: float) -> bool:
+        """Return True when the request is limited (mirrors check_rate_limit)."""
+        async with self._lock:
+            now = time.time()
+            await self._prune(now)
+            state = self._buckets.get(key)
+            if state is None:
+                tokens, last = float(capacity), now
+            else:
+                tokens, last = state
+                tokens = min(capacity, tokens + (now - last) * refill_rate)
+            if tokens >= 1.0:
+                tokens -= 1.0
+                self._buckets[key] = [tokens, now]
+                return False
+            self._buckets[key] = [tokens, now]
+            return True
+
+    async def consume_quota(self, key: str, quota: int) -> bool:
+        """Atomically consume one unit of a daily quota; False when exhausted."""
+        async with self._lock:
+            day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            cache_key = f"{key}:{day}"
+            used, day_stamp = self._quotas.get(cache_key, (0, day))
+            if day_stamp != day:
+                used = 0
+            if used >= quota:
+                return False
+            self._quotas[cache_key] = (used + 1, day)
+            return True
+
+
+_limiter = _InProcessLimiter()
+
+
+async def in_process_consume_quota(key: str, quota: int) -> bool:
+    return await _limiter.consume_quota(key, quota)
 
 
 async def get_url_cache(short_code: str) -> dict | None:

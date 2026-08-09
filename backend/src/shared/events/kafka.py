@@ -12,7 +12,17 @@ logger = get_logger(__name__)
 
 producer: Optional[AIOKafkaProducer] = None
 
+# Background send tasks are tracked so close_kafka() can drain in-flight
+# messages before stopping the producer — otherwise fire-and-forget sends are
+# silently destroyed on shutdown.
+_pending_sends: set[asyncio.Task] = set()
+
 _RETRY_DELAYS = [1, 2, 4, 8, 16]  # exponential backoff seconds
+
+
+def _track(task: asyncio.Task) -> None:
+    _pending_sends.add(task)
+    task.add_done_callback(_pending_sends.discard)
 
 
 async def init_kafka():
@@ -49,8 +59,18 @@ async def init_kafka():
 
 async def close_kafka():
     global producer
+    if _pending_sends:
+        sends = list(_pending_sends)
+        try:
+            await asyncio.wait_for(asyncio.gather(*sends, return_exceptions=True), timeout=10)
+        except asyncio.TimeoutError:
+            logger.warning("Timed out draining %d pending Kafka sends", len(sends))
     if producer:
-        await producer.stop()
+        try:
+            await producer.stop()
+        except Exception as e:
+            logger.error("Error stopping Kafka producer: %s", e)
+        producer = None
         logger.info("Kafka Producer stopped.")
 
 
@@ -68,7 +88,7 @@ async def publish_event(topic: str, value: dict, key: Optional[str] = None):
         return
     payload = serialize(topic, value)
     encoded_key = key.encode("utf-8") if key else None
-    asyncio.create_task(_send_background(topic, payload, encoded_key))
+    _track(asyncio.create_task(_send_background(topic, payload, encoded_key)))
 
 
 async def _send_and_stop(topic: str, value: bytes, key: Optional[bytes] = None):
@@ -97,6 +117,6 @@ async def _send_and_stop(topic: str, value: bytes, key: Optional[bytes] = None):
 async def publish_raw(topic: str, value: bytes, key: Optional[bytes] = None):
     global producer
     if producer:
-        asyncio.create_task(_send_background(topic, value, key))
+        _track(asyncio.create_task(_send_background(topic, value, key)))
     else:
-        asyncio.create_task(_send_and_stop(topic, value, key))
+        _track(asyncio.create_task(_send_and_stop(topic, value, key)))

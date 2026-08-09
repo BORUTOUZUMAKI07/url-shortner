@@ -114,6 +114,91 @@ The page fetched favorites then did `urls.get(url_id)` per favorite.
 
 **Fix:** `GET /urls` accepts a comma-separated `ids` query param (`url_repository.get_workspace_urls` gained `url_ids`; scoped to the user's workspaces). The favorites page now does one `urls.list(null, { ids })` call and re-orders results to favorite order client-side.
 
+## OAuth — Refresh Token Rode the Callback URL (leaked in logs/referrer)
+
+**File:** `backend/src/identity/routes/auth.py`, `backend/src/identity/services/auth_service.py`, `frontend/src/lib/api.ts`, `frontend/src/app/login/page.tsx`
+
+The Google/Refresh OAuth callback passed the provider refresh token as a `?code=` query param; it ended up in browser history, server logs, and the Referer header of any subsequent navigation.
+
+**Fix:** the callback now writes a **one-time handoff code** to Redis (TTL 120s) and redirects to `/login?code=<handoff>`; the frontend calls `POST /auth/oauth/exchange` with that code, which swaps it for a session in a server-side POST body. `create_oauth_handoff` / `exchange_oauth_handoff` in `auth_service.py`.
+
+## API-Key Quota — Enforcement Was Dead Code
+
+**File:** `backend/src/shared/core/deps.py`, `backend/src/shared/core/api_key_auth.py`
+
+`verify_api_key_quota` was defined but never called from `get_current_user`'s API-key branch → quota (per-user daily limit) was never enforced.
+
+**Fix:** `get_current_user` calls `verify_api_key_quota(api_key_id, user_plan)` on every API-key request. It uses an atomic Redis `CHECK_AND_INCREMENT_LUA` script (increment + compare to `daily_limit`) with an in-process `dict` fallback when Redis is unavailable. No blocking counter → burst limits still enforced, no token bucket needed per request.
+
+## One-Time Links — TOCTOU on Consume
+
+**File:** `backend/src/links/repositories/url_repository.py` function `consume_one_time`, `backend/src/links/services/redirect_service.py`
+
+`consume_one_time` did a read-then-write (SELECT active → UPDATE active=0) → two concurrent hits could both pass the check and both redirect.
+
+**Fix:** consume is now a single conditional UPDATE (`UPDATE urls SET active=0 WHERE id=:id AND active=true`); a rowcount of 0 → `URLNotFound`. One winner only.
+
+## Geo Lookup — Removed From Redirect Hot Path
+
+**File:** `backend/src/links/services/redirect_service.py`, `backend/src/analytics/workers/analytics_worker.py`, `backend/src/shared/core/geo_service.py`
+
+The redirect handler resolved the visitor's IP synchronously via geoip2 per click → DNS/IP stack latency on every redirect. Separately, `GeoService._is_public_ip()` was missing so internal/private IPs would be geo-resolved and their topology recorded.
+
+**Fix:** geo is resolved **asynchronously** in `analytics_worker.process_event` (same `GeoService().resolve(ip)`), off the redirect path. `_is_public_ip()` now rejects private/loopback/link-local/multicast/reserved/unspecified and unwraps IPv4-mapped IPv6 before geolocating.
+
+## Aggregation Worker — Watermark Could Re-Process or Drop a Window
+
+**File:** `backend/src/analytics/workers/aggregation_worker.py`
+
+The cutoff was derived from `now - 60s` rather than the events actually aggregated, and was persisted before DB writes → crash windows could be silently dropped or double-aggregated.
+
+**Fix:** after the aggregation queries complete and the DB writes succeed, persist `last_cutoff = max(clicked_at)` of the actually-aggregated events. Empty windows save `now - 1s`. Crash re-runs the window instead of dropping it.
+
+## Kafka Producer — `close_kafka` Could Drop In-Flight Sends
+
+**File:** `backend/src/shared/events/kafka.py`
+
+`producer.stop()` was called immediately, aborting messages still in the producer's flush queue → events lost on shutdown.
+
+**Fix:** `publish_raw`/`publish` track in-flight coroutines in `_pending_sends`; `close_kafka()` awaits them (10s cap) before stopping the producer.
+
+## Polling Workers — Non-Graceful SIGTERM/SIGINT
+
+**File:** `backend/src/links/workers/cleanup_worker.py`, `backend/src/links/workers/expiry_worker.py`, `backend/src/webhooks/workers/webhook_retry_worker.py`, `backend/src/shared/workers/kafka_consumer_pool.py`
+
+`KeyboardInterrupt`/`CancelledError` escaped the asyncio loops → dirty exit, partial batches, noisy logs.
+
+**Fix:** all polling workers use the shared `shared.workers.shutdown` helpers (`install_signal_handlers()` + `wait_for_shutdown()` with `asyncio.wait_for(asyncio.shield(...))`); `kafka_consumer_pool` re-raises `CancelledError`, shields `consumer.stop()` in `finally`, and re-raises on backoff-sleep cancellation.
+
+## Hot-Path Indexes — Missing FK/Status/Expiry Indexes
+
+**File:** `backend/alembic/versions/f5e6d7c8b9a0_add_hotpath_indexes.py`
+
+`api_keys.prefix`, `urls.workspace_id`, `urls.expires_at`, `webhook_events.status` lacked indexes → API-key auth, workspace listing, expiry scans, and webhook retry queries did full scans.
+
+**Fix:** new migration `f5e6d7c8b9a0` (parent `f490c0f533a4`) creates `ix_api_keys_prefix`, `ix_urls_workspace_id`, `ix_urls_expires_at`, `ix_webhook_events_status`; models use `index=True`.
+
+## Analytics Breakdown — `days` Not Scoped (Unbounded Aggregates)
+
+**File:** `backend/src/analytics/services/analytics_service.py`, `backend/src/analytics/routes/analytics.py`
+
+Devices/UTM/referrer breakdowns aggregated all history regardless of the requested range, and ran sequentially.
+
+**Fix:** `days` (1–90) now scopes all three breakdowns; device breakdown fetches total/unique/devices via `asyncio.gather`; responses include `days`. Frontend breakdown APIs pass `days` through.
+
+## Frontend — Query Error States, Dashboard Counts, URL Form Defaults
+
+**Files:** `frontend/src/app/(authenticated)/**/page.tsx`, `frontend/src/hooks/useDashboard.ts`, `frontend/src/lib/api.ts`, `frontend/src/lib/schemas.ts`
+
+- All list/detail pages (favorites, folders, tags, audit-logs, webhooks, webhooks/receiver, `urls/[id]`, `urls/[id]/analytics`, bulk, workspaces, api-keys) now surface query `isError` with a "Try again" refetch instead of silently rendering empty states. `urls/[id]/analytics` shows an inline breakdown banner with `refetchBreakdowns`.
+- Dashboard "Active" stat uses a separate `status=active&limit=1` query's `total` (the 50-item list undercounted beyond page 1).
+- Dashboard API-key quota aggregates `sum(daily_limit - remaining_quota)` across the user's active keys against the plan limit (enforcement is per-user).
+- `urls/new` defaults the workspace to the first workspace and validates `workspace_id >= 1` (was submitting `0`).
+- `expires_at` is edited in local wall-clock (`datetime-local`) instead of UTC `toISOString().slice(0, 16)`.
+- api-keys revoke: `window.confirm` + pending state + toast + query cache invalidation instead of `window.location.reload()`.
+- Bulk CSV cells escaped (`csvEscape`: quote + double embedded quotes); broken `bulkApi.update` removed; `apiKeysApi.quota` typed as `{ api_key_id, remaining_quota, daily_limit, resets_at }`.
+- Test-only: `api-keys-page.test.tsx` and `hooks.test.ts` wrap renders in a `QueryClientProvider` (components now call `useQueryClient`/`useQuery`).
+
 # Running the Stack
 
 ## ⚠️ NEVER run the pytest suite against the production database

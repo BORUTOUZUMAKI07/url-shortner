@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/select"
 import { urls } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
@@ -52,35 +53,36 @@ export default function AnalyticsPage() {
   const urlId = Number(id)
   const days = DAYS_OPTIONS[period]
 
-  const { data: url } = useQuery({
+  const { data: url, isError: urlError, refetch: refetchUrl } = useQuery({
     queryKey: ["url", urlId],
     queryFn: () => urls.get(urlId),
     enabled: !!urlId,
+    retry: false,
   })
 
   const short_code = url?.short_code
 
-  const { data: summary } = useQuery({
+  const { data: summary, isError: summaryError, refetch: refetchSummary } = useQuery({
     queryKey: ["analytics_summary", short_code, days],
     queryFn: () => urls.analytics(short_code!, days),
     enabled: !!short_code,
   })
 
-  const { data: devices } = useQuery({
-    queryKey: ["analytics_devices", short_code],
-    queryFn: () => urls.devices(short_code!),
+  const { data: devices, isError: devicesError, refetch: refetchDevices } = useQuery({
+    queryKey: ["analytics_devices", short_code, days],
+    queryFn: () => urls.devices(short_code!, days),
     enabled: !!short_code,
   })
 
-  const { data: utmResponse } = useQuery({
-    queryKey: ["analytics_utm", short_code],
-    queryFn: () => urls.utm(short_code!),
+  const { data: utmResponse, isError: utmError, refetch: refetchUtm } = useQuery({
+    queryKey: ["analytics_utm", short_code, days],
+    queryFn: () => urls.utm(short_code!, days),
     enabled: !!short_code,
   })
 
-  const { data: refererResponse } = useQuery({
-    queryKey: ["analytics_referrers", short_code],
-    queryFn: () => urls.referrers(short_code!),
+  const { data: refererResponse, isError: refererError, refetch: refetchReferrers } = useQuery({
+    queryKey: ["analytics_referrers", short_code, days],
+    queryFn: () => urls.referrers(short_code!, days),
     enabled: !!short_code,
   })
 
@@ -88,6 +90,27 @@ export default function AnalyticsPage() {
   const timeseries = summary?.[1]
   const utmData = utmResponse?.data || []
   const refererData = refererResponse?.data || []
+  const breakdownError = summaryError || devicesError || utmError || refererError
+
+  function refetchBreakdowns() {
+    void refetchSummary()
+    void refetchDevices()
+    void refetchUtm()
+    void refetchReferrers()
+  }
+
+  if (urlError) return (
+    <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <p className="text-lg font-medium text-red-400">Failed to load analytics</p>
+        <p className="text-sm text-muted-foreground">This URL may have been deleted or you don&apos;t have access to it.</p>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => router.push("/urls")}>Back to URLs</Button>
+          <Button variant="outline" onClick={() => refetchUrl()}>Try again</Button>
+        </div>
+      </div>
+    </div>
+  )
 
   if (!url) return (
     <div className="flex min-h-[60vh] items-center justify-center">
@@ -122,6 +145,16 @@ export default function AnalyticsPage() {
           <option value="all">All time</option>
         </Select>
       </div>
+
+      {breakdownError && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4">
+          <div>
+            <p className="text-sm font-medium text-red-400">Failed to load analytics data</p>
+            <p className="text-xs text-muted-foreground">Some charts may be missing. This often means the URL has no clicks yet.</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={refetchBreakdowns}>Try again</Button>
+        </div>
+      )}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         {stats.map((s) => {

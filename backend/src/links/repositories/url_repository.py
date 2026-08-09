@@ -89,6 +89,21 @@ class URLRepository(BaseRepository[URL]):
         await self.db.execute(update(URL).where(URL.id == id).values(status=URLStatus.deleted))
         await self.db.commit()
 
+    async def consume_one_time(self, id: int) -> int:
+        """Atomically consume a one-time link.
+
+        Only transitions the URL when it is still ``active``; returns the number
+        of rows changed (0 means another request already consumed it, closing
+        the check-then-delete race on concurrent clicks).
+        """
+        result = await self.db.execute(
+            update(URL)
+            .where(and_(URL.id == id, URL.status == URLStatus.active))
+            .values(status=URLStatus.deleted)
+        )
+        await self.db.commit()
+        return result.rowcount  # type: ignore[attr-defined, no-any-return]
+
     async def bulk_update(self, url_ids: list[int], workspace_id: int, **values) -> None:
         await self.db.execute(
             update(URL)
@@ -133,3 +148,18 @@ class URLRepository(BaseRepository[URL]):
         )
         await self.db.commit()
         return result.rowcount  # type: ignore[attr-defined, no-any-return]
+
+    async def get_all_workspace_urls(self, workspace_id: int) -> list[URL]:
+        """Fetch every non-deleted URL in a workspace (no pagination cap).
+
+        Used by bulk export / QR generation, which must not silently truncate
+        at the default page size of 100.
+        """
+        query = (
+            select(URL)
+            .where(URL.workspace_id == workspace_id, URL.status != URLStatus.deleted)
+            .order_by(URL.created_at.desc())
+            .options(selectinload(URL.tags))
+        )
+        result = await self.db.execute(query)
+        return list(result.scalars().all())  # type: ignore[return-value]

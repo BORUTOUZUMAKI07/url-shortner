@@ -122,6 +122,8 @@ export const auth = {
   resetPassword: (token: string, new_password: string) => apiFetch<{ detail: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify({ token, new_password }) }),
   verifyEmail: (token: string) => apiFetch<{ detail: string }>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
   providers: () => apiFetch<{ providers: string[] }>("/auth/providers"),
+  exchangeOauth: (code: string) =>
+    apiFetch<{ refresh_token: string }>("/auth/oauth/exchange", { method: "POST", body: JSON.stringify({ code }) }),
   oauth: async (provider: string) => {
     const res = await fetch(`${API_BASE}/auth/oauth/${provider}`, { method: "POST", credentials: "include" })
     if (!res.ok) throw new Error("Failed to initiate OAuth")
@@ -164,12 +166,18 @@ export const urls = {
       apiFetch<AnalyticsTimeseries>(`/analytics/${short_code}/timeseries${q}`),
     ])
   },
-  devices: (short_code: string) =>
-    apiFetch<AnalyticsDevices>(`/analytics/${short_code}/devices`),
-  utm: (short_code: string) =>
-    apiFetch<{ short_code: string; data: UTMItem[] }>(`/analytics/${short_code}/utm`),
-  referrers: (short_code: string) =>
-    apiFetch<{ short_code: string; data: RefererItem[] }>(`/analytics/${short_code}/referrers`),
+  devices: (short_code: string, days?: number) => {
+    const q = days ? `?days=${days}` : ""
+    return apiFetch<AnalyticsDevices>(`/analytics/${short_code}/devices${q}`)
+  },
+  utm: (short_code: string, days?: number) => {
+    const q = days ? `?days=${days}` : ""
+    return apiFetch<{ short_code: string; data: UTMItem[] }>(`/analytics/${short_code}/utm${q}`)
+  },
+  referrers: (short_code: string, days?: number) => {
+    const q = days ? `?days=${days}` : ""
+    return apiFetch<{ short_code: string; data: RefererItem[] }>(`/analytics/${short_code}/referrers${q}`)
+  },
 }
 
 export const workspacesApi = {
@@ -225,8 +233,7 @@ export const apiKeysApi = {
   create: (name: string, expires_at?: string) =>
     apiFetch<ApiKeyCreateResponse>("/api-keys", { method: "POST", body: JSON.stringify({ name, expires_at }) }),
   revoke: (id: number) => apiFetch<void>(`/api-keys/${id}`, { method: "DELETE" }),
-  rotate: (id: number) => apiFetch<ApiKeyCreateResponse>(`/api-keys/${id}/rotate`, { method: "POST" }),
-  quota: (id: number) => apiFetch<{ used: number; limit: number }>(`/api-keys/${id}/quota`),
+  quota: (id: number) => apiFetch<{ api_key_id: number; remaining_quota: number; daily_limit: number; resets_at: string }>(`/api-keys/${id}/quota`),
 }
 
 function generateWebhookSecret(): string {
@@ -244,6 +251,11 @@ export const webhooksApi = {
     apiFetch<void>(`/webhooks/${webhook_id}/workspace/${workspace_id}`, { method: "DELETE" }),
 }
 
+function csvEscape(value: string): string {
+  const needsQuoting = /[",\n\r]/.test(value)
+  return needsQuoting ? `"${value.replace(/"/g, '""')}"` : value
+}
+
 export const bulkApi = {
   create: (workspace_id: number, urls: {
     original_url: string; custom_alias?: string; folder_id?: string; tags?: string;
@@ -252,19 +264,18 @@ export const bulkApi = {
   }[]) => {
     const csvHeader = "original_url,custom_alias,folder_id,tags,expires_at,password,domain,is_ab_test,is_one_time,ios_url,android_url"
     const csvRows = urls.map((u) =>
-      [u.original_url, u.custom_alias || "", u.folder_id || "", u.tags || "", u.expires_at || "",
-       u.password || "", u.domain || "", u.is_ab_test ? "true" : "false", u.is_one_time ? "true" : "false",
-       u.ios_url || "", u.android_url || ""].join(",")
+      [
+        csvEscape(u.original_url), csvEscape(u.custom_alias || ""), csvEscape(u.folder_id || ""),
+        csvEscape(u.tags || ""), csvEscape(u.expires_at || ""), csvEscape(u.password || ""),
+        csvEscape(u.domain || ""), u.is_ab_test ? "true" : "false", u.is_one_time ? "true" : "false",
+        csvEscape(u.ios_url || ""), csvEscape(u.android_url || ""),
+      ].join(",")
     ).join("\n")
     const blob = new Blob([csvHeader + "\n" + csvRows], { type: "text/csv" })
     const form = new FormData()
     form.append("file", blob, "urls.csv")
     return apiFetch<{ created: number }>(`/urls/bulk/create?workspace_id=${workspace_id}`, { method: "POST", body: form, headers: {} })
   },
-  update: (workspace_id: number, ids: number[], data: { original_url?: string; folder_id?: number | null; status?: string }) =>
-    apiFetch<{ updated: number }>(`/urls/bulk/update?workspace_id=${workspace_id}&url_ids=${ids.join(",")}`, {
-      method: "POST", body: JSON.stringify({ expires_at: data.status === "active" ? undefined : null }),
-    }),
   disable: (workspace_id: number, ids: number[]) =>
     apiFetch<{ updated: number }>(`/urls/bulk/disable?workspace_id=${workspace_id}&url_ids=${ids.join(",")}`, { method: "POST" }),
   reactivate: (workspace_id: number, ids: number[]) =>

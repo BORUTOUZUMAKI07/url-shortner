@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 from src.analytics.repositories.analytics_repository import AnalyticsRepository
@@ -49,48 +50,45 @@ class AnalyticsService:
             "data": [{"date": item["_id"], "clicks": item["clicks"]} for item in data],
         }
 
-    async def get_device_breakdown(self, short_code: str, user_id: int):
+    async def get_device_breakdown(self, short_code: str, user_id: int, days: int = 7):
         await self._get_url_and_verify(short_code, user_id)
-        pipeline = [
-            {"$match": {"short_code": short_code}},
-            {"$group": {"_id": "$browser", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}},
-        ]
-        browsers = await ClickEvent.aggregate(pipeline).to_list()
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+        match: dict[str, object] = {"short_code": short_code, "clicked_at": {"$gte": since}}
 
-        pipeline = [
-            {"$match": {"short_code": short_code}},
-            {"$group": {"_id": "$os", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}},
-        ]
-        os_data = await ClickEvent.aggregate(pipeline).to_list()
+        def _group(field: str):
+            return [
+                {"$match": match},
+                {"$group": {"_id": f"${field}", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+            ]
 
-        pipeline = [
-            {"$match": {"short_code": short_code}},
-            {"$group": {"_id": "$device", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}},
-        ]
-        devices = await ClickEvent.aggregate(pipeline).to_list()
-
-        pipeline = [
-            {"$match": {"short_code": short_code, "country": {"$ne": None}}},
+        geo_pipeline = [
+            {"$match": {**match, "country": {"$ne": None}}},
             {"$group": {"_id": {"country": "$country", "city": "$city"}, "count": {"$sum": 1}}},
             {"$sort": {"count": -1}},
         ]
-        geo = await ClickEvent.aggregate(pipeline).to_list()
+
+        browsers, os_data, devices, geo = await asyncio.gather(
+            ClickEvent.aggregate(_group("browser")).to_list(),
+            ClickEvent.aggregate(_group("os")).to_list(),
+            ClickEvent.aggregate(_group("device")).to_list(),
+            ClickEvent.aggregate(geo_pipeline).to_list(),
+        )
 
         return {
             "short_code": short_code,
+            "days": days,
             "browsers": [{"name": item["_id"] or "Unknown", "count": item["count"]} for item in browsers],
             "os": [{"name": item["_id"] or "Unknown", "count": item["count"]} for item in os_data],
             "devices": [{"name": item["_id"] or "Unknown", "count": item["count"]} for item in devices],
             "geo": [{"country": item["_id"]["country"], "city": item["_id"]["city"], "count": item["count"]} for item in geo],
         }
 
-    async def get_utm_breakdown(self, short_code: str, user_id: int):
+    async def get_utm_breakdown(self, short_code: str, user_id: int, days: int = 7):
         await self._get_url_and_verify(short_code, user_id)
+        since = datetime.now(timezone.utc) - timedelta(days=days)
         pipeline = [
-            {"$match": {"short_code": short_code, "utm_source": {"$ne": None}}},
+            {"$match": {"short_code": short_code, "clicked_at": {"$gte": since}, "utm_source": {"$ne": None}}},
             {"$group": {"_id": {"source": "$utm_source", "medium": "$utm_medium", "campaign": "$utm_campaign"}, "count": {"$sum": 1}}},
             {"$sort": {"count": -1}},
             {"$limit": 50},
@@ -98,6 +96,7 @@ class AnalyticsService:
         data = await ClickEvent.aggregate(pipeline).to_list()
         return {
             "short_code": short_code,
+            "days": days,
             "data": [{
                 "source": item["_id"]["source"],
                 "medium": item["_id"]["medium"],
@@ -106,10 +105,11 @@ class AnalyticsService:
             } for item in data],
         }
 
-    async def get_referer_breakdown(self, short_code: str, user_id: int):
+    async def get_referer_breakdown(self, short_code: str, user_id: int, days: int = 7):
         await self._get_url_and_verify(short_code, user_id)
+        since = datetime.now(timezone.utc) - timedelta(days=days)
         pipeline = [
-            {"$match": {"short_code": short_code, "referer": {"$nin": [None, ""]}}},
+            {"$match": {"short_code": short_code, "clicked_at": {"$gte": since}, "referer": {"$nin": [None, ""]}}},
             {"$group": {"_id": "$referer", "count": {"$sum": 1}}},
             {"$sort": {"count": -1}},
             {"$limit": 50},
@@ -117,5 +117,6 @@ class AnalyticsService:
         data = await ClickEvent.aggregate(pipeline).to_list()
         return {
             "short_code": short_code,
+            "days": days,
             "data": [{"referer": item["_id"], "count": item["count"]} for item in data],
         }

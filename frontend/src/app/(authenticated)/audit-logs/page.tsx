@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { auth, workspacesApi, auditApi } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
 import { History, ShieldAlert, ChevronDown, ChevronUp, Loader2 } from "lucide-react"
@@ -41,7 +42,7 @@ export default function AuditLogsPage() {
 
   const wsId = workspaces?.[0]?.id
 
-  const { data: logs = [], isLoading: isLoadingLogs } = useQuery({
+  const { data: logs = [], isLoading: isLoadingLogs, isError: logsError, refetch: refetchLogs } = useQuery({
     queryKey: ["auditLogs", wsId],
     queryFn: () => auditApi.list(wsId!),
     enabled: !!wsId,
@@ -67,6 +68,13 @@ export default function AuditLogsPage() {
       {isLoadingWs || isLoadingLogs ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : logsError ? (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
+          <ShieldAlert className="mx-auto mb-3 size-10 text-red-400" />
+          <p className="text-lg font-medium">Failed to load audit logs</p>
+          <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your audit logs.</p>
+          <Button variant="outline" className="mt-4" onClick={() => refetchLogs()}>Try again</Button>
         </div>
       ) : logs.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">

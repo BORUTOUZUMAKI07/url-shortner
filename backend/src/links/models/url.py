@@ -20,7 +20,7 @@ class URL(Base):
     original_url: Mapped[str] = mapped_column(String, nullable=False)
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
     folder_id: Mapped[int | None] = mapped_column(ForeignKey("folders.id", ondelete="SET NULL"), nullable=True)
 
     custom_alias: Mapped[str | None] = mapped_column(String, unique=True, index=True, nullable=True)
@@ -32,7 +32,7 @@ class URL(Base):
     ios_url: Mapped[str | None] = mapped_column(String, nullable=True)
     android_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True, nullable=True)
     status: Mapped[URLStatus] = mapped_column(Enum(URLStatus), default=URLStatus.active)
     qr_code: Mapped[str | None] = mapped_column(String, nullable=True)  # base64-encoded PNG
     title: Mapped[str | None] = mapped_column(String, nullable=True)

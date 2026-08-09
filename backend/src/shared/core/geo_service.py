@@ -1,4 +1,5 @@
 """IP geolocation service using ipinfo.io with Redis caching."""
+import ipaddress
 import json
 
 import httpx
@@ -14,11 +15,30 @@ _COUNTRY_NAMES = {
 }
 
 
+def _is_public_ip(ip: str) -> bool:
+    """True only for routable public addresses.
+
+    Private/loopback/link-local/multicast/reserved/unspecified addresses are
+    never sent to ipinfo.io (noise, and private ranges would leak internal
+    topology). IPv4-mapped IPv6 is unwrapped first.
+    """
+    try:
+        addr = ipaddress.ip_address(ip.split("%")[0])
+    except ValueError:
+        return False
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
+    return not (
+        addr.is_private or addr.is_loopback or addr.is_link_local
+        or addr.is_multicast or addr.is_reserved or addr.is_unspecified
+    )
+
+
 class GeoService:
     CACHE_TTL = 86400  # 24 hours
 
     async def resolve(self, ip: str) -> dict:
-        if not ip or ip in ("127.0.0.1", "::1", "localhost"):
+        if not ip or ip in ("127.0.0.1", "::1", "localhost") or not _is_public_ip(ip):
             return {"country": None, "city": None}
 
         cache_key = f"geo:{ip}"

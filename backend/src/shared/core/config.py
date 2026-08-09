@@ -107,6 +107,11 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     BACKEND_URL: str = "http://127.0.0.1:8000"
 
+    # When True (Render), the rightmost X-Forwarded-For hop is appended by the
+    # trusted reverse proxy and reflects the real client. Set to False when
+    # deployed without a proxy so spoofed XFF values are ignored entirely.
+    TRUST_PROXY: bool = True
+
     # --- IP geolocation (ipinfo.io) ---
     IPINFO_TOKEN: str = ""
 

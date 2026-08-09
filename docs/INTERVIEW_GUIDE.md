@@ -437,6 +437,109 @@ Every story follows **Situation → Task → Action → Result**. These are your
 
 ---
 
+## STORY 19 — One-time links: race condition on consume (TOCTOU)
+
+**Situation:** "One-time" links are links that can be visited exactly once — the second visit returns 404. The original implementation did a read-then-write: `SELECT active → UPDATE active=0`. Two simultaneous clicks could both pass the check and both redirect, burning the link twice.
+
+**Task:** Make the consume atomic so exactly one request wins.
+
+**Action:**
+- Replaced the read-then-write with a **single conditional UPDATE**: `UPDATE urls SET active=0 WHERE id=:id AND active=true`.
+- The rowcount tells us the winner: 0 rows updated → someone else already consumed it → raise `URLNotFound`.
+
+**Result:** One winner only, no locks, no transactions spanning multiple statements. This is a classic **atomic compare-and-swap** pattern — good to explain.
+
+---
+
+## STORY 20 — OAuth refresh token rode the callback URL (leaked in logs/referrer)
+
+**Situation:** The Google/Refresh OAuth callback passed the provider **refresh token** as a `?code=` query parameter in the redirect to the frontend. That token landed in browser history, server access logs, and the Referer header of any subsequent navigation — a genuine credential leak.
+
+**Task:** Move the token off the URL without breaking the OAuth flow.
+
+**Action:**
+- The callback now writes a **one-time handoff code** to Redis (TTL 120s) and redirects to `/login?code=<handoff>` — the code is worthless outside the next minute.
+- The frontend calls `POST /auth/oauth/exchange` with that code; the server swaps it for a session inside a POST body (never in a URL).
+- The old `refresh_token` query-param flow was removed from both `api.ts` and the login page.
+
+**Result:** The refresh token never appears in URLs, logs, or Referer headers. Strong security story — same pattern as CSRF tokens and short-lived grants.
+
+---
+
+## STORY 21 — API-key quota was defined but never enforced (dead code)
+
+**Situation:** We had a `verify_api_key_quota` function and a per-user daily limit concept, but the function was **never called** from the API-key authentication path — quota enforcement was silently dead code.
+
+**Task:** Actually enforce the daily quota without blocking API requests.
+
+**Action:**
+- Wired `verify_api_key_quota(api_key_id, user_plan)` into the API-key branch of `get_current_user`, so every API-key request checks quota.
+- Implemented it with an **atomic Redis Lua script** (`CHECK_AND_INCREMENT`) — increment the counter, compare to `daily_limit`, return over/under in one round-trip (no check-then-set race).
+- Added an in-process `dict` fallback for when Redis is unavailable, so the API degrades gracefully instead of erroring.
+- Chose a non-blocking counter (increment-and-compare) rather than a token bucket per request — burst limits are still enforced, but we don't maintain per-key token state.
+
+**Result:** Quota is enforced in production with one atomic Redis op per request.
+
+---
+
+## STORY 22 — Analytics counts collapsed (rollup replaced totals instead of adding)
+
+**Situation:** Cumulative click counts were **collapsing** — after two rollup cycles the totals were wrong. The 60s aggregation query only looks at events newer than the last cutoff, but `upsert_rollup` **replaced** the stored totals with that one window instead of adding to them. Meanwhile the realtime path was also incrementing the same counters → two writers with conflicting semantics.
+
+**Task:** Make the counters correct and monotonic.
+
+**Action:**
+- Made the aggregation worker the **single writer** of the counters.
+- Realtime `upsert_click` now only records `last_clicked_at` — no increments (it was double-counting with the rollup).
+- `upsert_rollup` **adds** each window to the existing totals instead of replacing them.
+
+**Result:** Counters are cumulative and correct, lagging at most one 60s cycle. Good story about **two writers = conflicting semantics**.
+
+---
+
+## STORY 23 — Geo lookup moved off the redirect hot path
+
+**Situation:** Every redirect resolved the visitor's IP synchronously via the geo service — that meant a geoip2 lookup (DNS/IP-stack latency) on **every click**, in the request path the whole product exists to keep fast.
+
+**Task:** Keep geolocation in the analytics while removing it from the redirect.
+
+**Action:**
+- Moved geo resolution into `analytics_worker.process_event` — the async consumer that already parses the click — so it happens off the request path.
+- Added `GeoService._is_public_ip()`: reject private/loopback/link-local/multicast/reserved/unspecified IPs and unwrap IPv4-mapped IPv6 before resolving, so internal topology can never be recorded.
+
+**Result:** Redirects are fast again; geo still lands in analytics. Two lessons: **never do slow I/O in a hot path** and **never geolocate/record internal addresses**.
+
+---
+
+## STORY 24 — Polling workers didn't shut down gracefully (data loss on SIGTERM)
+
+**Situation:** `KeyboardInterrupt`/`CancelledError` escaped the asyncio loops in the polling workers (aggregation, cleanup, expiry, webhook retry) and the Kafka consumer pool — dirty exits, partial batches, and noisy logs. Separately, `close_kafka()` stopped the producer immediately, **aborting messages still in the flush queue**.
+
+**Task:** Make shutdown clean and lossless.
+
+**Action:**
+- Standardized all polling workers on the shared `shared.workers.shutdown` helpers: `install_signal_handlers()` + `wait_for_shutdown()` with `asyncio.wait_for(asyncio.shield(...))`.
+- The consumer pool re-raises `CancelledError`, shields `consumer.stop()` in `finally`, and re-raises on backoff-sleep cancellation.
+- `kafka.py` now tracks in-flight sends in `_pending_sends`; `close_kafka()` awaits them (10s cap) before stopping the producer.
+
+**Result:** Clean shutdowns, no dropped in-flight messages.
+
+---
+
+## STORY 25 — Hot-path indexes missing (full scans on every auth/listing/expiry query)
+
+**Situation:** `api_keys.prefix`, `urls.workspace_id`, `urls.expires_at`, and `webhook_events.status` had no indexes — API-key authentication, workspace URL listing, expiry scans, and webhook retry queries all did table scans.
+
+**Task:** Index the hot paths without breaking the migration chain.
+
+**Action:**
+- New Alembic migration `f5e6d7c8b9a0` (parent `f490c0f533a4`) creating `ix_api_keys_prefix`, `ix_urls_workspace_id`, `ix_urls_expires_at`, `ix_webhook_events_status`.
+- Kept the models in sync with `index=True` so future `alembic revision --autogenerate` won't drift.
+
+**Result:** FK/status/expiry lookups hit indexes. Lesson: **watch for implicit `WHERE` clauses on columns you never thought of as "search" columns.**
+
+---
+
 # PART 5 — One-sentence answers (cheat sheet)
 
 - **What is this project?** An enterprise URL shortener with auth, workspaces, analytics, webhooks, and an API, built on FastAPI + Next.js + PostgreSQL + MongoDB + Redis + Kafka.
@@ -451,6 +554,13 @@ Every story follows **Situation → Task → Action → Result**. These are your
 - **Did you consider microservices?** Yes — and rejected it: only 2 of 8 workers are analytics, the aggregation worker writes to Postgres (boundary leaks), and free tier can't afford two 300 MB instances. Modular monolith + optional deployment split is the right call.
 - **How do you keep tests from touching production?** Hard guards: DB tests fail without `--use-testcontainers`, and session cleanup runs only when `_USE_TESTCONTAINERS=1`.
 - **What was the hardest bug?** The asyncpg cross-event-loop pooling bug: 116 CI failures caused by module-import-time engine binding. Fixed by deferring session creation to request time.
+- **How do one-time links stay one-time?** Atomic conditional UPDATE (`SET active=0 WHERE active=true`) + rowcount check — no read-then-write race (Story 19).
+- **Why a one-time OAuth handoff code?** The refresh token used to ride the callback URL (logs/history/referrer leak); now Redis holds a 120s handoff code exchanged via POST (Story 20).
+- **Is the API-key quota enforced?** Yes — it was dead code, now wired into `get_current_user` via an atomic Redis `CHECK_AND_INCREMENT` Lua script with an in-process fallback (Story 21).
+- **Why does the aggregation worker write the counters?** Two writers (realtime increments + rollup replace) corrupted totals; now one writer *adds* each window and the realtime path only records `last_clicked_at` (Story 22).
+- **Why is geolocation async?** It used to run on every redirect; now the analytics worker resolves it off the hot path and only for public IPs (Story 23).
+- **How do workers shut down cleanly?** Shared `wait_for_shutdown` helpers with shielded timeouts; Kafka drains in-flight sends before `producer.stop()` (Story 24).
+- **Why new indexes?** `api_keys.prefix`, `urls.workspace_id`, `urls.expires_at`, `webhook_events.status` were scanned on every auth/listing/expiry/retry query (Story 25).
 
 ---
 
@@ -458,12 +568,13 @@ Every story follows **Situation → Task → Action → Result**. These are your
 
 1. **"Walk me through this project."** → Parts 1 + 3, then one STAR story of your choice (pick Story 2, 10, or 15 — they show the most depth).
 2. **"Why did you choose these technologies?"** → Part 2.
-3. **"Tell me about a hard bug."** → Story 2 (asyncpg) or Story 1 (testcontainers) or Story 6 (SNI).
+3. **"Tell me about a hard bug."** → Story 2 (asyncpg) or Story 1 (testcontainers) or Story 6 (SNI) or Story 19 (TOCTOU race).
 4. **"How do you ensure code quality?"** → CI with ruff + mypy + unit/integration tests, testcontainers, linting, PR review.
 5. **"How do you keep data safe in tests?"** → Story 17 (hard guards, `--use-testcontainers`).
 6. **"Have you ever over-engineered something?"** → Story 15 (microservices) — and mention you know when NOT to build microservices.
 7. **"How would you scale this?"** → Separate the analytics workers into their own service (Story 15), add more Kafka partitions/consumer groups, cache more aggressively, move to a paid Render/cloud tier, add a CDN for redirects.
 8. **"What would you do next?"** → Uptime pinger for the free-tier sleep, Redis write-through on redirects, webhook idempotency keys, feature branches + PRs.
+9. **"Tell me about a security fix you made."** → Story 12 (HttpOnly cookies), Story 20 (OAuth handoff), or the metadata-worker SSRF guard (AGENTS.md).
 
 ---
 
@@ -490,10 +601,10 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `core/redis.py` | `RedisAdapter` and `_build_redis_client()` — chooses Upstash or plain Redis (Story 3). |
 | `core/mongodb.py` | Async Mongo init via Motor + Beanie (no health check here). |
 | `core/click_event.py` | MongoDB `ClickEvent` model only (`URLAnalyticsSummary` lives in `analytics/models/analytics.py`). |
-| `core/deps.py` | FastAPI dependencies: `get_db` (session per request), `get_current_user`, plus service factories. |
+| `core/deps.py` | FastAPI dependencies: `get_db` (session per request), `get_current_user`, plus service factories. The API-key branch of `get_current_user` calls `verify_api_key_quota` on every request (Story 21). |
 | `core/rbac.py` | `check_role` — core role-hierarchy helper. |
 | `core/api_key_auth.py` | API-key auth + quota helpers (`authenticate_api_key`, `verify_api_key_quota`) — standalone, not a FastAPI dependency. |
-| `core/geo_service.py` | IP → location resolution (ipinfo.io), Redis-cached. |
+| `core/geo_service.py` | IP → location resolution (ipinfo.io), Redis-cached. `_is_public_ip()` rejects private/loopback/link-local/reserved IPs and unwraps IPv4-mapped IPv6 — resolved **async in the analytics worker**, off the redirect hot path (Story 23). |
 | `core/user_plan.py` | `UserPlanResolver` abstraction + `DatabaseUserPlanResolver` (opens a session at call time, caches the user's plan for 60s). |
 | `core/base62.py` | Base62 encoding used for short codes. |
 | `core/metrics.py`, `core/tracing.py` | OpenTelemetry metrics + tracing init/instrumentation (OTel API, not the Prometheus client). |
@@ -515,7 +626,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 |---|---|
 | `models/user.py`, `models/api_key.py` | User and ApiKey tables. |
 | `repositories/user_repository.py`, `api_key_repository.py` | User/API-key DB queries. |
-| `services/auth_service.py` | Register, login, refresh, logout, forgot/reset password, email verification, OAuth init/callback; returns JWT pairs (HttpOnly cookies are set in `routes/auth.py`, Story 12). |
+| `services/auth_service.py` | Register, login, refresh, logout, forgot/reset password, email verification, OAuth init/callback (`create_oauth_handoff` / `exchange_oauth_handoff` swap the provider token for a 120s Redis handoff code — Story 20); returns JWT pairs (HttpOnly cookies are set in `routes/auth.py`, Story 12). |
 | `services/api_key_service.py` | Create/list/revoke/rotate API keys + daily-quota lookups. |
 | `services/email_service.py` | Verification, password-reset, and workspace-invite emails. |
 | `services/sso/google_oauth.py`, `github_oauth.py` | OAuth2 login flows. |
@@ -529,7 +640,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `models/url.py` | URL table — short_code, original_url, status, expiry, optional password. (UTM params are parsed at click time, not stored.) |
 | `models/folder.py`, `models/tag.py`, `models/favorite.py` | Folder, tag, favorite tables. |
 | `services/url_service.py` | Create/update/delete URLs; `_verify_write_role(editor+)`; cache invalidation; publishes events. Session-free — the `URLRepository` owns the transaction (`create_url`/`commit`/`rollback`/`next_short_code`). |
-| `services/redirect_service.py` | Resolves a short code → redirect; records the click; publishes `url-clicked`. |
+| `services/redirect_service.py` | Resolves a short code → redirect; records the click; publishes `url-clicked`. Geo is resolved async in the analytics worker (Story 23); one-time links consume via atomic conditional UPDATE + rowcount → `URLNotFound` (Story 19). |
 | `services/bulk_service.py` | Bulk create/update/disable/reactivate/delete/export + QR zip (with role checks). Session-free — row inserts go through `url_repo.add_nested()` (SAVEPOINT per row); final commit via `url_repo.commit()`. |
 | `services/folder_service.py`, `tag_service.py`, `favorite_service.py`, `utm_service.py` | Domain logic for folders/tags/favorites; `utm_service` is just a query-string parser (utm_source/medium/campaign) that enriches click events. |
 | `routes/urls.py`, `redirect.py`, `bulk.py`, `folders.py`, `tags.py`, `favorites.py` | HTTP endpoints (`redirect.py` is the public `/{short_code}` 302, mounted at app root). `GET /urls` also accepts an `ids` query param so the favorites page can bulk-load its URL list in one request (no N+1). |
@@ -558,12 +669,12 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | File | What it does |
 |---|---|
 | `models/analytics.py`, `models/audit_log.py`, `models/dead_letter.py` | Analytics summary, audit log, and Postgres DLQ table (`dead_letter_events`). |
-| `services/analytics_service.py` | Dashboard queries — summary from Postgres, breakdowns (browser/OS/device/geo/UTM/referrers) from Mongo aggregation. |
+| `services/analytics_service.py` | Dashboard queries — summary from Postgres, breakdowns (browser/OS/device/geo/UTM/referrers) from Mongo aggregation. `days` (1–90) scopes the device/UTM/referrer breakdowns; device breakdown fetches total/unique/devices via `asyncio.gather`. |
 | `services/audit_service.py` | Audit logging. |
 | `services/billing_service.py` | Plan upgrade/downgrade — validates the target plan against `PlanEnum`, persists via `UserRepository`, invalidates the rate-limit plan cache. |
 | `routes/analytics.py`, `routes/audit_logs.py`, `routes/billing.py` | HTTP endpoints (note: `billing.py` is **plan upgrade only** — no payments/Stripe; handlers call `BillingService`). |
 | `workers/analytics_worker.py` | Consumes `url-clicked` → parses user-agent → writes Mongo `ClickEvent` + upserts Postgres summary counters (Story 8). |
-| `workers/aggregation_worker.py` | Periodic 60s loop — aggregates Mongo click events → `URLAnalyticsSummary` in Postgres (the cross-DB write from Story 15). |
+| `workers/aggregation_worker.py` | Periodic 60s loop — aggregates Mongo click events → `URLAnalyticsSummary` in Postgres (the cross-DB write from Story 15). **Single writer** for click counters (Story 22); watermark = `max(clicked_at)` of the window persisted *after* DB writes so a crash re-runs the window instead of dropping it; uses shared shutdown helpers (Story 24). |
 | `repositories/analytics_repository.py`, `audit_log_repository.py` | DB queries for summaries/audit logs. |
 
 ### `admin/`
@@ -578,14 +689,14 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | File | What it does |
 |---|---|
 | `proxy.ts` | Next.js proxy (replaced middleware.ts, Next 16 convention) — validates tokens, manages cookies on the server side. |
-| `lib/api.ts` | API client — fetch wrapper, `auth.refresh` via HttpOnly cookie, error handling. |
+| `lib/api.ts` | API client — fetch wrapper, `auth.refresh` via HttpOnly cookie, `auth.exchangeOauth` (Story 20), `csvEscape` for bulk CSV, error handling. |
 | `lib/auth-prefetcher.tsx` | Prefetches the `me` auth query into the React Query cache on mount (renders null); used in the authenticated layout. |
 | `lib/providers.tsx` | React Query provider wrapper. |
 | `lib/schemas.ts` | Zod validation schemas shared by forms. |
 | `lib/utils.ts` | `cn()` helper (clsx + tailwind-merge). |
 | `store/auth.ts` | Zustand auth store (user, isLoading, setUser, logout). |
 | `queries/index.ts` | TanStack Query hooks for a subset of resources — auth, urls, workspaces, folders, tags, api-keys, favorites, webhooks, audit-logs (18 hooks). |
-| `hooks/useDashboard.ts` | Dashboard data aggregation hook. |
+| `hooks/useDashboard.ts` | Dashboard data aggregation hook. "Active" stat uses a separate `status=active&limit=1` query's `total` (the 50-item list undercounts); API-key quota aggregated across the user's active keys against the plan limit. |
 | `components/layout/sidebar.tsx` | App navigation sidebar. |
 | `components/ui/*` | Reusable UI kit (button, card, dialog, dropdown, input, select, table, tabs, etc.). |
 
@@ -616,7 +727,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 |---|---|
 | `backend/src/` | All Python backend code. |
 | `frontend/src/` | All React/TypeScript frontend code. |
-| `backend/alembic/`, `alembic.ini` | Database migrations (run at boot, Story 5). |
+| `backend/alembic/`, `alembic.ini` | Database migrations (run at boot, Story 5) — including `f5e6d7c8b9a0` hot-path indexes (Story 25). |
 | `backend/tests/` | Backend test suite (unit + integration/testcontainers). |
 | `backend/render.yaml` | Render deployment config for the **backend only** (Story 14). |
 | `backend/Dockerfile`, `entrypoint.sh` | Image build + migration-at-boot entrypoint. |

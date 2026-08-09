@@ -1,30 +1,47 @@
 "use client"
 
 import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useApiKeys, useCreateApiKeyMutation } from "@/queries"
+import { apiKeysApi, getErrorMessage } from "@/lib/api"
 import { Key, Plus, Copy, XCircle } from "lucide-react"
 
 export default function ApiKeysPage() {
-  const { data: keys = [], isLoading } = useApiKeys()
+  const queryClient = useQueryClient()
+  const { data: keys = [], isLoading, isError, refetch } = useApiKeys()
   const createKey = useCreateApiKeyMutation()
   const [newName, setNewName] = useState("")
   const [newKey, setNewKey] = useState<string | null>(null)
+  const [revokingId, setRevokingId] = useState<number | null>(null)
 
   async function handleCreate() {
     if (!newName.trim()) return
-    const res = await createKey.mutateAsync(newName)
-    setNewKey(res.key)
-    setNewName("")
+    try {
+      const res = await createKey.mutateAsync(newName)
+      setNewKey(res.key)
+      setNewName("")
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "Failed to create API key"))
+    }
   }
 
   async function handleRevoke(id: number) {
-    const { apiKeysApi } = await import("@/lib/api")
-    await apiKeysApi.revoke(id)
-    window.location.reload()
+    if (!window.confirm("Revoke this API key? Applications using it will immediately lose access.")) return
+    setRevokingId(id)
+    try {
+      await apiKeysApi.revoke(id)
+      await queryClient.invalidateQueries({ queryKey: ["api-keys"] })
+      toast.success("API key revoked")
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "Failed to revoke API key"))
+    } finally {
+      setRevokingId(null)
+    }
   }
 
   return (
@@ -62,6 +79,12 @@ export default function ApiKeysPage() {
         <CardContent>
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading...</p>
+          ) : isError ? (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-8 text-center">
+              <Key className="mx-auto mb-3 size-8 text-red-400" />
+              <p className="text-sm font-medium text-red-400">Failed to load API keys</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>Try again</Button>
+            </div>
           ) : keys.length === 0 ? (
             <p className="text-sm text-muted-foreground">No API keys yet. Create one above.</p>
           ) : (
@@ -77,9 +100,11 @@ export default function ApiKeysPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={key.status === "active" ? "success" : "secondary"}>{key.status}</Badge>
-                    <Button variant="ghost" size="xs" onClick={() => handleRevoke(key.id)}>
-                      <XCircle className="size-4 text-destructive" />
-                    </Button>
+                    {key.status === "active" && (
+                      <Button variant="ghost" size="xs" disabled={revokingId === key.id} onClick={() => handleRevoke(key.id)}>
+                        <XCircle className="size-4 text-destructive" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}

@@ -41,7 +41,7 @@ export default function FoldersPage() {
 
   const wsId = workspaces?.[0]?.id
 
-  const { data: folders = [] } = useQuery({
+  const { data: folders = [], isError: foldersError, refetch: refetchFolders } = useQuery({
     queryKey: ["folders", wsId],
     queryFn: () => foldersApi.list(wsId!),
     enabled: !!wsId,
@@ -102,7 +102,14 @@ export default function FoldersPage() {
         </CardContent>
       </Card>
 
-      {folders.length === 0 ? (
+      {foldersError ? (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
+          <FolderOpen className="mx-auto mb-3 size-10 text-red-400" />
+          <p className="text-lg font-medium">Failed to load folders</p>
+          <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your folders.</p>
+          <Button variant="outline" className="mt-4" onClick={() => refetchFolders()}>Try again</Button>
+        </div>
+      ) : folders.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
           <FolderOpen className="mx-auto mb-3 size-10 text-muted-foreground" />
           <p className="text-lg font-medium">No folders yet</p>

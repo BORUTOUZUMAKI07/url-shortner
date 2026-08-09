@@ -85,17 +85,19 @@ def _validate_short_code(short_code: str) -> None:
 
 
 def _client_ip(request: Request) -> str:
-    """Resolve the client IP without trusting spoofed X-Forwarded-For values.
+    """Resolve the client IP.
 
     The leftmost XFF entry is client-controlled; the rightmost entry is appended
-    by the trusted reverse proxy (Render) and reflects the real client. When no
-    proxy is in front, fall back to the socket peer address.
+    by the trusted reverse proxy (Render) and reflects the real client. XFF is
+    only trusted when ``settings.TRUST_PROXY`` is set — otherwise a client could
+    spoof it and poison rate-limiting / geo lookups.
     """
-    xff = request.headers.get("X-Forwarded-For")
-    if xff:
-        parts = [p.strip() for p in xff.split(",") if p.strip()]
-        if parts:
-            return parts[-1]
+    if settings.TRUST_PROXY:
+        xff = request.headers.get("X-Forwarded-For")
+        if xff:
+            parts = [p.strip() for p in xff.split(",") if p.strip()]
+            if parts:
+                return parts[-1]
     return request.client.host if request.client else "unknown"
 
 

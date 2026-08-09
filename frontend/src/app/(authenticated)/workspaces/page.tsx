@@ -70,20 +70,20 @@ function WorkspacesPageInner() {
     }
   }, [searchParams, router])
 
-  const { data: workspaces = [] } = useQuery({
+  const { data: workspaces = [], isError: workspacesError, refetch: refetchWorkspaces } = useQuery({
     queryKey: ["workspaces"],
     queryFn: workspacesApi.list,
     enabled: !authLoading
   })
 
   // We fetch members and invites only for the selected workspace to optimize
-  const { data: selectedMembers = [] } = useQuery({
+  const { data: selectedMembers = [], isError: membersError, refetch: refetchMembers } = useQuery({
     queryKey: ["workspace_members", selectedWs],
     queryFn: () => workspacesApi.members(selectedWs!),
     enabled: !!selectedWs
   })
 
-  const { data: selectedInvites = [] } = useQuery({
+  const { data: selectedInvites = [], isError: invitesError, refetch: refetchInvites } = useQuery({
     queryKey: ["workspace_invites", selectedWs],
     queryFn: () => workspacesApi.listInvites(selectedWs!),
     enabled: !!selectedWs
@@ -200,7 +200,14 @@ function WorkspacesPageInner() {
       </Card>
 
       <div className="space-y-4">
-        {workspaces.length === 0 ? (
+        {workspacesError ? (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
+            <Building2 className="mx-auto mb-3 size-10 text-red-400" />
+            <p className="text-lg font-medium">Failed to load workspaces</p>
+            <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your workspaces.</p>
+            <Button variant="outline" className="mt-4" onClick={() => refetchWorkspaces()}>Try again</Button>
+          </div>
+        ) : workspaces.length === 0 ? (
           <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
             <Building2 className="mx-auto mb-3 size-10 text-muted-foreground" />
             <p className="text-lg font-medium">No workspaces yet</p>
@@ -259,32 +266,42 @@ function WorkspacesPageInner() {
               {selectedWs === ws.id && (
                 <CardContent>
                   <p className="mb-3 text-sm font-medium">Members</p>
-                  <div className="mb-4 space-y-2">
-                    {members[ws.id]?.map((m) => (
-                      <div key={m.id} className="flex flex-col gap-2 rounded-lg bg-muted px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium break-all">{m.email}</span>
-                          {isOwner(ws.id) ? (
-                            <Select value={m.role} onChange={(e) => handleChangeRole(ws.id, m.id, e.target.value)}
-                              className="h-7 w-24 text-xs">
-                              <option value="viewer">Viewer</option>
-                              <option value="editor">Editor</option>
-                              <option value="admin">Admin</option>
-                            </Select>
-                          ) : (
-                            <Badge variant="outline" className="capitalize text-xs">{m.role}</Badge>
+                  {membersError ? (
+                    <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+                      Failed to load members. <button className="underline" onClick={() => refetchMembers()}>Retry</button>
+                    </p>
+                  ) : (
+                    <div className="mb-4 space-y-2">
+                      {members[ws.id]?.map((m) => (
+                        <div key={m.id} className="flex flex-col gap-2 rounded-lg bg-muted px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-medium break-all">{m.email}</span>
+                            {isOwner(ws.id) ? (
+                              <Select value={m.role} onChange={(e) => handleChangeRole(ws.id, m.id, e.target.value)}
+                                className="h-7 w-24 text-xs">
+                                <option value="viewer">Viewer</option>
+                                <option value="editor">Editor</option>
+                                <option value="admin">Admin</option>
+                              </Select>
+                            ) : (
+                              <Badge variant="outline" className="capitalize text-xs">{m.role}</Badge>
+                            )}
+                          </div>
+                          {isAdmin(ws.id) && m.user_id !== user?.id && (
+                            <Button variant="ghost" size="xs" onClick={() => handleRemoveMember(ws.id, m.id)}>
+                              <XCircle className="size-3.5 text-destructive" />
+                            </Button>
                           )}
                         </div>
-                        {isAdmin(ws.id) && m.user_id !== user?.id && (
-                          <Button variant="ghost" size="xs" onClick={() => handleRemoveMember(ws.id, m.id)}>
-                            <XCircle className="size-3.5 text-destructive" />
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
 
-                  {invites[ws.id]?.length > 0 && (
+                  {invitesError ? (
+                    <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+                      Failed to load invites. <button className="underline" onClick={() => refetchInvites()}>Retry</button>
+                    </p>
+                  ) : invites[ws.id]?.length > 0 && (
                     <>
                       <p className="mb-2 text-sm font-medium">Pending Invites</p>
                       <div className="mb-4 space-y-2">

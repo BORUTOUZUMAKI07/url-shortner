@@ -9,7 +9,7 @@ export const loginSchema = z.object({
 
 export const createUrlSchema = z.object({
   original_url: z.string().url("Must be a valid URL"),
-  workspace_id: z.number(),
+  workspace_id: z.number().min(1, "Please select a workspace"),
   custom_alias: z.string().regex(/^[a-zA-Z0-9_-]+$/, "Only letters, numbers, hyphens, underscores").optional().or(z.literal("")),
   folder_id: z.number().optional(),
   password: z.string().optional().or(z.literal("")),

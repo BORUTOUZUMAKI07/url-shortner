@@ -39,6 +39,7 @@ from src.links.services.folder_service import FolderService
 from src.links.services.redirect_service import RedirectService
 from src.links.services.tag_service import TagService
 from src.links.services.url_service import URLService
+from src.shared.core.api_key_auth import verify_api_key_quota
 from src.shared.errors import InvalidToken, TokenRevoked, UnauthorizedError, UserNotFound
 from src.shared.events.dispatcher import KafkaEventDispatcher
 from src.webhooks.repositories.webhook_receiver_repository import WebhookReceivedEventRepository
@@ -91,6 +92,8 @@ async def get_current_user(
         user = await UserRepository(db).get(key_record.user_id)
         if not user:
             raise UserNotFound()
+        # Enforce the daily per-key quota (previously defined but never wired in).
+        await verify_api_key_quota(key_record.id, user.plan)
         return user
 
     # JWT auth

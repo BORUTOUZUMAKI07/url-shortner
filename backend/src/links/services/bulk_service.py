@@ -143,7 +143,12 @@ class BulkService:
         await self._verify_write_role(workspace_id, user_id)
         if not kwargs:
             raise BadRequestError("No update fields provided.")
+        rows = await self.url_repo.get_short_codes_by_ids(url_ids, workspace_id)
         await self.url_repo.bulk_update(url_ids, workspace_id, **kwargs)
+        # Evict the redirect cache for every touched URL (an update can change
+        # the destination/status and the cached copy would keep serving stale).
+        for row in rows:
+            await delete_url_cache(row[1])
 
     async def disable(self, workspace_id: int, user_id: int, url_ids: list[int]):
         await self._verify_workspace(workspace_id, user_id)
@@ -157,8 +162,12 @@ class BulkService:
     async def reactivate(self, workspace_id: int, user_id: int, url_ids: list[int]):
         await self._verify_workspace(workspace_id, user_id)
         await self._verify_write_role(workspace_id, user_id)
+        rows = await self.url_repo.get_short_codes_by_ids(url_ids, workspace_id)
         await self.url_repo.reactivate(url_ids, workspace_id)
-        return len(url_ids)
+        # A cached copy would still show status "disabled" and keep 403-ing.
+        for row in rows:
+            await delete_url_cache(row[1])
+        return len(rows)
 
     async def delete(self, workspace_id: int, user_id: int, url_ids: list[int]):
         await self._verify_workspace(workspace_id, user_id)
@@ -171,8 +180,7 @@ class BulkService:
 
     async def export(self, workspace_id: int, user_id: int, fmt: str):
         await self._verify_workspace(workspace_id, user_id)
-        result = await self.url_repo.get_workspace_urls(workspace_id)
-        urls: list[URL] = result["items"]  # type: ignore[assignment]
+        urls = await self.url_repo.get_all_workspace_urls(workspace_id)
         data = [
             {
                 "id": u.id, "short_code": u.short_code, "original_url": u.original_url,
@@ -194,8 +202,7 @@ class BulkService:
 
     async def generate_qr_zip(self, workspace_id: int, user_id: int, url_ids: list[int] | None):
         await self._verify_workspace(workspace_id, user_id)
-        result = await self.url_repo.get_workspace_urls(workspace_id)
-        urls: list[URL] = result["items"]  # type: ignore[assignment]
+        urls = await self.url_repo.get_all_workspace_urls(workspace_id)
         if url_ids:
             urls = [u for u in urls if u.id in url_ids]
         if not urls:

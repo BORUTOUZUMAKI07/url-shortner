@@ -34,10 +34,13 @@ function LoginForm() {
 
   useEffect(() => {
     if (processedRef.current) return
-    const refreshToken = searchParams.get("refresh_token")
-    if (refreshToken) {
+    const handoffCode = searchParams.get("code")
+    if (handoffCode) {
       processedRef.current = true
-      auth.refresh(refreshToken)
+      // The backend never places the refresh token in the URL — it passes a
+      // short-lived one-time handoff code that we exchange for the token pair.
+      auth.exchangeOauth(handoffCode)
+        .then(({ refresh_token }) => auth.refresh(refresh_token))
         .then(() => auth.me())
         .then(setUser)
         .then(redirectAfterLogin)

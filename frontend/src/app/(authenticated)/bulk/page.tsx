@@ -56,7 +56,7 @@ export default function BulkPage() {
     retry: false
   })
 
-  const { data: workspaces = [] } = useQuery({
+  const { data: workspaces = [], isError: workspacesError, refetch: refetchWorkspaces } = useQuery({
     queryKey: ["workspaces"],
     queryFn: workspacesApi.list,
     enabled: !authLoading
@@ -64,24 +64,35 @@ export default function BulkPage() {
 
   const wsId = selectedWsId || workspaces?.[0]?.id
 
-  const { data: folders = [] } = useQuery({
+  const { data: folders = [], isError: foldersError } = useQuery({
     queryKey: ["folders", wsId],
     queryFn: () => foldersApi.list(wsId!),
     enabled: !!wsId,
   })
 
-  const { data: tags = [] } = useQuery({
+  const { data: tags = [], isError: tagsError } = useQuery({
     queryKey: ["tags", wsId],
     queryFn: () => tagsApi.list(wsId!),
     enabled: !!wsId,
   })
 
-  const { data: urlsResponse } = useQuery({
+  const { data: urlsResponse, isError: urlsError, refetch: refetchUrls } = useQuery({
     queryKey: ["urls", wsId],
     queryFn: () => urls.list(wsId!),
     enabled: !!wsId,
   })
   const allUrls = urlsResponse?.items ?? []
+
+  if (workspacesError) return (
+    <div className="p-6">
+      <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
+        <UploadCloud className="mx-auto mb-3 size-10 text-red-400" />
+        <p className="text-lg font-medium">Failed to load workspaces</p>
+        <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your workspaces.</p>
+        <Button variant="outline" className="mt-4" onClick={() => refetchWorkspaces()}>Try again</Button>
+      </div>
+    </div>
+  )
 
   function setWsId(id: number) {
     setSelectedWsId(id)
@@ -207,6 +218,7 @@ export default function BulkPage() {
                     <option value="">No folder</option>
                     {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                   </Select>
+                  {foldersError && <p className="mt-1 text-xs text-red-400">Failed to load folders.</p>}
                 </div>
                 <div>
                   <Label>Tags <span className="text-muted-foreground">(optional)</span></Label>
@@ -222,7 +234,7 @@ export default function BulkPage() {
                         {t.name}
                       </button>
                     ))}
-                    {tags.length === 0 && <p className="text-xs text-muted-foreground">No tags in this workspace</p>}
+                    {tagsError ? <p className="text-xs text-red-400">Failed to load tags.</p> : tags.length === 0 && <p className="text-xs text-muted-foreground">No tags in this workspace</p>}
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -283,7 +295,14 @@ export default function BulkPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {allUrls.length === 0 ? (
+          {urlsError ? (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
+              <Search className="mx-auto mb-3 size-10 text-red-400" />
+              <p className="text-lg font-medium">Failed to load URLs</p>
+              <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your URLs.</p>
+              <Button variant="outline" className="mt-4" onClick={() => refetchUrls()}>Try again</Button>
+            </div>
+          ) : allUrls.length === 0 ? (
             <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
               <Search className="mx-auto mb-3 size-10 text-muted-foreground" />
               <p className="text-lg font-medium">No URLs to manage</p>

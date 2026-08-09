@@ -30,6 +30,12 @@ class AnalyticsRepository(BaseRepository[URLAnalyticsSummary]):
         # The rollup only sees the events since the last cutoff (a window), so
         # the counters must be ADDED to the existing totals, never replaced —
         # replacing them would collapse the cumulative count to one window.
+        #
+        # Semantics: unique_clicks is the SUM of per-window unique IP counts,
+        # NOT a global distinct-IP count — a visitor returning in a later window
+        # counts again. Computing true distinct-uniques across all history would
+        # require re-aggregating every event, which is too expensive to do on
+        # each 60s cycle; unique_clicks is therefore an upper-bound estimate.
         stmt = insert(URLAnalyticsSummary).values(
             url_id=url_id, total_clicks=total_clicks, unique_clicks=unique_clicks
         )

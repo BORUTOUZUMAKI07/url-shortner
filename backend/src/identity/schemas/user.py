@@ -43,6 +43,10 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
+class OAuthExchangeRequest(BaseModel):
+    code: str = Field(description="Short-lived one-time OAuth handoff code from the callback redirect")
+
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr = Field(description="Registered email to receive reset link")
 

@@ -29,7 +29,7 @@ export default function FavoritesPage() {
     retry: false
   })
 
-  const { data: urlsData = [] } = useQuery({
+  const { data: urlsData = [], isError: urlsError, refetch: refetchFavorites } = useQuery({
     queryKey: ["favorites"],
     queryFn: async () => {
       const favs = await favoritesApi.list()
@@ -64,7 +64,14 @@ export default function FavoritesPage() {
         <p className="text-sm text-muted-foreground">Your bookmarked URLs.</p>
       </div>
 
-      {urlsData.length === 0 ? (
+      {urlsError ? (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
+          <Heart className="mx-auto mb-3 size-10 text-red-400" />
+          <p className="text-lg font-medium">Failed to load favorites</p>
+          <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your bookmarks.</p>
+          <Button variant="outline" className="mt-4" onClick={() => refetchFavorites()}>Try again</Button>
+        </div>
+      ) : urlsData.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
           <Heart className="mx-auto mb-3 size-10 text-muted-foreground" />
           <p className="text-lg font-medium">No favorites yet</p>
