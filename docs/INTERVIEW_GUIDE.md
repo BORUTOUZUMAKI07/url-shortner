@@ -141,9 +141,9 @@ If the analytics worker crashes, **redirects still work** — the events wait sa
 
 | Worker | What it does |
 |---|---|
-| analytics_worker | Consumes `url-clicked`, parses device/browser/OS/geo, writes to MongoDB. |
-| aggregation_worker | Periodically aggregates MongoDB click events into `URLAnalyticsSummary` in Postgres. |
-| metadata_worker | Consumes `url-created`, fetches page title/metadata. |
+| analytics_worker | Consumes `url-clicked`, parses device/browser/OS/geo, writes to MongoDB, touches `URLAnalyticsSummary.last_clicked_at` in realtime. |
+| aggregation_worker | Periodically aggregates MongoDB click events into `URLAnalyticsSummary` in Postgres. **Single writer for the click counters** — its `upsert_rollup` *adds* each window to the existing totals (incremental), never replaces them, so cumulative counts can't collapse or double-count with the realtime path. |
+| metadata_worker | Consumes `url-created`, fetches page title/metadata — **SSRF-guarded** (http/https only, no auto-redirects, resolves each hop and rejects private/loopback/reserved IPs). |
 | webhook_click_consumer | On clicks, delivers webhooks to external subscribers. |
 | webhook_retry_worker | Retries failed webhook deliveries. |
 | dlq_replay_worker | Consumes dead-letter-queue topics and retries them. |
@@ -497,7 +497,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `core/user_plan.py` | `UserPlanResolver` abstraction + `DatabaseUserPlanResolver` (opens a session at call time, caches the user's plan for 60s). |
 | `core/base62.py` | Base62 encoding used for short codes. |
 | `core/metrics.py`, `core/tracing.py` | OpenTelemetry metrics + tracing init/instrumentation (OTel API, not the Prometheus client). |
-| `core/event_dispatcher.py`, `events/dispatcher.py`, `events/schemas.py` | Event publishing plumbing (`EventDispatcher`) + Avro schema serialize/deserialize/register. |
+| `core/event_dispatcher.py`, `events/dispatcher.py`, `events/schemas.py` | Event publishing plumbing (`EventDispatcher`) + Avro schema serialize/deserialize/register. The `.avsc` files live in `backend/schemas/avro` and are force-included into the wheel (`pyproject.toml`) + copied in the Dockerfile, so serialization works in the installed image. |
 | `events/kafka.py` | Kafka **producer** helpers only (`init_kafka`, `publish_event`, `publish_raw` with the one-shot fallback from Story 7); consumers live in `workers/kafka_consumer_pool.py`. |
 | `errors/*.py` | Error classes (`AppError` base, auth/common/url/workspace) → HTTP status codes. |
 | `logging.py` | `setup_logging()` — console + file handler with graceful fallback (Story 4). |
@@ -532,7 +532,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `services/redirect_service.py` | Resolves a short code → redirect; records the click; publishes `url-clicked`. |
 | `services/bulk_service.py` | Bulk create/update/disable/reactivate/delete/export + QR zip (with role checks). Session-free — row inserts go through `url_repo.add_nested()` (SAVEPOINT per row); final commit via `url_repo.commit()`. |
 | `services/folder_service.py`, `tag_service.py`, `favorite_service.py`, `utm_service.py` | Domain logic for folders/tags/favorites; `utm_service` is just a query-string parser (utm_source/medium/campaign) that enriches click events. |
-| `routes/urls.py`, `redirect.py`, `bulk.py`, `folders.py`, `tags.py`, `favorites.py` | HTTP endpoints (`redirect.py` is the public `/{short_code}` 302, mounted at app root). |
+| `routes/urls.py`, `redirect.py`, `bulk.py`, `folders.py`, `tags.py`, `favorites.py` | HTTP endpoints (`redirect.py` is the public `/{short_code}` 302, mounted at app root). `GET /urls` also accepts an `ids` query param so the favorites page can bulk-load its URL list in one request (no N+1). |
 | `workers/expiry_worker.py`, `workers/cleanup_worker.py` | Background jobs: expire links (disable + evict cache); purge soft-deleted URLs and their click/analytics data. |
 
 ### `workspaces/` — multi-tenant teams

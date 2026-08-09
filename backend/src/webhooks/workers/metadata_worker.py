@@ -1,5 +1,7 @@
 import asyncio
+import ipaddress
 import json
+import socket
 from urllib.parse import urlparse
 
 import httpx
@@ -14,34 +16,88 @@ from src.shared.events.schemas import deserialize
 from src.shared.workers._sni_patch import _make_sni_context
 from src.shared.workers.kafka_consumer_pool import KafkaConnectionPool
 
+MAX_REDIRECTS = 3
+
+
+async def _resolve_public(hostname: str) -> bool:
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(hostname, None)
+    except socket.gaierror:
+        return False
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.version == 6 and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            return False
+    return True
+
+
+async def _is_safe_url(url: str, logger) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        logger.warning("Rejected non-http(s) URL for metadata fetch: %s", parsed.scheme)
+        return False
+    hostname = parsed.hostname
+    if not hostname:
+        logger.warning("Rejected URL without hostname: %s", url)
+        return False
+    if not await _resolve_public(hostname):
+        logger.warning("Rejected URL resolving to a non-public IP: %s", hostname)
+        return False
+    return True
+
 
 async def extract_metadata(url: str, logger) -> dict[str, str | None]:
     result: dict[str, str | None] = {"title": None, "description": None, "og_image": None}
-    try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            resp = await client.get(url, headers={"User-Agent": "LinkForgeBot/1.0"})
-            if resp.status_code != 200:
-                logger.warning("extract_metadata got status %s for %s", resp.status_code, url)
+    current = url
+    for _ in range(MAX_REDIRECTS):
+        if not await _is_safe_url(current, logger):
+            return result
+        try:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+                resp = await client.get(current, headers={"User-Agent": "LinkForgeBot/1.0"})
+        except Exception as e:
+            logger.warning("Failed to extract metadata from %s: %s", current, e)
+            return result
+        if resp.is_redirect:
+            location = resp.headers.get("location")
+            if not location:
                 return result
-            soup = BeautifulSoup(resp.text, "html.parser")
+            current = str(resp.url.join(location))
+            continue
+        if resp.status_code != 200:
+            logger.warning("extract_metadata got status %s for %s", resp.status_code, current)
+            return result
+        soup = BeautifulSoup(resp.text, "html.parser")
 
-            if soup.title:
-                result["title"] = soup.title.string.strip()[:500] if soup.title.string else None
+        if soup.title:
+            result["title"] = soup.title.string.strip()[:500] if soup.title.string else None
 
-            meta_desc = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
-            if meta_desc and meta_desc.get("content"):  # type: ignore[union-attr]
-                result["description"] = meta_desc["content"].strip()[:1000]  # type: ignore[union-attr, index]
+        meta_desc = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
+        if meta_desc and meta_desc.get("content"):  # type: ignore[union-attr]
+            result["description"] = meta_desc["content"].strip()[:1000]  # type: ignore[union-attr, index]
 
-            og_image = soup.find("meta", attrs={"property": "og:image"})
-            if og_image and og_image.get("content"):  # type: ignore[union-attr]
-                raw = og_image["content"].strip()  # type: ignore[union-attr, index]
-                parsed = urlparse(raw)
-                if parsed.scheme:
-                    result["og_image"] = raw
-                else:
-                    result["og_image"] = str(urlparse(url).scheme) + "://" + str(urlparse(url).netloc) + raw
-    except Exception as e:
-        logger.warning("Failed to extract metadata from %s: %s", url, e)
+        og_image = soup.find("meta", attrs={"property": "og:image"})
+        if og_image and og_image.get("content"):  # type: ignore[union-attr]
+            raw = og_image["content"].strip()  # type: ignore[union-attr, index]
+            parsed = urlparse(raw)
+            if parsed.scheme:
+                result["og_image"] = raw
+            else:
+                result["og_image"] = str(urlparse(current).scheme) + "://" + str(urlparse(current).netloc) + raw
+        return result
+    logger.warning("Too many redirects while extracting metadata from %s", url)
     return result
 
 

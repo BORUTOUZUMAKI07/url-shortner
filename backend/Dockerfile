@@ -21,6 +21,9 @@ RUN pip install --no-cache-dir /tmp/*.whl && rm -rf /tmp/*.whl
 COPY --from=builder /app/alembic /app/alembic
 COPY --from=builder /app/alembic.ini /app/alembic.ini
 COPY --from=builder /app/entrypoint.sh /app/entrypoint.sh
+# Avro schemas are force-included in the wheel already; copy them here too so
+# the same layout exists if the app is ever run from an editable checkout.
+COPY --from=builder /app/schemas /app/schemas
 RUN chmod +x /app/entrypoint.sh
 
 ENV PYTHONDONTWRITEBYTECODE=1

@@ -33,10 +33,13 @@ export default function FavoritesPage() {
     queryKey: ["favorites"],
     queryFn: async () => {
       const favs = await favoritesApi.list()
-      const results = await Promise.allSettled(favs.map((f) => urls.get(f.url_id)))
-      return results
-        .filter(r => r.status === "fulfilled")
-        .map(r => (r as PromiseFulfilledResult<URLItem>).value)
+      if (favs.length === 0) return []
+      const ids = favs.map((f) => f.url_id).join(",")
+      const { items } = await urls.list(null, { ids })
+      const byId = new Map(items.map((u) => [u.id, u]))
+      return favs
+        .map((f) => byId.get(f.url_id))
+        .filter((u): u is URLItem => !!u)
     },
     enabled: !authLoading
   })

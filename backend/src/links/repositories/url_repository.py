@@ -39,6 +39,7 @@ class URLRepository(BaseRepository[URL]):
         skip: int = 0,
         limit: int = 100,
         user_id: int | None = None,
+        url_ids: list[int] | None = None,
     ) -> dict[str, object]:
         query = select(URL).where(URL.status != URLStatus.deleted)
         if workspace_id is not None:
@@ -54,6 +55,8 @@ class URLRepository(BaseRepository[URL]):
                     )
                 )
             ))
+        if url_ids is not None:
+            query = query.where(URL.id.in_(url_ids))
         if folder_id is not None:
             query = query.where(URL.folder_id == folder_id)
         if status_filter:

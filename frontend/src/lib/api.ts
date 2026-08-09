@@ -136,13 +136,14 @@ export const urls = {
     expires_at?: string; tags?: string[]; is_one_time?: boolean;
     is_ab_test?: boolean; ios_url?: string; android_url?: string;
   }) => apiFetch<URLItem>("/urls", { method: "POST", body: JSON.stringify(data) }),
-  list: (workspace_id: number | null, params?: { folder_id?: number; tag?: string; search?: string; status?: string; skip?: number; limit?: number }) => {
+  list: (workspace_id: number | null, params?: { folder_id?: number; tag?: string; search?: string; status?: string; ids?: string; skip?: number; limit?: number }) => {
     const q = new URLSearchParams()
     if (workspace_id) q.set("workspace_id", String(workspace_id))
     if (params?.folder_id) q.set("folder_id", String(params.folder_id))
     if (params?.tag) q.set("tag", params.tag)
     if (params?.search) q.set("search", params.search)
     if (params?.status) q.set("status", params.status)
+    if (params?.ids) q.set("ids", params.ids)
     if (params?.skip) q.set("skip", String(params.skip))
     if (params?.limit) q.set("limit", String(params.limit))
     return apiFetch<{items: URLItem[], total: number}>(`/urls?${q}`)

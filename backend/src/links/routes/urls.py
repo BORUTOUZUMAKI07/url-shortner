@@ -31,11 +31,13 @@ async def list_urls(
     tag: Optional[str] = Query(None, description="Filter by tag name"),
     search: Optional[str] = Query(None, description="Free-text search in original URL"),
     status_filter: Optional[URLStatus] = Query(None, alias="status", description="Filter by URL status"),
+    ids: Optional[str] = Query(None, description="Comma-separated URL IDs to fetch"),
     pagination: PaginationParams = Depends(),
     current_user: User = Depends(get_current_user),
     svc: URLService = Depends(get_url_service),
 ):
-    return await svc.list(workspace_id, current_user.id, folder_id=folder_id, tag=tag, search=search, status_filter=status_filter, skip=pagination.skip, limit=pagination.limit)
+    url_ids = [int(x) for x in ids.split(",") if x.strip().isdigit()] if ids else None
+    return await svc.list(workspace_id, current_user.id, folder_id=folder_id, tag=tag, search=search, status_filter=status_filter, url_ids=url_ids, skip=pagination.skip, limit=pagination.limit)
 
 
 @router.get("/{id}", response_model=URLResponse,

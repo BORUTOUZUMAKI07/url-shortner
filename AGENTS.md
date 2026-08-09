@@ -70,6 +70,50 @@ Some event fields (`original_url`, `workspace_id`, `ip_address`, `clicked_at`) m
 
 **Fix:** Use `.get()` with defaults instead of `[]` for all optional fields. Pydantic validation still catches type errors (e.g., `workspace_id` string vs int).
 
+## Analytics Rollup — Replaced Totals Instead of Adding (counts collapsed)
+
+**File:** `backend/src/analytics/repositories/analytics_repository.py` functions `upsert_rollup` / `upsert_click`
+
+`upsert_rollup` did `set_={"total_clicks": total_clicks, ...}`, **replacing** the cumulative totals with only the last 60s window (the aggregation query filters `clicked_at > last_cutoff`). After 2 rollups the count collapsed. The realtime `upsert_click` also incremented the same counters → two writers with conflicting semantics.
+
+**Fix:** the aggregation worker is now the **single writer** of the counters:
+- `upsert_click` (realtime) only records `last_clicked_at` (no increments) — prevents double counting with the rollup.
+- `upsert_rollup` *adds* each window to the existing totals (`URLAnalyticsSummary.total_clicks + total_clicks`).
+
+Counters now lag up to one 60s rollup cycle instead of updating instantly.
+
+## Avro Schemas Not Shipped — Events Silently Dropped in Production
+
+**File:** `backend/pyproject.toml`, `backend/Dockerfile`, `backend/src/shared/events/schemas.py`
+
+`SCHEMA_DIR = Path(__file__).resolve().parents[3] / "schemas" / "avro"` resolves to `<site-packages>/schemas/avro` for the wheel-installed app, but the wheel only packaged `src/` and the Dockerfile didn't copy `schemas/` → `serialize()` raised `FileNotFoundError` → `url_service.py:112` swallowed it → **events silently dropped in Docker/Render** (masked locally by the editable install, which resolves to the repo root).
+
+**Fix:** force-include the two `.avsc` files into the wheel (`[tool.hatch.build.targets.wheel.force-include]`, explicit table — comments inside an inline table are invalid TOML) and `COPY --from=builder /app/schemas /app/schemas` in the Dockerfile for editable-checkout robustness.
+
+## Metadata Worker SSRF — User-Controlled URL Fetched Server-Side
+
+**File:** `backend/src/webhooks/workers/metadata_worker.py` functions `extract_metadata` / `_is_safe_url`
+
+`extract_metadata` GET'd the **user-supplied** `original_url` with `follow_redirects=True` and no IP filtering → a user could make the worker probe internal networks.
+
+**Fix:** validate every hop before fetching — http/https schemes only, resolve the hostname with `getaddrinfo`, reject private/loopback/link-local/multicast/reserved/unspecified IPs (IPv4-mapped IPv6 unwrapped), and follow redirects manually (max 3) re-validating each hop (`follow_redirects=False`).
+
+## Frontend Tabs — Content Never Rendered (silent dead panel)
+
+**File:** `frontend/src/components/ui/tabs.tsx`
+
+`TabsContent` returned `null` when `active !== value`, but `active` was only distributed via the render-prop form of `Tabs`. The analytics breakdown page (`urls/[id]/analytics/page.tsx`) passed plain children → every panel saw `active === undefined` and all 6 breakdown tabs were permanently invisible.
+
+**Fix:** `Tabs` now also provides `active`/`setActive` via React context; `TabsTrigger`/`TabsContent` fall back to context when no explicit props are passed. Render-prop form and explicit props still work (existing tests cover both).
+
+## Favorites N+1 — One HTTP Request Per Favorite
+
+**File:** `frontend/src/app/(authenticated)/favorites/page.tsx`
+
+The page fetched favorites then did `urls.get(url_id)` per favorite.
+
+**Fix:** `GET /urls` accepts a comma-separated `ids` query param (`url_repository.get_workspace_urls` gained `url_ids`; scoped to the user's workspaces). The favorites page now does one `urls.list(null, { ids })` call and re-orders results to favorite order client-side.
+
 # Running the Stack
 
 ## ⚠️ NEVER run the pytest suite against the production database
