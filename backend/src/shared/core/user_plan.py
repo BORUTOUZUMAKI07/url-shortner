@@ -2,7 +2,7 @@ import time
 from abc import ABC, abstractmethod
 
 from src.identity.models.user import User
-from src.shared.core.database import AsyncSessionLocal
+from src.shared.core import database
 
 # Short-lived in-process plan cache so premium upgrades take effect without a
 # token refresh while avoiding a DB query on every request. The authoritative
@@ -25,7 +25,9 @@ class DatabaseUserPlanResolver(UserPlanResolver):
         cached = self._cache.get(user_id)
         if cached and cached[1] > now:
             return cached[0]
-        async with AsyncSessionLocal() as db:
+        # Resolve AsyncSessionLocal at call time (not import time) so the test
+        # fixtures that patch `database.AsyncSessionLocal` keep working.
+        async with database.AsyncSessionLocal() as db:
             user = await db.get(User, user_id)
             plan = user.plan if user else "free"
         self._cache[user_id] = (plan, now + _USER_PLAN_CACHE_TTL)
