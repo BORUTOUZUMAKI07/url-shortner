@@ -1,13 +1,9 @@
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.analytics.services.audit_service import AuditService
 from src.links.models.url import URL, URLStatus
 from src.links.repositories.folder_repository import FolderRepository
 from src.links.repositories.tag_repository import TagRepository
 from src.links.repositories.url_repository import URLRepository
 from src.shared import get_logger
-from src.shared.core.base62 import hashid_encode
 from src.shared.core.config import settings
 from src.shared.core.redis import delete_url_cache
 from src.shared.core.security import hash_password
@@ -32,7 +28,6 @@ RESERVED_ALIASES = {"admin", "api", "login", "register", "logout", "verify", "re
 class URLService:
     def __init__(
         self,
-        db: AsyncSession,
         url_repo: URLRepository,
         workspace_repo: WorkspaceRepository,
         folder_repo: FolderRepository,
@@ -41,7 +36,6 @@ class URLService:
         webhooks: WebhookService,
         event_dispatcher: EventDispatcher,
     ):
-        self.db = db
         self.url_repo = url_repo
         self.workspace_repo = workspace_repo
         self.folder_repo = folder_repo
@@ -76,10 +70,7 @@ class URLService:
                 raise AliasConflict()
             short_code = alias
         else:
-            result = await self.db.execute(text("SELECT nextval('url_short_code_seq')"))
-            seq_value = result.scalar()
-            assert seq_value is not None
-            short_code = hashid_encode(seq_value, settings.SECRET_KEY)
+            short_code = await self.url_repo.next_short_code()
 
         password_hash = hash_password(payload.password) if payload.password else None
 
@@ -107,10 +98,7 @@ class URLService:
                 db_tags.append(tag)
             url.tags = db_tags
 
-        self.db.add(url)
-        await self.db.commit()
-        url = await self.url_repo.get(url.id)  # type: ignore[assignment]
-        assert url is not None
+        url = await self.url_repo.create_url(url)
         _ = [t.name for t in url.tags]
 
         try:
@@ -132,9 +120,10 @@ class URLService:
             )
         except Exception as e:
             logger.warning("Audit log failed: %s", e)
-            await self.db.rollback()
-            url = await self.url_repo.get(url.id)  # type: ignore[assignment]
-            assert url is not None
+            await self.url_repo.rollback()
+            refetched = await self.url_repo.get(url.id)
+            assert refetched is not None
+            url = refetched
             _ = [t.name for t in url.tags]
 
         try:
@@ -144,12 +133,13 @@ class URLService:
             })
         except Exception as e:
             logger.warning("Webhook delivery failed: %s", e)
-            await self.db.rollback()
-            url = await self.url_repo.get(url.id)  # type: ignore[assignment]
-            assert url is not None
+            await self.url_repo.rollback()
+            refetched = await self.url_repo.get(url.id)
+            assert refetched is not None
+            url = refetched
             _ = [t.name for t in url.tags]
 
-        return url  # type: ignore[return-value]
+        return url
 
     async def list(self, workspace_id: int | None, user_id: int, **filters) -> dict:
         if workspace_id is not None:
@@ -193,9 +183,11 @@ class URLService:
                 tag = await self.tag_repo.get_or_create(tag_name, url.workspace_id)
                 db_tags.append(tag)
             url.tags = db_tags
-        await self.db.commit()
+        await self.url_repo.commit()
         await delete_url_cache(url.short_code)
-        url = await self.url_repo.get(url.id)  # type: ignore[assignment]
+        refetched = await self.url_repo.get(url.id)
+        assert refetched is not None
+        url = refetched
         _ = [t.name for t in url.tags]
         after = {"original_url": url.original_url, "status": url.status.value, "folder_id": url.folder_id}
         try:
@@ -206,7 +198,7 @@ class URLService:
             )
         except Exception as e:
             logger.warning("Audit log failed: %s", e)
-            await self.db.rollback()
+            await self.url_repo.rollback()
 
         try:
             await self.webhooks.deliver_event(url.workspace_id, "url.updated", {
@@ -215,7 +207,7 @@ class URLService:
             })
         except Exception as e:
             logger.warning("Webhook delivery failed: %s", e)
-            await self.db.rollback()
+            await self.url_repo.rollback()
 
         result = await self.url_repo.get(url.id)
         assert result is not None
@@ -239,7 +231,7 @@ class URLService:
             )
         except Exception as e:
             logger.warning("Audit log failed: %s", e)
-            await self.db.rollback()
+            await self.url_repo.rollback()
 
         try:
             await self.webhooks.deliver_event(url.workspace_id, "url.deleted", {
@@ -248,4 +240,4 @@ class URLService:
             })
         except Exception as e:
             logger.warning("Webhook delivery failed: %s", e)
-            await self.db.rollback()
+            await self.url_repo.rollback()

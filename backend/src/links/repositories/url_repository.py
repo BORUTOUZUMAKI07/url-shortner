@@ -1,9 +1,11 @@
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.orm import selectinload
 
 from src.links.models.tag import Tag
 from src.links.models.url import URL, URLStatus
+from src.shared.core.base62 import hashid_encode
 from src.shared.core.base_repository import BaseRepository
+from src.shared.core.config import settings
 
 
 class URLRepository(BaseRepository[URL]):
@@ -103,3 +105,28 @@ class URLRepository(BaseRepository[URL]):
     async def get_url_id_by_short_code(self, short_code: str) -> int | None:
         result = await self.db.execute(select(URL.id).where(URL.short_code == short_code))
         return result.scalar_one_or_none()
+
+    async def next_short_code(self) -> str:
+        result = await self.db.execute(text("SELECT nextval('url_short_code_seq')"))
+        seq_value = result.scalar()
+        assert seq_value is not None
+        return hashid_encode(seq_value, settings.SECRET_KEY)
+
+    async def create_url(self, url: URL) -> URL:
+        self.db.add(url)
+        await self.db.commit()
+        created = await self.get(url.id)
+        return created if created is not None else url
+
+    async def add_nested(self, url: URL) -> None:
+        async with self.db.begin_nested():
+            self.db.add(url)
+
+    async def reactivate(self, url_ids: list[int], workspace_id: int) -> int:
+        result = await self.db.execute(
+            update(URL)
+            .where(and_(URL.id.in_(url_ids), URL.workspace_id == workspace_id, URL.status == URLStatus.disabled))
+            .values(status=URLStatus.active)
+        )
+        await self.db.commit()
+        return result.rowcount  # type: ignore[attr-defined, no-any-return]

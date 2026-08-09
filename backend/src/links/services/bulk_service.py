@@ -5,8 +5,6 @@ import zipfile
 from datetime import datetime, timezone
 
 import qrcode
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.links.models.tag import Tag
 from src.links.models.url import URL, URLStatus
@@ -14,7 +12,6 @@ from src.links.repositories.folder_repository import FolderRepository
 from src.links.repositories.tag_repository import TagRepository
 from src.links.repositories.url_repository import URLRepository
 from src.links.services.url_service import RESERVED_ALIASES
-from src.shared.core.base62 import hashid_encode
 from src.shared.core.config import settings
 from src.shared.core.redis import delete_url_cache
 from src.shared.core.security import hash_password
@@ -24,9 +21,16 @@ from src.workspaces.repositories.workspace_repository import WorkspaceRepository
 
 
 class BulkService:
-    def __init__(self, db: AsyncSession, url_repo: URLRepository, workspace_repo: WorkspaceRepository):
-        self.db = db
+    def __init__(
+        self,
+        url_repo: URLRepository,
+        folder_repo: FolderRepository,
+        tag_repo: TagRepository,
+        workspace_repo: WorkspaceRepository,
+    ):
         self.url_repo = url_repo
+        self.folder_repo = folder_repo
+        self.tag_repo = tag_repo
         self.workspace_repo = workspace_repo
 
     async def _verify_workspace(self, workspace_id: int, user_id: int):
@@ -45,19 +49,17 @@ class BulkService:
             fid = int(folder_id_str.strip())
         except (ValueError, TypeError):
             return None
-        folder_repo = FolderRepository(self.db)
-        if not await folder_repo.folder_belongs_to_workspace(fid, workspace_id):
+        if not await self.folder_repo.folder_belongs_to_workspace(fid, workspace_id):
             raise FolderNotInWorkspace()
         return fid
 
     async def _resolve_tags(self, tags_str: str | None, workspace_id: int) -> list[Tag]:
         if not tags_str:
             return []
-        tag_repo = TagRepository(self.db)
         names = [t.strip().lower() for t in tags_str.split(",") if t.strip()]
         tags = []
         for name in set(names):
-            tag = await tag_repo.get_or_create(name, workspace_id)
+            tag = await self.tag_repo.get_or_create(name, workspace_id)
             tags.append(tag)
         return tags
 
@@ -72,7 +74,7 @@ class BulkService:
         errors: list[dict[str, object]] = []
         for i, row in enumerate(reader, start=2):
             await self._process_row(row, i, workspace_id, user_id, errors, created)
-        await self.db.commit()
+        await self.url_repo.commit()
         return {"created": len(created), "errors": errors, "short_codes": created}
 
     async def _process_row(self, row: dict, row_num: int, workspace_id: int, user_id: int, errors: list, created: list) -> str | None:
@@ -88,53 +90,49 @@ class BulkService:
 
         short_code = custom_alias
         if not short_code:
-            result = await self.db.execute(text("SELECT nextval('url_short_code_seq')"))
-            seq_value = result.scalar()
-            assert seq_value is not None
-            short_code = hashid_encode(seq_value, settings.SECRET_KEY)
+            short_code = await self.url_repo.next_short_code()
 
         try:
-            async with self.db.begin_nested():
+            try:
+                folder_id = await self._resolve_folder(row.get("folder_id"), workspace_id)
+            except FolderNotInWorkspace:
+                raise ValueError("Folder does not belong to workspace")
+
+            tags = await self._resolve_tags(row.get("tags"), workspace_id)
+
+            expires_at = None
+            exp_str = row.get("expires_at", "").strip()
+            if exp_str:
                 try:
-                    folder_id = await self._resolve_folder(row.get("folder_id"), workspace_id)
-                except FolderNotInWorkspace:
-                    raise ValueError("Folder does not belong to workspace")
+                    expires_at = datetime.fromisoformat(exp_str)
+                    if expires_at.tzinfo is None:
+                        expires_at = expires_at.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    raise ValueError(f"Invalid expires_at: {exp_str}")
 
-                tags = await self._resolve_tags(row.get("tags"), workspace_id)
+            password_hash = hash_password(row.get("password", "").strip()) if row.get("password", "").strip() else None
 
-                expires_at = None
-                exp_str = row.get("expires_at", "").strip()
-                if exp_str:
-                    try:
-                        expires_at = datetime.fromisoformat(exp_str)
-                        if expires_at.tzinfo is None:
-                            expires_at = expires_at.replace(tzinfo=timezone.utc)
-                    except ValueError:
-                        raise ValueError(f"Invalid expires_at: {exp_str}")
+            domain = row.get("domain", "").strip() or None
 
-                password_hash = hash_password(row.get("password", "").strip()) if row.get("password", "").strip() else None
+            is_ab_test = row.get("is_ab_test", "").strip().lower() in ("true", "1", "yes")
+            is_one_time = row.get("is_one_time", "").strip().lower() in ("true", "1", "yes")
 
-                domain = row.get("domain", "").strip() or None
+            ios_url = row.get("ios_url", "").strip() or None
+            android_url = row.get("android_url", "").strip() or None
 
-                is_ab_test = row.get("is_ab_test", "").strip().lower() in ("true", "1", "yes")
-                is_one_time = row.get("is_one_time", "").strip().lower() in ("true", "1", "yes")
-
-                ios_url = row.get("ios_url", "").strip() or None
-                android_url = row.get("android_url", "").strip() or None
-
-                url = URL(
-                    short_code=short_code, original_url=original_url,
-                    user_id=user_id, workspace_id=workspace_id,
-                    custom_alias=custom_alias, folder_id=folder_id,
-                    domain=domain,
-                    password_hash=password_hash,
-                    expires_at=expires_at, status=URLStatus.active,
-                    is_ab_test=is_ab_test, is_one_time=is_one_time,
-                    ios_url=ios_url, android_url=android_url,
-                )
-                if tags:
-                    url.tags = tags
-                self.db.add(url)
+            url = URL(
+                short_code=short_code, original_url=original_url,
+                user_id=user_id, workspace_id=workspace_id,
+                custom_alias=custom_alias, folder_id=folder_id,
+                domain=domain,
+                password_hash=password_hash,
+                expires_at=expires_at, status=URLStatus.active,
+                is_ab_test=is_ab_test, is_one_time=is_one_time,
+                ios_url=ios_url, android_url=android_url,
+            )
+            if tags:
+                url.tags = tags
+            await self.url_repo.add_nested(url)
             created.append(short_code)
         except Exception as e:
             errors.append({"row": row_num, "error": str(e)})
@@ -157,15 +155,9 @@ class BulkService:
         return len(rows)
 
     async def reactivate(self, workspace_id: int, user_id: int, url_ids: list[int]):
-        from sqlalchemy import and_, update
         await self._verify_workspace(workspace_id, user_id)
         await self._verify_write_role(workspace_id, user_id)
-        await self.db.execute(
-            update(URL)
-            .where(and_(URL.id.in_(url_ids), URL.workspace_id == workspace_id, URL.status == URLStatus.disabled))
-            .values(status=URLStatus.active)
-        )
-        await self.db.commit()
+        await self.url_repo.reactivate(url_ids, workspace_id)
         return len(url_ids)
 
     async def delete(self, workspace_id: int, user_id: int, url_ids: list[int]):

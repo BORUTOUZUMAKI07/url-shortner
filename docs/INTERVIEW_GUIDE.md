@@ -485,7 +485,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `core/config.py` | `Settings` (pydantic-settings) — all environment variables, with defaults. Rebuilt once at startup (this caused the testcontainers bug in Story 1). |
 | `core/database.py` | SQLAlchemy async **engine**, `AsyncSessionLocal` factory, `init_db()`, health check. |
 | `core/base.py` | Declarative `Base` with a metadata **naming convention** (no shared model fields). |
-| `core/base_repository.py` | Generic CRUD (`get`, `get_by`, `get_many`, `create`, `update`, `delete`) every repository inherits. |
+| `core/base_repository.py` | Generic CRUD (`get`, `get_by`, `get_many`, `create`, `update`, `delete`) every repository inherits, plus unit-of-work ops (`commit`, `rollback`, `flush`). |
 | `core/security.py` | Password hashing (argon2), JWT create/decode for access + refresh tokens. |
 | `core/redis.py` | `RedisAdapter` and `_build_redis_client()` — chooses Upstash or plain Redis (Story 3). |
 | `core/mongodb.py` | Async Mongo init via Motor + Beanie (no health check here). |
@@ -527,9 +527,9 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 |---|---|
 | `models/url.py` | URL table — short_code, original_url, status, expiry, optional password. (UTM params are parsed at click time, not stored.) |
 | `models/folder.py`, `models/tag.py`, `models/favorite.py` | Folder, tag, favorite tables. |
-| `services/url_service.py` | Create/update/delete URLs; `_verify_write_role(editor+)`; cache invalidation; publishes events. |
+| `services/url_service.py` | Create/update/delete URLs; `_verify_write_role(editor+)`; cache invalidation; publishes events. Session-free — the `URLRepository` owns the transaction (`create_url`/`commit`/`rollback`/`next_short_code`). |
 | `services/redirect_service.py` | Resolves a short code → redirect; records the click; publishes `url-clicked`. |
-| `services/bulk_service.py` | Bulk create/update/disable/reactivate/delete/export + QR zip (with role checks). |
+| `services/bulk_service.py` | Bulk create/update/disable/reactivate/delete/export + QR zip (with role checks). Session-free — row inserts go through `url_repo.add_nested()` (SAVEPOINT per row); final commit via `url_repo.commit()`. |
 | `services/folder_service.py`, `tag_service.py`, `favorite_service.py`, `utm_service.py` | Domain logic for folders/tags/favorites; `utm_service` is just a query-string parser (utm_source/medium/campaign) that enriches click events. |
 | `routes/urls.py`, `redirect.py`, `bulk.py`, `folders.py`, `tags.py`, `favorites.py` | HTTP endpoints (`redirect.py` is the public `/{short_code}` 302, mounted at app root). |
 | `workers/expiry_worker.py`, `workers/cleanup_worker.py` | Background jobs: expire links (disable + evict cache); purge soft-deleted URLs and their click/analytics data. |

@@ -131,7 +131,6 @@ async def get_url_service(
     webhooks: WebhookService = Depends(get_webhook_service),
 ) -> URLService:
     return URLService(
-        db=db,
         url_repo=URLRepository(db),
         workspace_repo=WorkspaceRepository(db),
         folder_repo=FolderRepository(db),
@@ -202,8 +201,9 @@ async def get_api_key_service(db: AsyncSession = Depends(get_db)) -> APIKeyServi
 
 async def get_bulk_service(db: AsyncSession = Depends(get_db)) -> BulkService:
     return BulkService(
-        db=db,
         url_repo=URLRepository(db),
+        folder_repo=FolderRepository(db),
+        tag_repo=TagRepository(db),
         workspace_repo=WorkspaceRepository(db),
     )
 

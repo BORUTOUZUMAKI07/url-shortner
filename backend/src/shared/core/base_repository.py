@@ -44,3 +44,12 @@ class BaseRepository(Generic[ModelType]):
         result = await self.db.execute(stmt)
         await self.db.commit()
         return result.rowcount > 0  # type: ignore[attr-defined, no-any-return]
+
+    async def commit(self) -> None:
+        await self.db.commit()
+
+    async def rollback(self) -> None:
+        await self.db.rollback()
+
+    async def flush(self) -> None:
+        await self.db.flush()

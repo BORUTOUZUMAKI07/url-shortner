@@ -56,9 +56,9 @@ async def test_url_create_success(db, mock_repos, test_user, test_workspace, moc
     created_url.user_id = test_user.id
     created_url.status = URLStatus.active
     created_url.tags = []
-    mock_repos.url_repo.create.return_value = created_url
+    mock_repos.url_repo.create_url.return_value = created_url
     mock_repos.url_repo.get.return_value = created_url
-    service = URLService(db, mock_repos.url_repo, mock_repos.workspace_repo,
+    service = URLService(mock_repos.url_repo, mock_repos.workspace_repo,
                          mock_repos.folder_repo, mock_repos.tag_repo,
                          mock_audit, mock_webhooks, mock_event_dispatcher)
     payload = URLCreate(
@@ -73,7 +73,7 @@ async def test_url_create_success(db, mock_repos, test_user, test_workspace, moc
 async def test_url_get_not_found(db, mock_repos, test_user, mock_audit, mock_webhooks, mock_event_dispatcher):
     mock_repos.workspace_repo.verify_access.return_value = True
     mock_repos.url_repo.get.return_value = None
-    service = URLService(db, mock_repos.url_repo, mock_repos.workspace_repo,
+    service = URLService(mock_repos.url_repo, mock_repos.workspace_repo,
                          mock_repos.folder_repo, mock_repos.tag_repo,
                          mock_audit, mock_webhooks, mock_event_dispatcher)
     with pytest.raises(URLNotFound):
@@ -85,7 +85,7 @@ async def test_url_delete(db, mock_repos, test_user, test_url, mock_audit, mock_
     mock_repos.workspace_repo.verify_access.return_value.__aenter__ = AsyncMock()
     mock_repos.workspace_repo.verify_access.return_value = True
     mock_repos.url_repo.get.return_value = test_url
-    service = URLService(db, mock_repos.url_repo, mock_repos.workspace_repo,
+    service = URLService(mock_repos.url_repo, mock_repos.workspace_repo,
                          mock_repos.folder_repo, mock_repos.tag_repo,
                          mock_audit, mock_webhooks, mock_event_dispatcher)
     await service.delete(id=test_url.id, user_id=test_user.id)
