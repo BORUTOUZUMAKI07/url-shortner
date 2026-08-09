@@ -1,12 +1,9 @@
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.identity.models.user import User
-from src.identity.repositories.user_repository import UserRepository
 from src.identity.schemas.profile import AvatarUpdateRequest, ChangeEmailRequest, ChangePasswordRequest
-from src.shared.core.deps import get_current_user, get_db
-from src.shared.core.security import hash_password, verify_password
-from src.shared.errors import EmailAlreadyExists, InvalidCredentials
+from src.identity.services.profile_service import ProfileService
+from src.shared.core.deps import get_current_user, get_profile_service
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
 
@@ -15,12 +12,9 @@ router = APIRouter(prefix="/profile", tags=["Profile"])
 async def change_password(
     payload: ChangePasswordRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    service: ProfileService = Depends(get_profile_service),
 ):
-    if not verify_password(payload.current_password, current_user.password_hash):
-        raise InvalidCredentials()
-    repo = UserRepository(db)
-    await repo.update(current_user.id, password_hash=hash_password(payload.new_password))
+    await service.change_password(current_user, payload.current_password, payload.new_password)
     return {"detail": "Password changed successfully."}
 
 
@@ -28,14 +22,9 @@ async def change_password(
 async def change_email(
     payload: ChangeEmailRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    service: ProfileService = Depends(get_profile_service),
 ):
-    if not verify_password(payload.current_password, current_user.password_hash):
-        raise InvalidCredentials()
-    repo = UserRepository(db)
-    if await repo.email_exists(payload.new_email):
-        raise EmailAlreadyExists()
-    await repo.update(current_user.id, email=payload.new_email, is_verified=False)
+    await service.change_email(current_user, payload.current_password, payload.new_email)
     return {"detail": "Email changed. Please verify your new email address."}
 
 
@@ -43,8 +32,7 @@ async def change_email(
 async def upload_avatar(
     payload: AvatarUpdateRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    service: ProfileService = Depends(get_profile_service),
 ):
-    repo = UserRepository(db)
-    await repo.update(current_user.id, avatar_url=payload.avatar)
+    await service.upload_avatar(current_user, payload.avatar)
     return {"detail": "Avatar updated.", "avatar_url": payload.avatar}

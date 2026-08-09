@@ -1,6 +1,6 @@
 from typing import Generic, Optional, TypeVar
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.shared.core.base import Base
@@ -44,6 +44,16 @@ class BaseRepository(Generic[ModelType]):
         result = await self.db.execute(stmt)
         await self.db.commit()
         return result.rowcount > 0  # type: ignore[attr-defined, no-any-return]
+
+    async def count(self, **filters) -> int:
+        stmt = select(func.count()).select_from(self.model).filter_by(**filters)
+        result = await self.db.execute(stmt)
+        return result.scalar_one()  # type: ignore[no-any-return]
+
+    async def list_all(self, skip: int = 0, limit: int = 100) -> list[ModelType]:
+        stmt = select(self.model).order_by(desc("created_at")).offset(skip).limit(limit)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
 
     async def commit(self) -> None:
         await self.db.commit()

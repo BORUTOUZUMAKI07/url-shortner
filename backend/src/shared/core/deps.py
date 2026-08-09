@@ -17,15 +17,18 @@ from src.shared.core.security import decode_token, verify_password
 # is short-lived and the authoritative source is always Redis.
 _blacklist_cache: dict[str, float] = {}
 _BLACKLIST_CACHE_TTL = 60  # seconds
+from src.admin.services.admin_service import AdminService
 from src.analytics.repositories.analytics_repository import AnalyticsRepository
 from src.analytics.repositories.audit_log_repository import AuditLogRepository
 from src.analytics.services.analytics_service import AnalyticsService
 from src.analytics.services.audit_service import AuditService
+from src.analytics.services.billing_service import BillingService
 from src.identity.models.api_key import APIKeyStatus
 from src.identity.repositories.api_key_repository import APIKeyRepository
 from src.identity.repositories.user_repository import UserRepository
 from src.identity.services.api_key_service import APIKeyService
 from src.identity.services.auth_service import AuthService
+from src.identity.services.profile_service import ProfileService
 from src.links.repositories.favorite_repository import FavoriteRepository
 from src.links.repositories.folder_repository import FolderRepository
 from src.links.repositories.tag_repository import TagRepository
@@ -115,6 +118,22 @@ async def get_audit_service(db: AsyncSession = Depends(get_db)) -> AuditService:
     return AuditService(
         repo=AuditLogRepository(db),
         workspace_repo=WorkspaceRepository(db),
+    )
+
+
+async def get_profile_service(db: AsyncSession = Depends(get_db)) -> ProfileService:
+    return ProfileService(repo=UserRepository(db))
+
+
+async def get_billing_service(db: AsyncSession = Depends(get_db)) -> BillingService:
+    return BillingService(repo=UserRepository(db))
+
+
+async def get_admin_service(db: AsyncSession = Depends(get_db)) -> AdminService:
+    return AdminService(
+        user_repo=UserRepository(db),
+        workspace_repo=WorkspaceRepository(db),
+        url_repo=URLRepository(db),
     )
 
 

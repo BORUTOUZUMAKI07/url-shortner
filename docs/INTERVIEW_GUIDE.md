@@ -485,7 +485,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `core/config.py` | `Settings` (pydantic-settings) — all environment variables, with defaults. Rebuilt once at startup (this caused the testcontainers bug in Story 1). |
 | `core/database.py` | SQLAlchemy async **engine**, `AsyncSessionLocal` factory, `init_db()`, health check. |
 | `core/base.py` | Declarative `Base` with a metadata **naming convention** (no shared model fields). |
-| `core/base_repository.py` | Generic CRUD (`get`, `get_by`, `get_many`, `create`, `update`, `delete`) every repository inherits, plus unit-of-work ops (`commit`, `rollback`, `flush`). |
+| `core/base_repository.py` | Generic CRUD (`get`, `get_by`, `get_many`, `create`, `update`, `delete`) every repository inherits, plus unit-of-work ops (`commit`, `rollback`, `flush`) and admin queries (`count`, `list_all`). |
 | `core/security.py` | Password hashing (argon2), JWT create/decode for access + refresh tokens. |
 | `core/redis.py` | `RedisAdapter` and `_build_redis_client()` — chooses Upstash or plain Redis (Story 3). |
 | `core/mongodb.py` | Async Mongo init via Motor + Beanie (no health check here). |
@@ -519,7 +519,8 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `services/api_key_service.py` | Create/list/revoke/rotate API keys + daily-quota lookups. |
 | `services/email_service.py` | Verification, password-reset, and workspace-invite emails. |
 | `services/sso/google_oauth.py`, `github_oauth.py` | OAuth2 login flows. |
-| `routes/auth.py`, `routes/profile.py`, `routes/api_keys.py` | HTTP endpoints under `/api/v1/auth`, `/profile`, `/api-keys`. |
+| `services/profile_service.py` | Change password/email, upload avatar (verifies the current password via `UserRepository`). |
+| `routes/auth.py`, `routes/profile.py`, `routes/api_keys.py` | HTTP endpoints under `/api/v1/auth`, `/profile`, `/api-keys` (profile handlers call `ProfileService`). |
 | `schemas/*.py` | Request/response validation models. |
 
 ### `links/` — the URL core
@@ -559,7 +560,8 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `models/analytics.py`, `models/audit_log.py`, `models/dead_letter.py` | Analytics summary, audit log, and Postgres DLQ table (`dead_letter_events`). |
 | `services/analytics_service.py` | Dashboard queries — summary from Postgres, breakdowns (browser/OS/device/geo/UTM/referrers) from Mongo aggregation. |
 | `services/audit_service.py` | Audit logging. |
-| `routes/analytics.py`, `routes/audit_logs.py`, `routes/billing.py` | HTTP endpoints (note: `billing.py` is **plan upgrade only** — no payments/Stripe). |
+| `services/billing_service.py` | Plan upgrade/downgrade — validates the target plan against `PlanEnum`, persists via `UserRepository`, invalidates the rate-limit plan cache. |
+| `routes/analytics.py`, `routes/audit_logs.py`, `routes/billing.py` | HTTP endpoints (note: `billing.py` is **plan upgrade only** — no payments/Stripe; handlers call `BillingService`). |
 | `workers/analytics_worker.py` | Consumes `url-clicked` → parses user-agent → writes Mongo `ClickEvent` + upserts Postgres summary counters (Story 8). |
 | `workers/aggregation_worker.py` | Periodic 60s loop — aggregates Mongo click events → `URLAnalyticsSummary` in Postgres (the cross-DB write from Story 15). |
 | `repositories/analytics_repository.py`, `audit_log_repository.py` | DB queries for summaries/audit logs. |
@@ -567,7 +569,8 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 ### `admin/`
 | File | What it does |
 |---|---|
-| `routes/admin.py` | Admin endpoints: seed superadmin, user management (list/toggle-superadmin/delete), workspace + URL listing, platform stats. |
+| `services/admin_service.py` | Cross-aggregate admin queries (users/workspaces/URLs counts + listings, superadmin seed/toggle) — depends only on repositories, no session. |
+| `routes/admin.py` | Admin endpoints: seed superadmin, user management (list/toggle-superadmin/delete), workspace + URL listing, platform stats (handlers call `AdminService`). |
 
 ## Frontend — `frontend/src/`
 
