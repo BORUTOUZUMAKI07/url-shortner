@@ -1,37 +1,26 @@
-import time
-
 from fastapi import HTTPException, Request, status
 from jose import JWTError
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from src.identity.models.user import User
-from src.shared.core import database
 from src.shared.core.config import settings
 from src.shared.core.redis import check_rate_limit
+from src.shared.core.user_plan import DatabaseUserPlanResolver, UserPlanResolver
 
-# Short-lived in-process plan cache so premium upgrades take effect without a
-# token refresh while avoiding a DB query on every request.
-_user_plan_cache: dict[int, tuple[str, float]] = {}
-_USER_PLAN_CACHE_TTL = 60  # seconds
-
-
-async def _get_user_plan(user_id: int) -> str:
-    now = time.time()
-    cached = _user_plan_cache.get(user_id)
-    if cached and cached[1] > now:
-        return cached[0]
-    async with database.AsyncSessionLocal() as db:
-        user = await db.get(User, user_id)
-        plan = user.plan if user else "free"
-    _user_plan_cache[user_id] = (plan, now + _USER_PLAN_CACHE_TTL)
-    return plan
+# Default resolver used by the middleware unless a concrete one is injected.
+# Kept as a single shared instance so invalidate_user_plan_cache() below hits
+# the same cache the middleware reads.
+_default_plan_resolver = DatabaseUserPlanResolver()
 
 
 def invalidate_user_plan_cache(user_id: int) -> None:
-    _user_plan_cache.pop(user_id, None)
+    _default_plan_resolver.invalidate(user_id)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, plan_resolver: UserPlanResolver | None = None):
+        super().__init__(app)
+        self._plan_resolver = plan_resolver or _default_plan_resolver
+
     async def dispatch(self, request: Request, call_next):
         if request.url.path in ("/health", "/metrics", "/favicon.ico"):
             return await call_next(request)
@@ -59,7 +48,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             except (TypeError, ValueError):
                 user_id_int = None
             if user_id_int is not None:
-                plan = await _get_user_plan(user_id_int)
+                plan = await self._plan_resolver.resolve(user_id_int)
                 if plan in ("premium", "enterprise"):
                     cap, refill = settings.RATE_LIMIT_USER_PREMIUM_CAPACITY, settings.RATE_LIMIT_USER_PREMIUM_REFILL
                 else:

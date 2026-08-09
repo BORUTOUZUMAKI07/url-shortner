@@ -5,12 +5,9 @@ import json
 
 import httpx
 from cryptography.fernet import Fernet
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.shared.errors import NotFoundError, RoleTooLow, WorkspaceNotFound
 from src.webhooks.models.webhook import Webhook
-from src.webhooks.models.webhook_event import WebhookEvent
-from src.webhooks.models.webhook_subscription import WebhookSubscription
 from src.webhooks.repositories.webhook_repository import WebhookRepository
 from src.workspaces.models.workspace_member import MemberRole
 from src.workspaces.repositories.workspace_repository import WorkspaceRepository
@@ -34,8 +31,7 @@ def decrypt_secret(encrypted: str) -> str:
 
 
 class WebhookService:
-    def __init__(self, db: AsyncSession, repo: WebhookRepository, workspace_repo: WorkspaceRepository):
-        self.db = db
+    def __init__(self, repo: WebhookRepository, workspace_repo: WorkspaceRepository):
         self.repo = repo
         self.workspace_repo = workspace_repo
 
@@ -52,12 +48,7 @@ class WebhookService:
         await self._verify_access(workspace_id, user_id)
         await self._verify_write_role(workspace_id, user_id)
         webhook = Webhook(workspace_id=workspace_id, url=str(url), secret=encrypt_secret(secret))
-        self.db.add(webhook)
-        await self.db.flush()
-        for event_type in events:
-            self.db.add(WebhookSubscription(webhook_id=webhook.id, event_type=event_type))
-        await self.db.commit()
-        return await self.repo.get(webhook.id)
+        return await self.repo.create_with_subscriptions(webhook, events)
 
     async def list(self, workspace_id: int, user_id: int):
         await self._verify_access(workspace_id, user_id)
@@ -83,15 +74,7 @@ class WebhookService:
         if kwargs:
             await self.repo.update(webhook_id, **kwargs)
         if events is not None:
-            existing = {sub.event_type for sub in wh.subscriptions}
-            for event_type in events:
-                if event_type not in existing:
-                    self.db.add(WebhookSubscription(webhook_id=wh.id, event_type=event_type))
-            for sub in list(wh.subscriptions):
-                if sub.event_type not in events:
-                    await self.db.delete(sub)
-            await self.db.commit()
-            self.db.expunge(wh)
+            await self.repo.sync_subscriptions(wh, events)
         return await self.repo.get(webhook_id)
 
     async def delete(self, webhook_id: int, workspace_id: int, user_id: int):
@@ -118,22 +101,17 @@ class WebhookService:
                         timeout=10.0,
                     )
                 if resp.is_success:
-                    self.db.add(WebhookEvent(
-                        webhook_id=wh.id, event_type=event_type,
-                        payload=json.dumps(payload), status="delivered",
+                    await self.repo.record_delivery(
+                        wh.id, event_type, json.dumps(payload), "delivered",
                         response_code=resp.status_code,
-                    ))
+                    )
                 else:
-                    self.db.add(WebhookEvent(
-                        webhook_id=wh.id, event_type=event_type,
-                        payload=json.dumps(payload), status="failed",
+                    await self.repo.record_delivery(
+                        wh.id, event_type, json.dumps(payload), "failed",
                         response_code=resp.status_code,
                         error=f"HTTP {resp.status_code}: {resp.text[:200]}",
-                    ))
+                    )
             except Exception as e:
-                self.db.add(WebhookEvent(
-                    webhook_id=wh.id, event_type=event_type,
-                    payload=json.dumps(payload), status="failed",
-                    error=str(e),
-                ))
-        await self.db.commit()
+                await self.repo.record_delivery(
+                    wh.id, event_type, json.dumps(payload), "failed", error=str(e),
+                )

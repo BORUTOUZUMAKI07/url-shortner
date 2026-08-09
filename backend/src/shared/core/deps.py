@@ -120,7 +120,6 @@ async def get_audit_service(db: AsyncSession = Depends(get_db)) -> AuditService:
 
 async def get_webhook_service(db: AsyncSession = Depends(get_db)) -> WebhookService:
     return WebhookService(
-        db=db,
         repo=WebhookRepository(db),
         workspace_repo=WorkspaceRepository(db),
     )
@@ -219,7 +218,6 @@ async def get_redirect_service(db: AsyncSession = Depends(get_db)) -> RedirectSe
 
 async def get_webhook_receiver_service(db: AsyncSession = Depends(get_db)) -> WebhookReceiverService:
     return WebhookReceiverService(
-        db=db,
         repo=WebhookReceivedEventRepository(db),
         webhook_repo=WebhookRepository(db),
         workspace_repo=WorkspaceRepository(db),

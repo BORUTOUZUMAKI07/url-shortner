@@ -2,8 +2,6 @@ import hashlib
 import hmac
 import json
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.shared.errors import WorkspaceNotFound
 from src.webhooks.repositories.webhook_receiver_repository import WebhookReceivedEventRepository
 from src.webhooks.repositories.webhook_repository import WebhookRepository
@@ -13,12 +11,11 @@ from src.workspaces.repositories.workspace_repository import WorkspaceRepository
 
 class WebhookReceiverService:
     def __init__(
-        self, db: AsyncSession,
+        self,
         repo: WebhookReceivedEventRepository,
         webhook_repo: WebhookRepository,
         workspace_repo: WorkspaceRepository,
     ):
-        self.db = db
         self.repo = repo
         self.webhook_repo = webhook_repo
         self.workspace_repo = workspace_repo

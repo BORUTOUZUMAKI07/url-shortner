@@ -51,7 +51,7 @@ from src.shared.errors.base import AppError
 from src.shared.events.kafka import close_kafka, init_kafka
 from src.shared.middleware.audit import AuditContextMiddleware
 from src.shared.middleware.metrics import MetricsMiddleware
-from src.shared.middleware.rate_limit import RateLimitMiddleware
+from src.shared.middleware.rate_limit import RateLimitMiddleware, _default_plan_resolver
 from src.shared.middleware.tracing import TracingMiddleware
 from src.webhooks.routes import webhook_receiver, webhooks
 from src.webhooks.workers.dlq_replay_worker import consume_dlq_replay
@@ -81,7 +81,7 @@ def create_app(lifespan_override=None):
 
     # Configure middleware (order matters)
     app.add_middleware(MetricsMiddleware)
-    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(RateLimitMiddleware, plan_resolver=_default_plan_resolver)
     app.add_middleware(AuditContextMiddleware)
     app.add_middleware(TracingMiddleware)
 

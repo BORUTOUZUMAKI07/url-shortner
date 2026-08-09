@@ -494,6 +494,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `core/rbac.py` | `check_role` — core role-hierarchy helper. |
 | `core/api_key_auth.py` | API-key auth + quota helpers (`authenticate_api_key`, `verify_api_key_quota`) — standalone, not a FastAPI dependency. |
 | `core/geo_service.py` | IP → location resolution (ipinfo.io), Redis-cached. |
+| `core/user_plan.py` | `UserPlanResolver` abstraction + `DatabaseUserPlanResolver` (opens a session at call time, caches the user's plan for 60s). |
 | `core/base62.py` | Base62 encoding used for short codes. |
 | `core/metrics.py`, `core/tracing.py` | OpenTelemetry metrics + tracing init/instrumentation (OTel API, not the Prometheus client). |
 | `core/event_dispatcher.py`, `events/dispatcher.py`, `events/schemas.py` | Event publishing plumbing (`EventDispatcher`) + Avro schema serialize/deserialize/register. |
@@ -502,7 +503,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `logging.py` | `setup_logging()` — console + file handler with graceful fallback (Story 4). |
 | `middleware/audit.py` | `AuditContextMiddleware` — attaches audit context to requests. |
 | `middleware/metrics.py` | `MetricsMiddleware` — request metrics. |
-| `middleware/rate_limit.py` | `RateLimitMiddleware` — Redis-based rate limiting (uses `database.AsyncSessionLocal` at call time, Story 2 fix). |
+| `middleware/rate_limit.py` | `RateLimitMiddleware` — Redis-based rate limiting; the user-plan lookup goes through an injected `UserPlanResolver` (sessions opened at call time, Story 2 fix). |
 | `middleware/rbac.py` | Only `require_role` helper now (middleware class removed, Story 10). |
 | `middleware/tracing.py` | `TracingMiddleware` — OTel request tracing (Story 9). |
 | `workers/_sni_patch.py` | SNI monkey-patch for Python 3.13 Windows Kafka TLS — patches `wrap_socket` AND `wrap_bio` (Story 6). |
@@ -546,7 +547,8 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | File | What it does |
 |---|---|
 | `models/webhook.py`, `models/webhook_event.py`, `models/webhook_subscription.py`, `models/webhook_received_event.py` | Webhook config, **outbound delivery log** (`webhook_events`), **subscription junction** (webhook↔event type), inbound received-events log. |
-| `services/webhook_service.py` | Webhook CRUD + `_verify_write_role`; secret encrypt/decrypt, subscription sync, and `deliver_event` (HMAC-signed POST). |
+| `repositories/webhook_repository.py` | Owns the transactions: `create_with_subscriptions`, `sync_subscriptions`, `record_delivery`. |
+| `services/webhook_service.py` | Webhook CRUD + `_verify_write_role`; secret encrypt/decrypt, subscription sync, and `deliver_event` (HMAC-signed POST) — depends only on repositories, not the session. |
 | `services/webhook_receiver_service.py` | **Inbound** receiver — verifies HMAC signature on incoming deliveries, logs them to `webhook_received_events`. |
 | `routes/webhooks.py`, `routes/webhook_receiver.py` | Management endpoints + public `POST /webhook-receiver` (HMAC-verified inbound) + authenticated `GET /webhook-receiver/events/{workspace_id}`. |
 | `workers/webhook_click_consumer.py`, `webhook_retry_worker.py`, `metadata_worker.py`, `dlq_replay_worker.py` | Kafka consumer → HMAC delivery (Story 16); 60s DB poller retrying failed deliveries → Postgres DLQ; page-metadata fetcher (title/description/og:image); Kafka DLQ topic replayer. |
