@@ -34,7 +34,7 @@ class TestWebhookRoutes:
             "events": [],
             "secret": "whsec_1234567890123456",
         })
-        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_create_webhook_short_secret(self, client, test_workspace):
         resp = await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={
@@ -42,7 +42,7 @@ class TestWebhookRoutes:
             "events": ["url.created"],
             "secret": "short",
         })
-        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_create_webhook_invalid_url(self, client, test_workspace):
         resp = await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={
@@ -50,7 +50,7 @@ class TestWebhookRoutes:
             "events": ["url.created"],
             "secret": "whsec_1234567890123456",
         })
-        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_list_webhooks(self, client, test_workspace):
         await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={

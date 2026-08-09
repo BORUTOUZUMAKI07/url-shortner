@@ -116,7 +116,7 @@ class TestBulkRoutes:
             "/api/v1/urls/bulk/export",
             params={"workspace_id": test_workspace.id, "format": "xml"},
         )
-        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_bulk_qr_zip(self, client, test_workspace, test_url):
         resp = await client.get(

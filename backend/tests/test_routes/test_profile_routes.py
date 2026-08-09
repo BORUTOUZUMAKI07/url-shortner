@@ -22,7 +22,7 @@ class TestProfileRoutes:
             "current_password": "testpass123",
             "new_password": "short",
         })
-        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_change_email(self, client):
         resp = await client.put("/api/v1/profile/email", json={

@@ -44,7 +44,7 @@ class TestAnalyticsRoutes:
     @patch("src.analytics.services.analytics_service.ClickEvent.aggregate")
     async def test_get_timeseries_invalid_days(self, mock_aggregate, client, test_url):
         resp = await client.get(f"/api/v1/analytics/{test_url.short_code}/timeseries?days=999")
-        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     @patch("src.analytics.services.analytics_service.ClickEvent.aggregate")
     async def test_get_device_breakdown(self, mock_aggregate, client, test_url):
