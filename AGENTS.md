@@ -213,6 +213,16 @@ at session start — this **wiped all real data once** when pytest was run witho
 - Only safe commands without Docker: `uv run pytest tests/test_core tests/test_events -q -o addopts=''`
 - Always check what `.env` points at (and what session/fixture hooks do) before running anything destructive.
 
+## ⚠️ Tests send REAL emails if SMTP is configured in `.env`
+
+`backend/.env` has real Gmail SMTP credentials. `EmailService._send` sends real email whenever `is_configured()` is true — and the workspace-invite email was **not mocked** in the test fixture, so `pytest --use-testcontainers` fired real invites to `invited@example.com` (which bounced) into the real inbox.
+
+**Fix:** the autouse `mock_external_services` fixture in `tests/conftest.py` now:
+1. Patches `EmailService.is_configured` → `False` for **every** test (root-cause guard — `_send` short-circuits before SMTP for any current or future callsite).
+2. Also mocks `workspace_service.EmailService.send_invite_email` (alongside the existing auth email mocks).
+
+**Rule:** never add an email callsite without adding it to this fixture's patch list — the `is_configured` guard is the safety net, the per-callsite mock is the explicit intent.
+
 ## Start Backend (standalone, no embedded workers)
 ```
 cd backend

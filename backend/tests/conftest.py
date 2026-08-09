@@ -143,8 +143,10 @@ async def fast_password_hashing():
 async def mock_external_services():
     import contextlib
     patches = [
+        patch("src.identity.services.email_service.EmailService.is_configured", return_value=False),
         patch("src.identity.services.auth_service.EmailService.send_verification_email", AsyncMock()),
         patch("src.identity.services.auth_service.EmailService.send_password_reset", AsyncMock()),
+        patch("src.workspaces.services.workspace_service.EmailService.send_invite_email", AsyncMock()),
         patch("src.links.services.url_service.delete_url_cache", AsyncMock()),
         patch("src.links.services.url_service.EventDispatcher", AsyncMock()),
         patch("src.workspaces.services.workspace_service.AuditService", AsyncMock()),
