@@ -1,16 +1,28 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
 
-async function tryRefresh(): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_BASE}/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-    })
-    if (!res.ok) return false
-    const data = await res.json()
-    return !!data.access_token
-  } catch { return false }
+let refreshPromise: Promise<boolean> | null = null
+
+// Single-flight: concurrent 401s (e.g. a burst of parallel dashboard queries
+// after the access token expires) share ONE refresh call instead of firing N
+// refreshes with the same refresh token. Without this, the backend's refresh
+// rotation + reuse detection would treat the duplicates as token replay and
+// revoke the session family.
+function tryRefresh(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+        })
+        if (!res.ok) return false
+        const data = await res.json()
+        return !!data.access_token
+      } catch { return false }
+    })().finally(() => { refreshPromise = null })
+  }
+  return refreshPromise
 }
 
 function clearTokens() {

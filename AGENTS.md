@@ -251,6 +251,29 @@ Devices/UTM/referrer breakdowns aggregated all history regardless of the request
 
 **Note:** this is the second time route ordering mattered here — keep new static paths under `/oauth/...` above the parameterized ones.
 
+## Auth — Refresh-Token Reuse Detection + OAuth PKCE
+
+**Files:** `backend/src/shared/core/security.py`, `backend/src/identity/services/auth_service.py`, `backend/src/identity/services/sso/google_oauth.py`, `backend/src/identity/services/sso/github_oauth.py`, `frontend/src/lib/api.ts`
+
+Every refresh token now carries a `jti` (`secrets.token_urlsafe(32)`) and a per-session `sid`. `create_refresh_token(data, sid=None)` auto-generates `sid` when omitted.
+
+**Reuse detection model:** one Redis record per session, `refresh:session:{sid}` = JSON `{jti, prev_jti, prev_at, created}` (TTL 7d). A refresh runs atomic Lua `_ROTATE_REFRESH_LUA` via `RedisAdapter.eval`:
+- returns `1` — presented `jti` is the current one (or the grace `prev_jti` within 30s) → rotate, keep `prev_jti`/`prev_at`, mint new tokens with the **same `sid`**;
+- returns `0` — presented `jti` is a replayed old token → `_revoke_refresh_family(user_id)` sets `refresh:revoked:{user_id}` (TTL 7d) and raises `TokenRevoked` (whole session dies);
+- returns `-1` — no session record for the `sid` → reject with `TokenRevoked` **without** family revocation (legit logout cleanup, or an attacker's fresh token).
+
+Legacy pre-session tokens (no `sid`/`jti`) still rotate and are upgraded to session metadata on first refresh, so detection progressively covers all users. `login()`/`oauth_callback()` call `_store_refresh_session()` (best-effort, try/except); `logout()` deletes `refresh:session:{sid}`. The frontend's `tryRefresh()` is single-flight (one shared `refreshPromise`, reset in `.finally`) so concurrent 401s fire one refresh and don't trip the 30s reuse grace.
+
+**PKCE (S256):** `oauth_init()` stores a `code_verifier` at `oauth:pkce:{state}` (TTL 600s, single-use — deleted on callback) and sends `code_challenge`/`code_challenge_method=S256` in the authorize URL; `oauth_callback()` fetches the verifier and passes it to `authenticate(code, code_verifier=...)`. Provider `get_authorization_url(state, code_challenge=None)` / `exchange_code(code, code_verifier=None)` are optional-kwarg based — the auth-service handoff path supplies them.
+
+**Google consent every login:** `google_oauth.py` sends `prompt=consent select_account` (account chooser + consent confirmation each time — deliberate user decision); `github_oauth.py` sends `prompt=select_account` (GitHub cannot force re-consent for unchanged scopes; account picker is the max).
+
+## Render Deploy — "Port scan timeout reached" / "Timed Out"
+
+**File:** `backend/start.sh`, `backend/render.yaml`
+
+Render's free tier spins the DB down with inactivity; the old start command ran `alembic upgrade head && uvicorn` synchronously, so a cold DB wake delayed uvicorn's port bind past Render's port-scan window → deploy "Timed Out" even though the build succeeded. `start.sh` runs migrations in the background (`uv run alembic -c alembic.ini upgrade head &`) then `exec uv run uvicorn ... --port "${PORT:-8000}"`, so the port binds immediately and migrations finish alongside startup. `render.yaml` `startCommand` → `sh start.sh`. `SKIP_MIGRATIONS=1` still disables the migration step.
+
 # Running the Stack
 
 ## ⚠️ NEVER run the pytest suite against the production database

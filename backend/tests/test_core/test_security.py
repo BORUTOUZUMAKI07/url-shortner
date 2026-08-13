@@ -63,6 +63,23 @@ class TestJWTFunctions:
         payload = jwt.decode(token, "test-secret-key-for-testing", algorithms=["HS256"])
         assert payload["sub"] == "1"
         assert payload["type"] == "refresh"
+        # jti (unique per token) + sid (stable per session) power reuse detection
+        assert payload["jti"]
+        assert payload["sid"]
+
+    def test_create_refresh_token_keeps_supplied_sid(self, *_):
+        token1 = create_refresh_token({"sub": "1"}, sid="fixed-session")
+        token2 = create_refresh_token({"sub": "1"}, sid="fixed-session")
+        p1 = jwt.decode(token1, "test-secret-key-for-testing", algorithms=["HS256"])
+        p2 = jwt.decode(token2, "test-secret-key-for-testing", algorithms=["HS256"])
+        assert p1["sid"] == p2["sid"] == "fixed-session"
+        # ...but each rotation mints a fresh jti so a rotated-out token is detectable
+        assert p1["jti"] != p2["jti"]
+
+    def test_create_refresh_token_auto_sid_is_unique_per_token(self, *_):
+        p1 = jwt.decode(create_refresh_token({"sub": "1"}), "test-secret-key-for-testing", algorithms=["HS256"])
+        p2 = jwt.decode(create_refresh_token({"sub": "1"}), "test-secret-key-for-testing", algorithms=["HS256"])
+        assert p1["sid"] != p2["sid"]
 
     def test_decode_token_valid(self, *_):
         token = create_access_token({"sub": "1"})
