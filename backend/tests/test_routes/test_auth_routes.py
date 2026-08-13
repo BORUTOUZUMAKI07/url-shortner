@@ -65,3 +65,15 @@ class TestAuthRoutes:
             "refresh_token": "invalid-token",
         })
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    async def test_oauth_exchange_not_shadowed_by_provider_route(self, client):
+        # Regression: /oauth/{provider} was registered BEFORE /oauth/exchange,
+        # and Starlette matches in registration order — so POST
+        # /auth/oauth/exchange resolved to initiate_oauth("exchange") and every
+        # handoff exchange 400'd with "OAuth provider 'exchange' is not
+        # configured", breaking Google/GitHub sign-in. The static route must
+        # win: an unknown code should be an InvalidToken (401), not a provider
+        # lookup failure.
+        resp = await client.post("/api/v1/auth/oauth/exchange", json={"code": "bogus-code"})
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+        assert "not configured" not in resp.json().get("detail", "").lower()

@@ -239,6 +239,16 @@ Devices/UTM/referrer breakdowns aggregated all history regardless of the request
 - **`rawFetch` 401-retry crash on 204:** retry path called `retry.json()` on `204 No Content` (JSON.parse("") throws) for void endpoints like audit-log export. Now returns `undefined` on 204.
 - **`custom_alias` zod min mismatch:** frontend schema had no min length; backend enforces `min_length=3`. Added `.min(3)`.
 
+## OAuth — Static `/oauth/exchange` Shadowed by `/oauth/{provider}` (sign-in always failed)
+
+**File:** `backend/src/identity/routes/auth.py`
+
+`POST /auth/oauth/{provider}` (initiate) was declared **before** `POST /auth/oauth/exchange`. Starlette matches routes in registration order, so every handoff exchange hit `initiate_oauth("exchange")` → 400 `"OAuth provider 'exchange' is not configured"` → the login page's `exchangeOauth()` catch showed "OAuth login failed. Please try again." Google **and** GitHub were both broken — the symptom is identical regardless of provider because both converge on the same broken exchange route.
+
+**Fix:** declare `oauth_exchange` **before** `initiate_oauth` so the static path wins (Starlette/Route precedence is order-based, not specificity-based). Regression test added in `tests/test_routes/test_auth_routes.py` (`test_oauth_exchange_not_shadowed_by_provider_route`: an unknown code must 401 `InvalidToken`, not 400 "not configured").
+
+**Note:** this is the second time route ordering mattered here — keep new static paths under `/oauth/...` above the parameterized ones.
+
 # Running the Stack
 
 ## ⚠️ NEVER run the pytest suite against the production database

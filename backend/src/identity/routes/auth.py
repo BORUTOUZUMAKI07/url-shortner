@@ -121,6 +121,32 @@ async def list_providers():
     return {"providers": SSOProviderRegistry.list_providers()}
 
 
+@router.post("/oauth/exchange", response_model=Token,
+    summary="Exchange OAuth handoff code",
+    description="One-time exchange of the OAuth callback handoff code for a token pair. Also sets the "
+                "auth cookies so the client has a full session immediately — no separate refresh hop.")
+async def oauth_exchange(
+    response: Response,
+    payload: OAuthExchangeRequest,
+    svc: AuthService = Depends(get_auth_service),
+):
+    # MUST be declared before /oauth/{provider}: Starlette matches routes in
+    # registration order, so a parameterized route would otherwise swallow the
+    # static "exchange" path and the one-time handoff could never be redeemed.
+    refresh_token = await svc.exchange_oauth_handoff(payload.code)
+    # Mint an access token from the refresh token so the session cookies are
+    # complete without another round trip. The one-time code is already consumed
+    # server-side, so establishing the session here avoids a second request whose
+    # failure would strand the user mid-login.
+    token_payload = decode_token(refresh_token)
+    user_id = token_payload.get("sub")
+    if not user_id or token_payload.get("type") != "refresh":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OAuth handoff")
+    access_token = create_access_token(data={"sub": str(user_id)})
+    _set_auth_cookies(response, access_token, refresh_token)
+    return Token(access_token=access_token, token_type="bearer", refresh_token=refresh_token)
+
+
 @router.post("/oauth/{provider}",
     summary="Initiate OAuth flow",
     description="Returns the authorization URL for the given SSO provider (Google, GitHub, etc.).")
@@ -142,29 +168,6 @@ async def oauth_callback(provider: str, code: str, state: str, svc: AuthService 
     handoff = await svc.create_oauth_handoff(tokens.refresh_token)
     redirect_url = f"{settings.FRONTEND_URL}/login?code={handoff}"
     return RedirectResponse(url=redirect_url, status_code=302)
-
-
-@router.post("/oauth/exchange", response_model=Token,
-    summary="Exchange OAuth handoff code",
-    description="One-time exchange of the OAuth callback handoff code for a token pair. Also sets the "
-                "auth cookies so the client has a full session immediately — no separate refresh hop.")
-async def oauth_exchange(
-    response: Response,
-    payload: OAuthExchangeRequest,
-    svc: AuthService = Depends(get_auth_service),
-):
-    refresh_token = await svc.exchange_oauth_handoff(payload.code)
-    # Mint an access token from the refresh token so the session cookies are
-    # complete without another round trip. The one-time code is already consumed
-    # server-side, so establishing the session here avoids a second request whose
-    # failure would strand the user mid-login.
-    token_payload = decode_token(refresh_token)
-    user_id = token_payload.get("sub")
-    if not user_id or token_payload.get("type") != "refresh":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OAuth handoff")
-    access_token = create_access_token(data={"sub": str(user_id)})
-    _set_auth_cookies(response, access_token, refresh_token)
-    return Token(access_token=access_token, token_type="bearer", refresh_token=refresh_token)
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str | None) -> None:
