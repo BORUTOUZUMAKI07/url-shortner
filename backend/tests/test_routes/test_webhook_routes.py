@@ -4,20 +4,20 @@ from fastapi import status
 class TestWebhookRoutes:
     async def test_create_webhook(self, client, test_workspace):
         resp = await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={
-            "url": "https://hooks.example.com/callback",
+            "url": "https://example.com/callback",
             "events": ["url.created"],
             "secret": "whsec_1234567890123456",
         })
         assert resp.status_code == status.HTTP_201_CREATED
         data = resp.json()
         assert data["workspace_id"] == test_workspace.id
-        assert data["url"] == "https://hooks.example.com/callback"
+        assert data["url"] == "https://example.com/callback"
         assert "url.created" in data["events"]
         assert data["is_active"] is True
 
     async def test_create_webhook_multiple_events(self, client, test_workspace):
         resp = await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={
-            "url": "https://hooks.example.com/callback",
+            "url": "https://example.com/callback",
             "events": ["url.created", "url.clicked", "url.deleted"],
             "secret": "whsec_1234567890123456",
         })
@@ -30,7 +30,7 @@ class TestWebhookRoutes:
 
     async def test_create_webhook_empty_events(self, client, test_workspace):
         resp = await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={
-            "url": "https://hooks.example.com/callback",
+            "url": "https://example.com/callback",
             "events": [],
             "secret": "whsec_1234567890123456",
         })
@@ -38,7 +38,7 @@ class TestWebhookRoutes:
 
     async def test_create_webhook_short_secret(self, client, test_workspace):
         resp = await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={
-            "url": "https://hooks.example.com/callback",
+            "url": "https://example.com/callback",
             "events": ["url.created"],
             "secret": "short",
         })
@@ -52,9 +52,17 @@ class TestWebhookRoutes:
         })
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
+    async def test_create_webhook_private_url_rejected(self, client, test_workspace):
+        resp = await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={
+            "url": "http://127.0.0.1/callback",
+            "events": ["url.created"],
+            "secret": "whsec_1234567890123456",
+        })
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
     async def test_list_webhooks(self, client, test_workspace):
         await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={
-            "url": "https://hooks.example.com/callback",
+            "url": "https://example.com/callback",
             "events": ["url.created"],
             "secret": "whsec_1234567890123456",
         })
@@ -65,7 +73,7 @@ class TestWebhookRoutes:
 
     async def test_get_webhook(self, client, test_workspace):
         create = await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={
-            "url": "https://hooks.example.com/callback",
+            "url": "https://example.com/callback",
             "events": ["url.created"],
             "secret": "whsec_1234567890123456",
         })
@@ -80,7 +88,7 @@ class TestWebhookRoutes:
 
     async def test_update_webhook_events(self, client, test_workspace):
         create = await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={
-            "url": "https://hooks.example.com/callback",
+            "url": "https://example.com/callback",
             "events": ["url.created"],
             "secret": "whsec_1234567890123456",
         })
@@ -95,7 +103,7 @@ class TestWebhookRoutes:
 
     async def test_update_webhook_disable(self, client, test_workspace):
         create = await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={
-            "url": "https://hooks.example.com/callback",
+            "url": "https://example.com/callback",
             "events": ["url.created"],
             "secret": "whsec_1234567890123456",
         })
@@ -108,7 +116,7 @@ class TestWebhookRoutes:
 
     async def test_delete_webhook(self, client, test_workspace):
         create = await client.post(f"/api/v1/webhooks/workspace/{test_workspace.id}", json={
-            "url": "https://hooks.example.com/callback",
+            "url": "https://example.com/callback",
             "events": ["url.created"],
             "secret": "whsec_1234567890123456",
         })
