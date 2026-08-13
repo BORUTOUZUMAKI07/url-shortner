@@ -11,6 +11,8 @@ export function useMe() {
   return useQuery({
     queryKey: ["me"],
     queryFn: () => auth.me(),
+    // Keep in sync with AuthPrefetcher (same cache entry): no double fetch.
+    staleTime: 5 * 60 * 1000,
     retry: false,
   })
 }
@@ -28,7 +30,6 @@ export function useUrls(workspaceId: number | null, params?: { folder_id?: numbe
   return useQuery({
     queryKey: ["urls", workspaceId, params],
     queryFn: () => urls.list(workspaceId, params),
-    select: (data) => data,
   })
 }
 
@@ -95,14 +96,6 @@ export function useApiKeys() {
   return useQuery({
     queryKey: ["api-keys"],
     queryFn: () => apiKeysApi.list(),
-  })
-}
-
-export function useApiKeyQuota(keyId: number | null) {
-  return useQuery({
-    queryKey: ["api-key-quota", keyId],
-    queryFn: () => apiKeysApi.quota(keyId!),
-    enabled: !!keyId,
   })
 }
 

@@ -47,4 +47,12 @@ class ClickEvent(Document):
             "workspace_id",
             "clicked_at",
             IndexModel([("event_id", ASCENDING)], unique=True, name="event_id_unique_idx"),  # Unique index for idempotency
+            IndexModel(
+                [("short_code", ASCENDING), ("clicked_at", ASCENDING)],
+                name="short_code_clicked_at_idx",  # analytics range aggregations filter both fields
+            ),
+            IndexModel(
+                [("workspace_id", ASCENDING), ("clicked_at", ASCENDING)],
+                name="workspace_id_clicked_at_idx",  # workspace-wide time-range aggregations
+            ),
         ]

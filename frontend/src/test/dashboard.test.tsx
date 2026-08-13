@@ -36,7 +36,6 @@ vi.mock("@/queries", () => ({
   useAddFavoriteMutation: () => ({ mutate: vi.fn() }),
   useRemoveFavoriteMutation: () => ({ mutate: vi.fn() }),
   useApiKeys: () => ({ data: [], isLoading: false }),
-  useApiKeyQuota: () => ({ data: null }),
 }))
 
 vi.mock("next/navigation", () => ({

@@ -113,6 +113,22 @@ def create_app(lifespan_override=None):
             },
         )
 
+    # Warm-up probe for free-tier hosts (Render/Neon sleep after inactivity):
+    # the login page fires this so the DB compute is awake by the time the
+    # OAuth callback lands, instead of paying the cold start on the critical
+    # path. Best-effort — always 200, never surfaces errors to the client.
+    @app.get("/api/v1/ping")
+    async def ping():
+        try:
+            await check_db_health()
+        except Exception:
+            pass
+        try:
+            await redis_client.ping()
+        except Exception:
+            pass
+        return JSONResponse({"status": "ok"})
+
     # Include routers (bulk must be before urls to avoid /urls/{id}/qr catching /urls/bulk/qr)
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(bulk.router, prefix="/api/v1")

@@ -11,6 +11,7 @@ from src.identity.schemas.user import (
     RefreshTokenRequest,
     ResetPasswordRequest,
     Token,
+    TokenWithUser,
     UserCreate,
     UserLogin,
     UserResponse,
@@ -121,10 +122,11 @@ async def list_providers():
     return {"providers": SSOProviderRegistry.list_providers()}
 
 
-@router.post("/oauth/exchange", response_model=Token,
+@router.post("/oauth/exchange", response_model=TokenWithUser,
     summary="Exchange OAuth handoff code",
     description="One-time exchange of the OAuth callback handoff code for a token pair. Also sets the "
-                "auth cookies so the client has a full session immediately — no separate refresh hop.")
+                "auth cookies so the client has a full session immediately — no separate refresh hop. "
+                "Returns the user alongside the tokens so the login page can skip a follow-up /auth/me.")
 async def oauth_exchange(
     response: Response,
     payload: OAuthExchangeRequest,
@@ -142,9 +144,17 @@ async def oauth_exchange(
     user_id = token_payload.get("sub")
     if not user_id or token_payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OAuth handoff")
+    user = await svc.user_repo.get(int(user_id))
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OAuth user not found")
     access_token = create_access_token(data={"sub": str(user_id)})
     _set_auth_cookies(response, access_token, refresh_token)
-    return Token(access_token=access_token, token_type="bearer", refresh_token=refresh_token)
+    return TokenWithUser(
+        access_token=access_token,
+        token_type="bearer",
+        refresh_token=refresh_token,
+        user=UserResponse.model_validate(user),
+    )
 
 
 @router.post("/oauth/{provider}",

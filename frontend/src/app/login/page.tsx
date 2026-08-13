@@ -40,6 +40,13 @@ function LoginForm() {
 
   const processedRef = useRef(false)
 
+  // Prewarm the backend (free-tier cold start: Render boots, Neon DB wakes,
+  // Redis pings) while the user is still on this screen. Fire-and-forget —
+  // never surfaces errors; /health keeps the real status reporting.
+  useEffect(() => {
+    void fetch("/api/v1/ping").catch(() => {})
+  }, [])
+
   useEffect(() => {
     if (processedRef.current) return
     const handoffCode = searchParams.get("code")

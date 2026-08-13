@@ -7,7 +7,9 @@ export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 0,
+        // 30s default staleness cuts redundant refetches on mount/window focus
+        // while staying fresh enough for interactive data like URL lists.
+        staleTime: 30 * 1000,
         gcTime: 10 * 60 * 1000,
         retry: 1,
         refetchOnWindowFocus: true,

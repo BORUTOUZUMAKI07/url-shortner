@@ -193,6 +193,10 @@ export const handlers = [
     HttpResponse.json({ used: 10, limit: 100 })
   ),
 
+  http.get(`${API}/api-keys/quota-summary`, () =>
+    HttpResponse.json({ used: 10, limit: 100, remaining: 90, resets_at: "2024-01-02T00:00:00Z" })
+  ),
+
   http.get(`${API}/webhooks/workspace/:workspaceId`, () =>
     HttpResponse.json([])
   ),

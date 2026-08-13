@@ -24,10 +24,12 @@ class URLRepository(BaseRepository[URL]):
         return result.scalar_one_or_none()
 
     async def alias_exists(self, alias: str) -> bool:
-        result = await self.db.execute(
-            select(URL).where(or_(URL.custom_alias == alias, URL.short_code == alias))
-        )
-        return result.scalar_one_or_none() is not None
+        # EXISTS() instead of loading a full URL row just for a boolean.
+        stmt = select(URL.id).where(
+            or_(URL.custom_alias == alias, URL.short_code == alias)
+        ).exists()
+        result = await self.db.execute(select(stmt))
+        return bool(result.scalar())
 
     async def get_workspace_urls(
         self,

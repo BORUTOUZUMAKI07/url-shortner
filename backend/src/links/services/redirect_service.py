@@ -6,7 +6,7 @@ from typing import Optional
 from src.links.repositories.url_repository import URLRepository
 from src.links.services.utm_service import parse_utm
 from src.shared.core.redis import check_rate_limit, delete_url_cache, get_url_cache, set_url_cache
-from src.shared.core.security import verify_password
+from src.shared.core.security import verify_password_async
 from src.shared.errors.common import RateLimitError
 from src.shared.errors.url import URLDisabled, URLExpired, URLNotFound, URLPasswordIncorrect
 from src.shared.events.dispatcher import EventDispatcher
@@ -42,7 +42,7 @@ class RedirectService:
 
         url_data = await self._fetch_url(short_code)
         self._validate(url_data)
-        self._check_password(url_data, pwd)
+        await self._check_password(url_data, pwd)
         destination = self._apply_deep_link(url_data, user_agent)
         await self._handle_one_time(url_data)
 
@@ -111,9 +111,9 @@ class RedirectService:
             if expires_at < datetime.now(timezone.utc):
                 raise URLExpired()
 
-    def _check_password(self, url_data: dict, pwd: Optional[str]):
+    async def _check_password(self, url_data: dict, pwd: Optional[str]):
         if url_data["password_hash"]:
-            if not pwd or not verify_password(pwd, url_data["password_hash"]):
+            if not pwd or not await verify_password_async(pwd, url_data["password_hash"]):
                 raise URLPasswordIncorrect()
 
     def _apply_deep_link(self, url_data: dict, user_agent: Optional[str]) -> str:

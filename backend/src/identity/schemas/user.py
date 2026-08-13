@@ -39,6 +39,10 @@ class Token(BaseModel):
     refresh_token: Optional[str] = Field(None, description="Refresh token for silent re-authentication")
 
 
+class TokenWithUser(Token):
+    user: UserResponse
+
+
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
 

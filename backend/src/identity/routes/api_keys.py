@@ -3,7 +3,12 @@ from typing import List
 from fastapi import APIRouter, Depends, status
 
 from src.identity.models.user import User
-from src.identity.schemas.api_key import APIKeyCreate, APIKeyCreateResponse, APIKeyResponse
+from src.identity.schemas.api_key import (
+    APIKeyAggregateQuota,
+    APIKeyCreate,
+    APIKeyCreateResponse,
+    APIKeyResponse,
+)
 from src.identity.services.api_key_service import APIKeyService
 from src.shared.core.deps import get_api_key_service, get_current_user
 
@@ -27,6 +32,13 @@ async def create(payload: APIKeyCreate, current_user: User = Depends(get_current
     summary="List API keys")
 async def list_(current_user: User = Depends(get_current_user), svc: APIKeyService = Depends(get_api_key_service)):
     return await svc.list(current_user.id)
+
+
+@router.get("/quota-summary", response_model=APIKeyAggregateQuota,
+    summary="Aggregate API key quota usage",
+    description="Per-user daily quota usage summed across the user's active API keys in a single call.")
+async def get_quota_summary(current_user: User = Depends(get_current_user), svc: APIKeyService = Depends(get_api_key_service)):
+    return await svc.get_aggregate_quota(current_user.id)
 
 
 @router.delete("/{id}",

@@ -30,11 +30,25 @@ class RedisAdapter:
     async def get(self, key: str):
         return await self._client.get(key)
 
+    async def mget(self, *keys: str):
+        """Read several keys in ONE round trip (pipelined over REST)."""
+        if self._is_upstash:
+            cmd = ["MGET"] + list(keys)
+            return await self._client.execute(cmd)
+        return await self._client.mget(*keys)
+
     async def setex(self, key: str, ttl: int, value: str):
         return await self._client.set(key, value, ex=ttl)
 
     async def delete(self, key: str):
         return await self._client.delete(key)
+
+    async def delete_many(self, *keys: str):
+        """Delete several keys in ONE round trip."""
+        if self._is_upstash:
+            cmd = ["DEL"] + list(keys)
+            return await self._client.execute(cmd)
+        return await self._client.delete(*keys)
 
     async def incr(self, key: str):
         return await self._client.incr(key)

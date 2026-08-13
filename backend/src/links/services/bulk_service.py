@@ -14,7 +14,7 @@ from src.links.repositories.url_repository import URLRepository
 from src.links.services.url_service import RESERVED_ALIASES
 from src.shared.core.config import settings
 from src.shared.core.redis import delete_url_cache
-from src.shared.core.security import hash_password
+from src.shared.core.security import hash_password_async
 from src.shared.errors import BadRequestError, FolderNotInWorkspace, NotFoundError, RoleTooLow, WorkspaceNotFound
 from src.workspaces.models.workspace_member import MemberRole
 from src.workspaces.repositories.workspace_repository import WorkspaceRepository
@@ -110,7 +110,8 @@ class BulkService:
                 except ValueError:
                     raise ValueError(f"Invalid expires_at: {exp_str}")
 
-            password_hash = hash_password(row.get("password", "").strip()) if row.get("password", "").strip() else None
+            password = row.get("password", "").strip()
+            password_hash = await hash_password_async(password) if password else None
 
             domain = row.get("domain", "").strip() or None
 

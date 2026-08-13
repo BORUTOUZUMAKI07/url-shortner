@@ -8,7 +8,7 @@ from src.links.repositories.url_repository import URLRepository
 from src.shared import get_logger
 from src.shared.core.config import settings
 from src.shared.core.redis import delete_url_cache
-from src.shared.core.security import hash_password
+from src.shared.core.security import hash_password_async
 from src.shared.errors import (
     AliasConflict,
     AliasReserved,
@@ -74,7 +74,7 @@ class URLService:
         else:
             short_code = await self.url_repo.next_short_code()
 
-        password_hash = hash_password(payload.password) if payload.password else None
+        password_hash = await hash_password_async(payload.password) if payload.password else None
 
         url = URL(
             short_code=short_code,
@@ -175,7 +175,7 @@ class URLService:
         if payload.domain is not None:
             url.domain = payload.domain
         if payload.password is not None:
-            url.password_hash = hash_password(payload.password) if payload.password else None
+            url.password_hash = await hash_password_async(payload.password) if payload.password else None
         if payload.is_ab_test is not None:
             url.is_ab_test = payload.is_ab_test
         if payload.ios_url is not None:

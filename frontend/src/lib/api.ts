@@ -257,6 +257,7 @@ export const apiKeysApi = {
     apiFetch<ApiKeyCreateResponse>("/api-keys", { method: "POST", body: JSON.stringify({ name, expires_at }) }),
   revoke: (id: number) => apiFetch<void>(`/api-keys/${id}`, { method: "DELETE" }),
   quota: (id: number) => apiFetch<{ api_key_id: number; remaining_quota: number; daily_limit: number; resets_at: string }>(`/api-keys/${id}/quota`),
+  quotaSummary: () => apiFetch<{ used: number; limit: number; remaining: number; resets_at: string }>("/api-keys/quota-summary"),
 }
 
 function generateWebhookSecret(): string {

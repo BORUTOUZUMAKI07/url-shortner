@@ -29,3 +29,12 @@ class APIKeyResponse(BaseModel):
 
 class APIKeyCreateResponse(APIKeyResponse):
     key: str
+
+
+class APIKeyAggregateQuota(BaseModel):
+    """Per-user daily API-key quota usage summed across all active keys."""
+
+    used: int
+    limit: int
+    remaining: int
+    resets_at: str

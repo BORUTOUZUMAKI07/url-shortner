@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.identity.models.user import User
 from src.shared.core.database import get_db
 from src.shared.core.redis import redis_client
-from src.shared.core.security import decode_token, verify_password
+from src.shared.core.security import decode_token, verify_password_async
 
 # Positive-only cache for JWT blacklist checks — avoids a Redis REST round-trip
 # on every request while a token is known to be revoked. A token that is NOT in
@@ -86,7 +86,7 @@ async def get_current_user(
             raise UnauthorizedError("Invalid API key")
         if key_record.status != APIKeyStatus.active:
             raise UnauthorizedError("API key has been revoked")
-        if not verify_password(token, key_record.key_hash):
+        if not await verify_password_async(token, key_record.key_hash):
             raise UnauthorizedError("Invalid API key")
         if key_record.expires_at and key_record.expires_at < datetime.now(timezone.utc):
             raise UnauthorizedError("API key has expired")

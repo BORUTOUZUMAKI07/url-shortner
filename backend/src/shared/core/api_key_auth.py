@@ -12,7 +12,7 @@ from src.identity.models.user import User
 from src.shared import get_logger
 from src.shared.core.database import AsyncSessionLocal
 from src.shared.core.redis import in_process_consume_quota, redis_client
-from src.shared.core.security import verify_password
+from src.shared.core.security import verify_password_async
 from src.shared.errors import ForbiddenError, RateLimitError, UnauthorizedError
 
 logger = get_logger(__name__)
@@ -92,7 +92,7 @@ async def authenticate_api_key(request: Request) -> tuple[User, APIKey]:
         if api_key.expires_at and api_key.expires_at < datetime.now(timezone.utc):
             raise ForbiddenError("API key has expired")
 
-        if not verify_password(raw_key, api_key.key_hash):
+        if not await verify_password_async(raw_key, api_key.key_hash):
             raise UnauthorizedError("Invalid API key")
 
         # Update last_used_at

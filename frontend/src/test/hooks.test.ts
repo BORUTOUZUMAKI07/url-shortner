@@ -21,7 +21,6 @@ vi.mock("@/queries", () => ({
   useUrls: mockUseUrls,
   useWorkspaceMembers: mockUseWorkspaceMembers,
   useApiKeys: vi.fn(() => ({ data: [], isLoading: false })),
-  useApiKeyQuota: vi.fn(() => ({ data: null })),
   useDeleteUrlMutation: vi.fn(() => ({ mutateAsync: mockMutateAsync })),
 }))
 

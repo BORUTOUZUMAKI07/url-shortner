@@ -378,3 +378,67 @@ OTEL_EXPORTER_OTLP_HEADERS=api-key=<your-ingest-license-key>
 
 ## No code changes needed
 The app reads all credentials from env vars at runtime — including the Kafka bootstrap hostname used by `_sni_patch.py`. Just update `.env` and restart.
+
+# Performance Batch — Latency / Async / Query Optimizations
+
+## OAuth Sign-In — Serial Redis Round Trips on the Callback
+
+**File:** `backend/src/identity/services/auth_service.py`, `backend/src/shared/core/redis.py`
+
+`oauth_callback` did four serial Redis operations (`state get` → `state delete` → `pkce get` → `pkce delete`). With Upstash REST each HTTPS request is ~100-200ms, so the callback added ~400-800ms of pure serial latency on top of the provider round trip.
+
+**Fix:** `RedisAdapter` gained `mget(*keys)` / `delete_many(*keys)` (Upstash batched `MGET`/`DEL` commands vs local pipelined variants). The callback now does `mget(oauth:state, oauth:pkce)` then `delete_many(...)` — two round trips total. **Always batch related Upstash ops — one REST call per HTTPS request.**
+
+## OAuth Exchange — Extra `/auth/me` Hop After Handoff
+
+**File:** `backend/src/identity/routes/auth.py`, `backend/src/identity/schemas/user.py`
+
+After `POST /oauth/exchange` the login page called `auth.me()` — one more network round trip before redirect.
+
+**Fix:** exchange now returns `TokenWithUser` (adds `user: UserResponse`) alongside the tokens. Login chain: `exchangeOauth(code) → setUser(user) → redirect` (the `auth.me()` call was removed from the chain).
+
+## Argon2 Hashing — Blocked the Event Loop
+
+**File:** `backend/src/shared/core/security.py` + all call sites
+
+`passlib`'s Argon2 is CPU-bound (≈100-300ms); the sync `hash_password`/`verify_password` blocked the event loop on register/login/reset/API-key-auth/redirect-password/URL-create/bulk-create/profile-change.
+
+**Fix:** added `hash_password_async`/`verify_password_async` (`asyncio.to_thread`). All async call sites (`auth_service`, `profile_service`, `url_service`, `bulk_service`, `api_key_service`, `api_key_auth`, `deps`, `redirect_service`) use the async variants; the sync wrappers remain only as the thread-pool targets.
+
+## Workspace Access — Two Queries Down to One
+
+**File:** `backend/src/workspaces/repositories/workspace_repository.py` functions `verify_access` / `verify_role`
+
+Both did a sequential owner SELECT then a member SELECT. Now single outer-join queries (owner OR membership in one round trip; `verify_role` selects `(owner_id, role)` and resolves the hierarchy in Python). The owner is authoritative even if a membership row exists.
+
+## Mongo Analytics — Missing Compound Indexes
+
+**File:** `backend/src/shared/core/click_event.py`
+
+Analytics range aggregations filter `(short_code, clicked_at)` and `(workspace_id, clicked_at)` but only single-field indexes existed. Added `short_code_clicked_at_idx` and `workspace_id_clicked_at_idx` (Beanie creates them on startup via `init_mongodb`).
+
+## Alias Existence — Loaded a Full Row for a Boolean
+
+**File:** `backend/src/links/repositories/url_repository.py` function `alias_exists`
+
+Was `SELECT * FROM urls ...` then discarded the row. Now `EXISTS(subquery)` returns a scalar boolean — the DB stops after the first match.
+
+## API-Key Quota — N+1 Round Trips on the Dashboard
+
+**Files:** `backend/src/identity/services/api_key_service.py`, `backend/src/identity/routes/api_keys.py`, `backend/src/identity/schemas/api_key.py`, `frontend/src/hooks/useDashboard.ts`, `frontend/src/lib/api.ts`
+
+`useDashboard` fired `GET /api-keys/{id}/quota` once per active key (N+1 over Upstash/Redis). 
+
+**Fix:** new `GET /api-keys/quota-summary` → `APIKeyAggregateQuota { used, limit, remaining, resets_at }`. `api_key_service.get_aggregate_quota` reads the per-key Redis counters in **one** `mget` (all active keys) and sums them, capped at the plan limit. The dashboard does one call. **Register static paths like `/quota-summary` anywhere — there is no `GET /{id}` route that could shadow it — but keep static-before-parameterized as the general rule.**
+
+## Frontend Caching — Zero Staleness Caused Refetch Storms
+
+**Files:** `frontend/src/lib/providers.tsx`, `frontend/src/queries/index.ts`
+
+Global query `staleTime` was `0` → every mount and window-focus refetched everything. Bumped the default to 30s. `useMe` now sets `staleTime: 5min` + `retry: false`, matching `AuthPrefetcher` (they share the `["me"]` cache entry so the prefetcher and any `useMe` never double-fetch). Removed the `select: (data) => data` no-op in `useUrls`.
+
+## Login Page — Cold-Start Prewarm
+
+**Files:** `backend/src/main.py`, `frontend/src/app/login/page.tsx`
+
+Render free tier + Neon sleep: the first request after idle can take seconds (DB wake) → slow login. Added `GET /api/v1/ping` (best-effort DB `check_db_health()` + Redis ping, **always 200**) and the login page fire-and-forgets `fetch("/api/v1/ping")` on mount while the user types credentials / picks a provider. `/health` still owns 503 reporting.

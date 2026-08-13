@@ -17,8 +17,8 @@ from src.shared.core.security import (
     create_password_reset_token,
     create_refresh_token,
     decode_token,
-    hash_password,
-    verify_password,
+    hash_password_async,
+    verify_password_async,
 )
 from src.shared.errors import (
     CSRFValidationFailed,
@@ -84,7 +84,7 @@ class AuthService:
 
         user = await self.user_repo.create(
             email=email,
-            password_hash=hash_password(password),
+            password_hash=await hash_password_async(password),
         )
         await self.workspace_repo.create_default(user.id)
 
@@ -94,7 +94,7 @@ class AuthService:
 
     async def login(self, email: str, password: str) -> Token:
         user = await self.user_repo.get_by_email(email)
-        if not user or not verify_password(password, user.password_hash):
+        if not user or not await verify_password_async(password, user.password_hash):
             raise InvalidCredentials()
         access_token = create_access_token(data={"sub": str(user.id)})
         refresh_token = create_refresh_token(data={"sub": str(user.id)})
@@ -243,7 +243,7 @@ class AuthService:
         user = await self.user_repo.get_by_email(email)
         if not user:
             raise UserNotFound()
-        await self.user_repo.update(user.id, password_hash=hash_password(new_password))
+        await self.user_repo.update(user.id, password_hash=await hash_password_async(new_password))
 
     async def verify_email(self, token: str) -> None:
         token_payload = decode_token(token)
@@ -281,13 +281,14 @@ class AuthService:
         if not oauth or not oauth.is_configured():
             raise OAuthNotConfigured(provider)
 
-        state_exists = await redis_client.get(f"oauth:state:{state}")
+        state_exists, code_verifier = await redis_client.mget(
+            f"oauth:state:{state}", f"oauth:pkce:{state}"
+        )
+        # Both are single-use — delete regardless so a stale state can't be
+        # replayed; batched into one round trip.
+        await redis_client.delete_many(f"oauth:state:{state}", f"oauth:pkce:{state}")
         if not state_exists:
             raise CSRFValidationFailed()
-        await redis_client.delete(f"oauth:state:{state}")
-
-        code_verifier = await redis_client.get(f"oauth:pkce:{state}")
-        await redis_client.delete(f"oauth:pkce:{state}")
 
         user_info = await oauth.authenticate(code, code_verifier=code_verifier)
         if not user_info:
@@ -298,7 +299,7 @@ class AuthService:
             if not user:
                 user = await self.user_repo.create(
                     email=user_info["email"],
-                    password_hash=hash_password(secrets.token_urlsafe(32)),
+                    password_hash=await hash_password_async(secrets.token_urlsafe(32)),
                     google_id=user_info["id"] if provider == "google" else None,
                     oauth_provider=provider,
                     oauth_avatar_url=user_info.get("picture"),

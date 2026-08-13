@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { useMe, useWorkspaces, useUrls, useWorkspaceMembers, useApiKeys, useDeleteUrlMutation } from "@/queries"
+import { useMe, useWorkspaces, useUrls, useWorkspaceMembers, useDeleteUrlMutation } from "@/queries"
 import { apiKeysApi } from "@/lib/api"
 
 export function useDashboard() {
@@ -20,22 +20,15 @@ export function useDashboard() {
   const { data: activeData } = useUrls(wsId, { status: "active", limit: 1 })
   const activeUrlsCount = activeData?.total || 0
 
-  const { data: keys = [] } = useApiKeys()
-
   // The daily API-key quota is enforced per-user (by plan) but tracked per key
-  // in Redis, so usage is aggregated across all of the user's keys while the
-  // limit comes from the plan.
-  const keyIds = keys.filter((k) => k.status === "active").map((k) => k.id).join(",")
+  // in Redis; the backend now exposes an aggregate endpoint that sums the
+  // per-key counters in a single round trip instead of one call per key.
   const { data: quota } = useQuery({
-    queryKey: ["api-key-quota", keyIds],
+    queryKey: ["api-key-quota-summary"],
     queryFn: async () => {
-      const ids = keyIds.split(",").map(Number).filter(Boolean)
-      const quotas = await Promise.all(ids.map((id) => apiKeysApi.quota(id)))
-      const used = quotas.reduce((sum, q) => sum + Math.max(0, q.daily_limit - q.remaining_quota), 0)
-      const limit = quotas[0]?.daily_limit ?? 0
-      return { used, limit }
+      const q = await apiKeysApi.quotaSummary()
+      return { used: q.used, limit: q.limit }
     },
-    enabled: !!keyIds,
   })
 
   const deleteUrl = useDeleteUrlMutation()

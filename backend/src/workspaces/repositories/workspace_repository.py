@@ -1,4 +1,4 @@
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 
 from src.shared.core.base_repository import BaseRepository
 from src.workspaces.models.workspace import Workspace
@@ -23,48 +23,43 @@ class WorkspaceRepository(BaseRepository[Workspace]):
         return owned + list(result.scalars().all())
 
     async def verify_access(self, workspace_id: int, user_id: int) -> Workspace | None:
+        # Single query: owner OR member via a LEFT JOIN — previously two
+        # sequential round trips (owner SELECT, then member SELECT).
         result = await self.db.execute(
-            select(Workspace).where(
-                and_(Workspace.id == workspace_id, Workspace.owner_id == user_id)
+            select(Workspace)
+            .outerjoin(
+                WorkspaceMember,
+                and_(WorkspaceMember.workspace_id == Workspace.id, WorkspaceMember.user_id == user_id),
             )
-        )
-        workspace = result.scalar_one_or_none()
-        if workspace:
-            return workspace
-        is_member = await self.db.execute(
-            select(WorkspaceMember).where(
+            .where(
                 and_(
-                    WorkspaceMember.workspace_id == workspace_id,
-                    WorkspaceMember.user_id == user_id,
+                    Workspace.id == workspace_id,
+                    or_(Workspace.owner_id == user_id, WorkspaceMember.user_id == user_id),
                 )
             )
+            .limit(1)
         )
-        if is_member.scalar_one_or_none():
-            return await self.get(workspace_id)
-        return None
+        return result.scalar_one_or_none()
 
     async def verify_role(self, workspace_id: int, user_id: int, min_role: MemberRole) -> bool:
         """True if the user is the workspace owner or a member with a role >= min_role.
         The owner always retains full access, regardless of any membership row."""
-        owner = await self.db.execute(
-            select(Workspace).where(
-                and_(Workspace.id == workspace_id, Workspace.owner_id == user_id)
+        result = await self.db.execute(
+            select(Workspace.owner_id, WorkspaceMember.role)
+            .outerjoin(
+                WorkspaceMember,
+                and_(WorkspaceMember.workspace_id == Workspace.id, WorkspaceMember.user_id == user_id),
             )
+            .where(Workspace.id == workspace_id)
+            .limit(1)
         )
-        if owner.scalar_one_or_none():
-            return True
-        member = await self.db.execute(
-            select(WorkspaceMember).where(
-                and_(
-                    WorkspaceMember.workspace_id == workspace_id,
-                    WorkspaceMember.user_id == user_id,
-                )
-            )
-        )
-        m = member.scalar_one_or_none()
-        if not m:
+        row = result.first()
+        if not row:
             return False
-        return ROLE_HIERARCHY.get(m.role, 0) >= ROLE_HIERARCHY.get(min_role, 0)
+        owner_id, role = row
+        if owner_id == user_id:
+            return True
+        return ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY.get(min_role, 0)
 
     async def create_default(self, user_id: int) -> Workspace:
         ws = await self.create(name="Personal Workspace", owner_id=user_id)
