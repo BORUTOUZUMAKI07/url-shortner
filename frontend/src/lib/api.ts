@@ -22,7 +22,10 @@ async function handleUnauthorized() {
   const refreshed = await tryRefresh()
   if (refreshed) return true
   clearTokens()
-  if (typeof window !== "undefined") window.location.href = "/login"
+  // ?expired=1 tells the proxy middleware NOT to bounce /login back to
+  // /dashboard when a stale-but-unexpired cookie is still present, which would
+  // otherwise loop. The httpOnly cookie may not be removable from JS.
+  if (typeof window !== "undefined") window.location.href = "/login?expired=1"
   return false
 }
 
@@ -37,7 +40,7 @@ async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     const recovered = await handleUnauthorized()
     if (recovered) {
       const retry = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" })
-      if (retry.ok) return retry.json()
+      if (retry.ok) return retry.status === 204 ? (undefined as T) : retry.json()
     }
     throw new Error("Session expired. Please login again.")
   }
@@ -117,13 +120,21 @@ export const auth = {
   register: (email: string, password: string) => apiFetch<User>("/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
   me: () => apiFetch<User>("/auth/me"),
   refresh: (refresh_token: string) => apiFetch<Token>("/auth/refresh", { method: "POST", body: JSON.stringify({ refresh_token }) }),
-  logout: () => apiFetch<{ detail: string }>("/auth/logout", { method: "POST" }),
+  logout: async () => {
+    // Deliberately NOT apiFetch: a 401 here must not trigger the session-expired
+    // redirect machinery (which would fight the proxy's /login -> /dashboard
+    // bounce and loop). The backend clears the cookies regardless of token
+    // validity, so this succeeds for any session state.
+    const res = await fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" })
+    if (!res.ok) throw new Error("Logout failed")
+    return res.json() as Promise<{ detail: string }>
+  },
   forgotPassword: (email: string) => apiFetch<{ detail: string }>("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) }),
   resetPassword: (token: string, new_password: string) => apiFetch<{ detail: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify({ token, new_password }) }),
   verifyEmail: (token: string) => apiFetch<{ detail: string }>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
   providers: () => apiFetch<{ providers: string[] }>("/auth/providers"),
   exchangeOauth: (code: string) =>
-    apiFetch<{ refresh_token: string }>("/auth/oauth/exchange", { method: "POST", body: JSON.stringify({ code }) }),
+    apiFetch<Token>("/auth/oauth/exchange", { method: "POST", body: JSON.stringify({ code }) }),
   oauth: async (provider: string) => {
     const res = await fetch(`${API_BASE}/auth/oauth/${provider}`, { method: "POST", credentials: "include" })
     if (!res.ok) throw new Error("Failed to initiate OAuth")

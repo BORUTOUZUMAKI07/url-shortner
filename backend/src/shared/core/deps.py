@@ -67,6 +67,9 @@ class PaginationParams:
         self.sort_order = sort_order
 
 bearer_scheme = HTTPBearer()
+# auto_error=False so endpoints like /auth/logout don't hard-fail when the
+# Authorization header is absent (e.g. the frontend cookie is already gone).
+bearer_scheme_optional = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(

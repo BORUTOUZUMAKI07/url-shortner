@@ -19,7 +19,12 @@ from src.identity.schemas.user import (
 from src.identity.services.auth_service import AuthService
 from src.identity.services.sso import SSOProviderRegistry
 from src.shared.core.config import settings
-from src.shared.core.deps import bearer_scheme, get_auth_service, get_current_user
+from src.shared.core.deps import (
+    bearer_scheme_optional,
+    get_auth_service,
+    get_current_user,
+)
+from src.shared.core.security import create_access_token, decode_token
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -58,14 +63,20 @@ async def refresh(
 
 @router.post("/logout",
     summary="Logout",
-    description="Blacklists the current access token and clears auth cookies.")
+    description="Blacklists the current access/refresh tokens and clears auth cookies. Does not require a "
+                "valid Authorization header so the client can always clear its cookies.")
 async def logout(
     request: Request,
     response: Response,
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme_optional),
     svc: AuthService = Depends(get_auth_service),
 ):
-    await svc.logout(credentials.credentials)
+    # Best-effort blacklist — an expired/absent token must not block cookie clearing.
+    if credentials:
+        try:
+            await svc.logout(credentials.credentials)
+        except Exception:
+            pass
     refresh_cookie = request.cookies.get("refresh_token")
     if refresh_cookie:
         try:
@@ -133,12 +144,27 @@ async def oauth_callback(provider: str, code: str, state: str, svc: AuthService 
     return RedirectResponse(url=redirect_url, status_code=302)
 
 
-@router.post("/oauth/exchange",
+@router.post("/oauth/exchange", response_model=Token,
     summary="Exchange OAuth handoff code",
-    description="One-time exchange of the OAuth callback handoff code for a refresh token.")
-async def oauth_exchange(payload: OAuthExchangeRequest, svc: AuthService = Depends(get_auth_service)):
+    description="One-time exchange of the OAuth callback handoff code for a token pair. Also sets the "
+                "auth cookies so the client has a full session immediately — no separate refresh hop.")
+async def oauth_exchange(
+    response: Response,
+    payload: OAuthExchangeRequest,
+    svc: AuthService = Depends(get_auth_service),
+):
     refresh_token = await svc.exchange_oauth_handoff(payload.code)
-    return {"refresh_token": refresh_token}
+    # Mint an access token from the refresh token so the session cookies are
+    # complete without another round trip. The one-time code is already consumed
+    # server-side, so establishing the session here avoids a second request whose
+    # failure would strand the user mid-login.
+    token_payload = decode_token(refresh_token)
+    user_id = token_payload.get("sub")
+    if not user_id or token_payload.get("type") != "refresh":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OAuth handoff")
+    access_token = create_access_token(data={"sub": str(user_id)})
+    _set_auth_cookies(response, access_token, refresh_token)
+    return Token(access_token=access_token, token_type="bearer", refresh_token=refresh_token)
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str | None) -> None:

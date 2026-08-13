@@ -6,7 +6,8 @@ import json
 import httpx
 from cryptography.fernet import Fernet
 
-from src.shared.errors import NotFoundError, RoleTooLow, WorkspaceNotFound
+from src.shared.core.safe_url import is_safe_url
+from src.shared.errors import BadRequestError, NotFoundError, RoleTooLow, WorkspaceNotFound
 from src.webhooks.models.webhook import Webhook
 from src.webhooks.repositories.webhook_repository import WebhookRepository
 from src.workspaces.models.workspace_member import MemberRole
@@ -56,9 +57,17 @@ class WebhookService:
         if not await self.workspace_repo.verify_role(workspace_id, user_id, MemberRole.editor):
             raise RoleTooLow("editor")
 
+    async def _verify_safe_webhook_url(self, url: str):
+        # SSRF guard: webhook deliveries POST server-side to this URL, so it
+        # must resolve only to public addresses (no localhost/metadata/private
+        # networks). Same policy as the metadata worker's URL fetch.
+        if not await is_safe_url(url):
+            raise BadRequestError("Webhook URL must be http(s) and resolve to a public address")
+
     async def create(self, workspace_id: int, url: str, events: list[str], secret: str, user_id: int):
         await self._verify_access(workspace_id, user_id)
         await self._verify_write_role(workspace_id, user_id)
+        await self._verify_safe_webhook_url(url)
         webhook = Webhook(workspace_id=workspace_id, url=str(url), secret=encrypt_secret(secret))
         return await self.repo.create_with_subscriptions(webhook, events)
 
@@ -80,7 +89,9 @@ class WebhookService:
         if events is not None:
             events = [str(e) for e in events]
         if "url" in kwargs:
-            kwargs["url"] = str(kwargs["url"])
+            url = str(kwargs["url"])
+            await self._verify_safe_webhook_url(url)
+            kwargs["url"] = url
         if "secret" in kwargs and kwargs["secret"]:
             kwargs["secret"] = encrypt_secret(kwargs["secret"])
         if kwargs:

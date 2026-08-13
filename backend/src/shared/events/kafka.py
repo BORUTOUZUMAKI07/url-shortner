@@ -105,13 +105,21 @@ async def _send_and_stop(topic: str, value: bytes, key: Optional[bytes] = None):
         kwargs["ssl_context"] = _make_sni_context(
             settings.KAFKA_BOOTSTRAP_SERVERS, settings.KAFKA_SSL_CA_PATH,
         )
+    p: AIOKafkaProducer | None = None
     try:
         p = AIOKafkaProducer(**kwargs)
         await p.start()
         await p.send_and_wait(topic, value=value, key=key)
-        await p.stop()
     except Exception as e:
         logger.error("Failed to publish raw event to %s: %s", topic, e)
+    finally:
+        # stop() in finally so a failed send doesn't leak the producer's
+        # connections (workers use this path for every DLQ publish).
+        if p is not None:
+            try:
+                await p.stop()
+            except Exception as e:
+                logger.error("Error stopping temporary producer: %s", e)
 
 
 async def publish_raw(topic: str, value: bytes, key: Optional[bytes] = None):

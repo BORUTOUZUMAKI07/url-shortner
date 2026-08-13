@@ -1,5 +1,26 @@
 # Critical Fixes
 
+## Auth — Logout Reload Loop + OAuth Sign-In Failing/Slow
+
+**Symptom:** Logout made the dashboard reload forever; Google sign-in could hang/fail silently after "continue" and felt slow (forced Google consent screen every time).
+
+**Root causes:**
+- `frontend/src/components/layout/sidebar.tsx` fired `auth.logout()` and navigated to `/login` immediately — the server's `Set-Cookie` (delete) never landed, the httpOnly `access_token` cookie survived, and `frontend/src/proxy.ts` bounced `/login` → `/dashboard` forever.
+- `backend/src/identity/routes/auth.py` `logout` depended on `bearer_scheme` (`HTTPBearer(auto_error=True)`) — a 401 aborted the handler **before** the `delete_cookie` calls ran, so a stale/invalid token blocked cookie clearing.
+- `frontend/src/lib/api.ts` `auth.logout` used `apiFetch` → on 401 it triggered `handleUnauthorized()` (refresh → `/login?redirect=`), which fought the proxy bounce and looped.
+- `proxy.ts` bounced `/login` → `/dashboard` even when the URL carried the one-time OAuth handoff `code` — a stale-but-valid cookie swallowed the handoff and the user never got signed in.
+- OAuth exchange only returned a refresh token to the client; the login page then had to call `auth.refresh(refresh_token)` — one extra round trip where a failure after the one-time code was consumed stranded the login.
+- `google_oauth.py` used `prompt=consent`, forcing the Google consent screen on **every** sign-in (extra click + load).
+
+**Fixes:**
+- `logout` now uses `bearer_scheme_optional` (`HTTPBearer(auto_error=False)` added in `deps.py`), blacklists best-effort, and **always** deletes both auth cookies.
+- `auth.logout` in `api.ts` is a raw `fetch` (no `apiFetch` 401-refresh machinery); `sidebar.handleLogout` **awaits** it before `window.location.href = "/login"`.
+- `proxy.ts`: auth pages are only bounced to `/dashboard` when they carry no `code` (OAuth handoff) and no `expired=1` param; `handleUnauthorized` now redirects to `/login?expired=1` so a stale cookie can't cause a bounce loop.
+- `oauth_exchange` (`auth.py`) now mints the access token, sets **both** auth cookies server-side (like `login`), and returns a full `Token`. The login page chain is now `exchangeOauth(code) → auth.me() → redirect` — no intermediate refresh hop.
+- `google_oauth.py`: `prompt=select_account` (one-click repeat sign-in, no consent screen).
+
+**Note:** cookies are httpOnly, so JS `clearTokens()`/`document.cookie` cannot delete them — cookie clearing must happen server-side (logout response or the proxy's max-age-0 delete for expired tokens).
+
 ## Testcontainers — `Settings()` Rebuilt Too Early (CI "localhost:27017 refused")
 
 **File:** `backend/tests/testcontainers.py` function `start_containers`
@@ -198,6 +219,25 @@ Devices/UTM/referrer breakdowns aggregated all history regardless of the request
 - api-keys revoke: `window.confirm` + pending state + toast + query cache invalidation instead of `window.location.reload()`.
 - Bulk CSV cells escaped (`csvEscape`: quote + double embedded quotes); broken `bulkApi.update` removed; `apiKeysApi.quota` typed as `{ api_key_id, remaining_quota, daily_limit, resets_at }`.
 - Test-only: `api-keys-page.test.tsx` and `hooks.test.ts` wrap renders in a `QueryClientProvider` (components now call `useQueryClient`/`useQuery`).
+
+## Deleted URLs Kept Redirecting + Misc Audit Fixes
+
+**Files:** `backend/src/links/services/redirect_service.py`, `backend/schemas/avro/url-clicked.avsc`, `backend/src/admin/routes/admin.py`, `backend/src/webhooks/workers/webhook_click_consumer.py`, `backend/src/shared/core/geo_service.py`, `backend/src/shared/events/kafka.py`, `backend/src/webhooks/workers/dlq_replay_worker.py`, `backend/src/shared/workers/shutdown.py`, `backend/src/main.py`, `backend/src/shared/core/safe_url.py`, `backend/src/webhooks/services/webhook_service.py`, `backend/src/webhooks/workers/metadata_worker.py`, `frontend/src/app/login/page.tsx`, `frontend/src/proxy.ts`, `frontend/src/app/(authenticated)/favorites/page.tsx`, `frontend/src/queries/index.ts`, `frontend/src/lib/api.ts`, `frontend/src/lib/schemas.ts`
+
+- **Soft-deleted URLs redirected forever:** `redirect_service._validate` only rejected `active=false`/`expired` — a `status="deleted"` row kept 302-ing until the cleanup worker hard-deleted it. `_validate` now raises `URLNotFound()` for `status == "deleted"`. All delete paths already purge the redirect cache.
+- **UTM analytics empty in prod:** `url-clicked.avsc` was missing `utm_source`/`utm_medium`/`utm_campaign`; `fastavro.schemaless_writer` silently drops unknown keys, so the worker wrote no UTM data. Added the three nullable fields to the Avro schema.
+- **Admin password-hash leak:** `GET /admin/users`, `GET /admin/workspaces`, `GET /admin/urls` returned raw ORM rows (including `password_hash`/`google_id`); `GET /admin/users/{user_id}` had no `response_model`. All now return safe response models (`AdminUserList`/`AdminWorkspaceList`/`AdminURLList`, `UserResponse`).
+- **Webhook delivery semantics + loss window:** `deliver_click_webhooks` counted every non-exception status as `delivered` (5xx/429 silently "succeeded") and set the Redis idempotency key *before* `db.commit()` (crash in between permanently lost the event). Now only 2xx = delivered (5xx/429 → `failed`, handled by the retry worker), Redis get/setex guarded (best-effort), idempotency key set only after commit.
+- **Unguarded Redis on redirect hot path:** `geo_service` cache `get`/`setex` could raise and fail the redirect. Both are now try/except (cache miss → re-resolve).
+- **DLQ temp-producer leak:** `kafka._send_and_stop` only stopped the producer on success; a failed `send_and_wait` leaked it. Stop is now in `finally`.
+- **DLQ replay worker dies on startup outage:** `init_kafka()` (5 retries then raises) killed the worker permanently while `safe_consume` retries forever. It now loops/backs off until Kafka is reachable.
+- **Embedded workers clobbered uvicorn signals:** `install_signal_handlers` used `loop.add_signal_handler`, which **replaces** uvicorn's handler → SIGTERM hung the process. `main.py` sets `EMBEDDED_WORKERS=1` before starting embedded workers; `install_signal_handlers` now returns early when that env is set.
+- **Webhook SSRF:** webhook create/update/delivery URLs were unvalidated → arbitrary POSTs to internal hosts/metadata endpoints. Moved the metadata worker's `_resolve_public`/`_is_safe_url` helpers into `src/shared/core/safe_url.py` (`is_safe_url`); `webhook_service.create`/`update` reject URLs that don't resolve only to public IPs. Metadata worker imports the shared module.
+- **Login ignored `?redirect`:** `redirectAfterLogin` always went to `/dashboard`; deep links bounced through login landed wrong. It now honors a validated `redirect` param (single leading `/`, rejects `//`) while keeping invite-token priority.
+- **Proxy dropped redirect query string:** `redirect` param saved only `pathname`, so `/workspaces?invite_token=…` lost the token. Now `pathname + request.nextUrl.search`.
+- **Favorites key collision + 20-cap:** the favorites page used the same `["favorites"]` query key as `useFavorites` even though the two queries resolve to different shapes (`URLItem[]` vs `Favorite[]`), so the last-mounted page's data won. Page now uses `["favorites-with-urls"]`; both call `list(0, 100)` so star-state and the page resolve beyond the backend's default 20-item limit.
+- **`rawFetch` 401-retry crash on 204:** retry path called `retry.json()` on `204 No Content` (JSON.parse("") throws) for void endpoints like audit-log export. Now returns `undefined` on 204.
+- **`custom_alias` zod min mismatch:** frontend schema had no min length; backend enforces `min_length=3`. Added `.min(3)`.
 
 # Running the Stack
 

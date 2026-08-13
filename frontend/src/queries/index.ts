@@ -118,7 +118,9 @@ export function useCreateApiKeyMutation() {
 export function useFavorites() {
   return useQuery({
     queryKey: ["favorites"],
-    queryFn: () => favoritesApi.list(),
+    // Backend PaginationParams.limit defaults to 20 — fetch the whole list so
+    // star state on /urls is correct for every favorite, not just the first 20.
+    queryFn: () => favoritesApi.list(0, 100),
   })
 }
 

@@ -43,7 +43,10 @@ class GeoService:
 
         cache_key = f"geo:{ip}"
         if redis_client:
-            cached = await redis_client.get(cache_key)
+            try:
+                cached = await redis_client.get(cache_key)
+            except Exception:
+                cached = None
             if cached:
                 return json.loads(cached)  # type: ignore[no-any-return]
 
@@ -67,6 +70,9 @@ class GeoService:
         }
 
         if redis_client and result["country"]:
-            await redis_client.setex(cache_key, self.CACHE_TTL, json.dumps(result))
+            try:
+                await redis_client.setex(cache_key, self.CACHE_TTL, json.dumps(result))
+            except Exception:
+                pass
 
         return result

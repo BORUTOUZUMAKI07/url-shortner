@@ -38,11 +38,20 @@ export function proxy(request: NextRequest) {
 
   if (isProtected && !token) {
     const loginUrl = new URL("/login", request.url)
-    loginUrl.searchParams.set("redirect", pathname)
+    // Keep the query string so flows like /workspaces?invite_token=XYZ survive
+    // the round trip through login.
+    loginUrl.searchParams.set("redirect", pathname + request.nextUrl.search)
     return NextResponse.redirect(loginUrl)
   }
 
-  if (isAuthPage && token) {
+  // Do NOT bounce an auth page to /dashboard when it carries a one-time OAuth
+  // handoff `code` (a stale valid cookie would otherwise swallow the handoff and
+  // the user never gets signed in) or an `expired=1` flag (a session-expired
+  // redirect that must be allowed to reach the login form, or it loops).
+  const hasLoginPurpose =
+    request.nextUrl.searchParams.has("code") || request.nextUrl.searchParams.has("expired")
+
+  if (isAuthPage && token && !hasLoginPurpose) {
     return NextResponse.redirect(new URL("/dashboard", request.url))
   }
 

@@ -36,7 +36,16 @@ async def consume_dlq_replay():
     init_metrics()
     logger = get_logger("dlq-replay-worker")
 
-    await init_kafka()
+    # Unlike safe_consume (which retries forever), init_kafka raises after 5
+    # attempts — a transient outage at startup would otherwise kill the worker
+    # permanently and leave accumulated DLQ messages unreplayed.
+    while True:
+        try:
+            await init_kafka()
+            break
+        except Exception as e:
+            logger.warning("Kafka producer init failed (DLQ replay will retry): %s", e)
+            await asyncio.sleep(5)
 
     kwargs = {
         "bootstrap_servers": settings.KAFKA_BOOTSTRAP_SERVERS,

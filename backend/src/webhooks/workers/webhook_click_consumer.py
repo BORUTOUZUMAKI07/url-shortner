@@ -67,15 +67,18 @@ async def deliver_click_webhooks(event_data: dict, logger):
     event_id = event_data.get("event_id")
     if event_id:
         idempotency_key = f"idempotency:webhook_click:{event_id}"
-        already_processed = await redis_client.get(idempotency_key)
+        # Redis is best-effort here — a blip must not drop the delivery.
+        try:
+            already_processed = await redis_client.get(idempotency_key)
+        except Exception:
+            already_processed = None
+            logger.warning("Redis unavailable for idempotency check on event_id %s", event_id)
         if already_processed:
             logger.info("Skipping duplicate webhook dispatch for event_id %s", event_id)
             return
-        await redis_client.setex(idempotency_key, 86400 * 7, "1")
     else:
         logger.debug("Missing event_id in click event (short_code=%s), skipping idempotency",
                        event_data.get("short_code"))
-
 
     click_payload = {
         "event": "url.clicked",
@@ -120,13 +123,25 @@ async def deliver_click_webhooks(event_data: dict, logger):
                         },
                         timeout=10.0,
                     )
-                db.add(WebhookEvent(
-                    webhook_id=wh.id,
-                    event_type="url.clicked",
-                    payload=json.dumps(click_payload),
-                    status="delivered",
-                    response_code=resp.status_code,
-                ))
+                # Match webhook_service.deliver_event semantics: only 2xx counts
+                # as delivered; 5xx/429 must be retried by the retry worker.
+                if resp.is_success:
+                    db.add(WebhookEvent(
+                        webhook_id=wh.id,
+                        event_type="url.clicked",
+                        payload=json.dumps(click_payload),
+                        status="delivered",
+                        response_code=resp.status_code,
+                    ))
+                else:
+                    db.add(WebhookEvent(
+                        webhook_id=wh.id,
+                        event_type="url.clicked",
+                        payload=json.dumps(click_payload),
+                        status="failed",
+                        response_code=resp.status_code,
+                        error=f"HTTP {resp.status_code}: {resp.text[:200]}",
+                    ))
                 logger.info("Delivered url.clicked webhook %s -> %s (status %s)", wh.id, wh.url, resp.status_code)
             except Exception as e:
                 db.add(WebhookEvent(
@@ -139,6 +154,16 @@ async def deliver_click_webhooks(event_data: dict, logger):
                 logger.warning("Failed to deliver url.clicked webhook %s -> %s: %s", wh.id, wh.url, str(e))
 
         await db.commit()
+
+    # Mark idempotency ONLY after the DB commit succeeds. Setting it earlier
+    # meant a crash after the setex but before commit permanently swallowed the
+    # event: on re-delivery the key was present so no WebhookEvent row was ever
+    # written and the retry worker never saw it.
+    if event_id:
+        try:
+            await redis_client.setex(idempotency_key, 86400 * 7, "1")
+        except Exception:
+            logger.warning("Redis unavailable while marking webhook idempotency for event_id %s", event_id)
 
 
 async def handle_webhook_click_message(msg, consumer, logger):

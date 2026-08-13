@@ -1,10 +1,41 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, ConfigDict
 
 from src.admin.services.admin_service import AdminService
 from src.identity.models.user import User
+from src.identity.schemas.user import UserResponse
+from src.links.schemas.url import URLResponse
 from src.shared.core.deps import PaginationParams, get_admin_service, get_current_user
+from src.workspaces.schemas.workspace import WorkspaceResponse
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+
+
+class AdminUserList(BaseModel):
+    total: int
+    skip: int
+    limit: int
+    users: list[UserResponse]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminWorkspaceList(BaseModel):
+    total: int
+    skip: int
+    limit: int
+    workspaces: list[WorkspaceResponse]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminURLList(BaseModel):
+    total: int
+    skip: int
+    limit: int
+    urls: list[URLResponse]
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 async def require_superadmin(current_user: User = Depends(get_current_user)) -> User:
@@ -22,7 +53,7 @@ async def seed_superadmin(
     return {"detail": f"{email} is now superadmin"}
 
 
-@router.get("/users", summary="List all users")
+@router.get("/users", response_model=AdminUserList, summary="List all users")
 async def list_users(
     pagination: PaginationParams = Depends(),
     _admin: User = Depends(require_superadmin),
@@ -32,7 +63,7 @@ async def list_users(
     return {"total": total, "skip": pagination.skip, "limit": pagination.limit, "users": users}
 
 
-@router.get("/users/{user_id}", summary="Get user details")
+@router.get("/users/{user_id}", response_model=UserResponse, summary="Get user details")
 async def get_user(
     user_id: int,
     _admin: User = Depends(require_superadmin),
@@ -61,7 +92,7 @@ async def delete_user(
     return {"detail": f"User {email} deleted"}
 
 
-@router.get("/workspaces", summary="List all workspaces")
+@router.get("/workspaces", response_model=AdminWorkspaceList, summary="List all workspaces")
 async def list_workspaces(
     pagination: PaginationParams = Depends(),
     _admin: User = Depends(require_superadmin),
@@ -71,7 +102,7 @@ async def list_workspaces(
     return {"total": total, "skip": pagination.skip, "limit": pagination.limit, "workspaces": workspaces}
 
 
-@router.get("/urls", summary="List all URLs across all workspaces")
+@router.get("/urls", response_model=AdminURLList, summary="List all URLs across all workspaces")
 async def list_all_urls(
     pagination: PaginationParams = Depends(),
     _admin: User = Depends(require_superadmin),

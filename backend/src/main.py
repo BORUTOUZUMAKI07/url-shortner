@@ -188,6 +188,9 @@ async def lifespan(app: FastAPI):
     # Start background workers (skip if running them separately)
     if not os.environ.get("STANDALONE_WORKERS"):
         logger.info("Starting URL Shortener workers...")
+        # Tell the polling workers NOT to install their own SIGTERM/SIGINT
+        # handlers — that would clobber uvicorn's and hang graceful shutdown.
+        os.environ["EMBEDDED_WORKERS"] = "1"
 
         analytics_task = asyncio.create_task(consume_url_clicked_events())
         metadata_task = asyncio.create_task(consume_url_created())

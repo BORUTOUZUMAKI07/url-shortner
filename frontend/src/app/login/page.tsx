@@ -25,10 +25,18 @@ function LoginForm() {
     if (inviteToken) {
       sessionStorage.removeItem("invite_token")
       router.push(`/workspaces?invite_token=${inviteToken}`)
-    } else {
-      router.push("/dashboard")
+      return
     }
-  }, [router])
+    // Honor the ?redirect= deep link the proxy set when bouncing a protected
+    // page. Accept only in-app paths (starts with a single "/") to avoid an
+    // open redirect.
+    const redirect = searchParams.get("redirect")
+    if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) {
+      router.push(redirect)
+      return
+    }
+    router.push("/dashboard")
+  }, [router, searchParams])
 
   const processedRef = useRef(false)
 
@@ -38,9 +46,10 @@ function LoginForm() {
     if (handoffCode) {
       processedRef.current = true
       // The backend never places the refresh token in the URL — it passes a
-      // short-lived one-time handoff code that we exchange for the token pair.
+      // short-lived one-time handoff code. Exchanging it sets the session
+      // cookies server-side, so we only need /auth/me afterwards (no extra
+      // refresh hop that could fail after the one-time code is consumed).
       auth.exchangeOauth(handoffCode)
-        .then(({ refresh_token }) => auth.refresh(refresh_token))
         .then(() => auth.me())
         .then(setUser)
         .then(redirectAfterLogin)

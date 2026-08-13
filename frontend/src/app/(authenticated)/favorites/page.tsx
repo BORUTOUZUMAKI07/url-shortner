@@ -30,9 +30,12 @@ export default function FavoritesPage() {
   })
 
   const { data: urlsData = [], isError: urlsError, refetch: refetchFavorites } = useQuery({
-    queryKey: ["favorites"],
+    // Distinct key from the ["favorites"] used by useFavorites (which returns
+    // Favorite[]); this one resolves to URLItem[]. Sharing a key made the two
+    // shapes swap with the last-mounted page.
+    queryKey: ["favorites-with-urls"],
     queryFn: async () => {
-      const favs = await favoritesApi.list()
+      const favs = await favoritesApi.list(0, 100)
       if (favs.length === 0) return []
       const ids = favs.map((f) => f.url_id).join(",")
       const { items } = await urls.list(null, { ids })
@@ -48,6 +51,7 @@ export default function FavoritesPage() {
     mutationFn: (url_id: number) => favoritesApi.remove(url_id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["favorites"] })
+      queryClient.invalidateQueries({ queryKey: ["favorites-with-urls"] })
     }
   })
 

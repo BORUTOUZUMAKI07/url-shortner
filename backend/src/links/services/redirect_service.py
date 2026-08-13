@@ -99,6 +99,11 @@ class RedirectService:
     def _validate(self, url_data: dict):
         if url_data["status"] == "disabled":
             raise URLDisabled()
+        if url_data["status"] == "deleted":
+            # A soft-deleted URL must stop serving immediately — the cleanup
+            # worker only hard-deletes it later, so without this check a
+            # "deleted" link would keep redirecting.
+            raise URLNotFound()
         if url_data["expires_at"]:
             expires_at = datetime.fromisoformat(url_data["expires_at"])
             if expires_at.tzinfo is None:

@@ -1,7 +1,5 @@
 import asyncio
-import ipaddress
 import json
-import socket
 from urllib.parse import urlparse
 
 import httpx
@@ -11,6 +9,7 @@ from src.links.repositories.url_repository import URLRepository
 from src.shared import get_logger, setup_logging
 from src.shared.core.config import settings
 from src.shared.core.database import AsyncSessionLocal
+from src.shared.core.safe_url import is_safe_url
 from src.shared.events.kafka import publish_raw
 from src.shared.events.schemas import deserialize
 from src.shared.workers._sni_patch import _make_sni_context
@@ -19,43 +18,11 @@ from src.shared.workers.kafka_consumer_pool import KafkaConnectionPool
 MAX_REDIRECTS = 3
 
 
-async def _resolve_public(hostname: str) -> bool:
-    try:
-        infos = await asyncio.get_running_loop().getaddrinfo(hostname, None)
-    except socket.gaierror:
-        return False
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if ip.version == 6 and ip.ipv4_mapped:
-            ip = ip.ipv4_mapped
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        ):
-            return False
-    return True
-
-
 async def _is_safe_url(url: str, logger) -> bool:
-    try:
-        parsed = urlparse(url)
-    except ValueError:
-        return False
-    if parsed.scheme not in ("http", "https"):
-        logger.warning("Rejected non-http(s) URL for metadata fetch: %s", parsed.scheme)
-        return False
-    hostname = parsed.hostname
-    if not hostname:
-        logger.warning("Rejected URL without hostname: %s", url)
-        return False
-    if not await _resolve_public(hostname):
-        logger.warning("Rejected URL resolving to a non-public IP: %s", hostname)
-        return False
-    return True
+    safe = await is_safe_url(url)
+    if not safe:
+        logger.warning("Rejected non-public URL for metadata fetch: %s", url)
+    return safe
 
 
 async def extract_metadata(url: str, logger) -> dict[str, str | None]:

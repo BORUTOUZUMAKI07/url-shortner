@@ -70,6 +70,20 @@ export function Sidebar() {
     }
   }
 
+  async function handleLogout() {
+    // Await the server call so the httpOnly cookies are actually cleared BEFORE
+    // navigating — otherwise the proxy middleware sees a still-valid cookie on
+    // /login and bounces back to /dashboard (infinite reload loop). Fire-and-
+    // forget navigation previously made this a race the loop always won.
+    try {
+      await auth.logout()
+    } catch {
+      // Backend unreachable — still try the local navigation below.
+    }
+    storeLogout()
+    window.location.href = "/login"
+  }
+
   const allSections = user?.is_superadmin
     ? [...sections.slice(0, -1), { label: sections[2].label, items: [...sections[2].items, { href: "/admin", label: "Admin", icon: Shield }] }]
     : sections
@@ -142,7 +156,7 @@ export function Sidebar() {
             </button>
           )}
           <button
-            onClick={() => { auth.logout().catch(() => {}); storeLogout(); window.location.href = "/login" }}
+            onClick={handleLogout}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-red-400 hover:bg-red-500/10"
           >
             <LogOut className="size-4" />
