@@ -17,7 +17,9 @@
 - `auth.logout` in `api.ts` is a raw `fetch` (no `apiFetch` 401-refresh machinery); `sidebar.handleLogout` **awaits** it before `window.location.href = "/login"`.
 - `proxy.ts`: auth pages are only bounced to `/dashboard` when they carry no `code` (OAuth handoff) and no `expired=1` param; `handleUnauthorized` now redirects to `/login?expired=1` so a stale cookie can't cause a bounce loop.
 - `oauth_exchange` (`auth.py`) now mints the access token, sets **both** auth cookies server-side (like `login`), and returns a full `Token`. The login page chain is now `exchangeOauth(code) → auth.me() → redirect` — no intermediate refresh hop.
-- `google_oauth.py`: `prompt=select_account` (one-click repeat sign-in, no consent screen).
+- `google_oauth.py`: `prompt=consent select_account` (forces the account chooser **and** consent confirmation on every sign-in).
+
+**Note:** forcing re-consent every login was a deliberate user decision (Google asks each time). GitHub has no `consent` prompt — `github_oauth.py` sends `prompt=select_account`, which forces the account picker every time (GitHub auto-completes repeat authorizations with unchanged scopes, so the authorize page itself only re-appears when scopes change).
 
 **Note:** cookies are httpOnly, so JS `clearTokens()`/`document.cookie` cannot delete them — cookie clearing must happen server-side (logout response or the proxy's max-age-0 delete for expired tokens).
 

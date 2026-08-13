@@ -21,6 +21,7 @@ class GitHubOAuthProvider:
             "redirect_uri": settings.GITHUB_OAUTH_REDIRECT_URI,
             "scope": "read:user user:email",
             "state": state,
+            "prompt": "select_account",
         }
         return f"{self.AUTH_URL}?{urlencode(params)}"
 

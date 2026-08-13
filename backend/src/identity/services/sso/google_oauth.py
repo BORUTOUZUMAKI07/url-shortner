@@ -24,7 +24,7 @@ class GoogleOAuthProvider:
             "response_type": "code",
             "scope": "openid email profile",
             "state": state,
-            "prompt": "select_account",
+            "prompt": "consent select_account",
         }
         return f"{self.AUTH_URL}?{urlencode(params)}"
 
