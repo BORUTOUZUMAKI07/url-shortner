@@ -251,6 +251,14 @@ Devices/UTM/referrer breakdowns aggregated all history regardless of the request
 
 **Note:** this is the second time route ordering mattered here — keep new static paths under `/oauth/...` above the parameterized ones.
 
+## OAuth — "Internal Error" Was Stale asyncpg Pooled Connections
+
+**File:** `backend/src/shared/core/database.py`
+
+OAuth callbacks 500'd with `asyncpg.exceptions._base.InterfaceError: connection is closed` on the `users` SELECT **after** the Google/GitHub token exchange already succeeded. Root cause: the production engine created a `pool_size=20` asyncpg pool with no `pool_pre_ping`/`pool_recycle`. Neon's free tier sleeps the compute after ~5 min idle and drops server-side connections; the pool then checked out a dead asyncpg connection on the next request → `connection is closed` → 500 ("Internal Error"). This hit **all** auth paths (`get_by_email` in password login, OAuth callback), not just OAuth — the symptom was worst on OAuth because the sign-in flow pauses at the provider's consent screen while the DB sleeps.
+
+**Fix:** `create_async_engine(..., pool_pre_ping=True, pool_recycle=300)`. On checkout SQLAlchemy pings the connection (`SELECT 1`); a dead one is invalidated and replaced instead of being handed to the request. `pool_recycle=300` recycles connections before the pooler's idle-timeout kills them. Test engines use `NullPool` so they're unaffected.
+
 ## Auth — Refresh-Token Reuse Detection + OAuth PKCE
 
 **Files:** `backend/src/shared/core/security.py`, `backend/src/identity/services/auth_service.py`, `backend/src/identity/services/sso/google_oauth.py`, `backend/src/identity/services/sso/github_oauth.py`, `frontend/src/lib/api.ts`

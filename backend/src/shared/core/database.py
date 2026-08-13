@@ -15,6 +15,8 @@ engine = create_async_engine(
     echo=False,
     pool_size=20,
     max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=300,
     connect_args={"statement_cache_size": 0},
 )
 
