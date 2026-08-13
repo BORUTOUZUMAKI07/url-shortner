@@ -23,6 +23,14 @@
 
 **Note:** cookies are httpOnly, so JS `clearTokens()`/`document.cookie` cannot delete them — cookie clearing must happen server-side (logout response or the proxy's max-age-0 delete for expired tokens).
 
+## Auth Store — Dashboard Never Hydrated `user` (no Logout button)
+
+**File:** `frontend/src/lib/auth-prefetcher.tsx`
+
+The auth store was only populated by per-page `auth.me().then(setUser)` effects; `/dashboard` reads `user` but never sets it. An already-signed-in user (valid cookie) bounced from `/login` → `/dashboard` via the proxy and landed with `user` null → the sidebar rendered **no user/logout section** (it's gated on `{user && …}`), so they were stuck with no way out. Every other authenticated page happened to call `setUser`; the dashboard didn't.
+
+**Fix:** `AuthPrefetcher` (rendered once in the `(authenticated)` layout) now runs a `useQuery(["me"])` whose queryFn calls `setUser(user)`, hydrating the store on **every** authenticated page — the logout button now appears regardless of entry path. `retry: false` + `staleTime: 5min` (same as the old prefetch). Page-level `setUser` calls are now redundant but harmless. Test in `src/test/auth-prefetcher.test.tsx` covers hydration + error → store stays empty.
+
 ## Testcontainers — `Settings()` Rebuilt Too Early (CI "localhost:27017 refused")
 
 **File:** `backend/tests/testcontainers.py` function `start_containers`
