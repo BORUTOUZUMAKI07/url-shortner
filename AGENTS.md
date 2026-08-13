@@ -31,6 +31,8 @@ The auth store was only populated by per-page `auth.me().then(setUser)` effects;
 
 **Fix:** `AuthPrefetcher` (rendered once in the `(authenticated)` layout) now runs a `useQuery(["me"])` whose queryFn calls `setUser(user)`, hydrating the store on **every** authenticated page — the logout button now appears regardless of entry path. `retry: false` + `staleTime: 5min` (same as the old prefetch). Page-level `setUser` calls are now redundant but harmless. Test in `src/test/auth-prefetcher.test.tsx` covers hydration + error → store stays empty.
 
+**Defense in depth:** the Logout button in `frontend/src/components/layout/sidebar.tsx` is rendered **outside** the `{user && …}` gate (the user card / "Enable Admin Panel" stay gated). A signed-in user is never stranded even if `me()` fails transiently or hydration hasn't finished — there is always an escape hatch. `sidebar.test.tsx` asserts Logout renders when `user` is `null`.
+
 ## Testcontainers — `Settings()` Rebuilt Too Early (CI "localhost:27017 refused")
 
 **File:** `backend/tests/testcontainers.py` function `start_containers`
