@@ -2,8 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen } from "@/test/test-utils"
 import { Sidebar } from "@/components/layout/sidebar"
 
-const { mockSidebarUser } = vi.hoisted(() => ({
-  mockSidebarUser: { id: 1, email: "test@test.com", is_superadmin: false },
+const { mockState } = vi.hoisted(() => ({
+  mockState: {
+    user: null as { id: number; email: string; is_superadmin: boolean } | null,
+    logout: vi.fn(),
+  },
 }))
 
 vi.mock("next/navigation", () => ({
@@ -11,15 +14,12 @@ vi.mock("next/navigation", () => ({
 }))
 
 vi.mock("@/store/auth", () => ({
-  useAuthStore: (selector?: (s: any) => any) => {
-    const state = { user: mockSidebarUser, logout: vi.fn() }
-    return selector ? selector(state) : state
-  },
+  useAuthStore: (selector?: (s: any) => any) => (selector ? selector(mockState) : mockState),
 }))
 
 describe("Sidebar", () => {
   beforeEach(() => {
-    mockSidebarUser.is_superadmin = false
+    mockState.user = { id: 1, email: "test@test.com", is_superadmin: false }
   })
 
   it("renders brand link", () => {
@@ -40,13 +40,19 @@ describe("Sidebar", () => {
     expect(screen.getByText("Logout")).toBeDefined()
   })
 
+  it("renders logout button even when the user is not hydrated", () => {
+    mockState.user = null
+    render(<Sidebar />)
+    expect(screen.getByText("Logout")).toBeDefined()
+  })
+
   it("does not render admin link for non-superadmin", () => {
     render(<Sidebar />)
     expect(screen.queryByText("Admin")).toBeNull()
   })
 
   it("renders admin link for superadmin", () => {
-    mockSidebarUser.is_superadmin = true
+    mockState.user = { id: 1, email: "test@test.com", is_superadmin: true }
     render(<Sidebar />)
     expect(screen.getByText("Admin")).toBeDefined()
   })

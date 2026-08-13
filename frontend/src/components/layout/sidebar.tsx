@@ -134,36 +134,38 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
-      {user && (
-        <div className="border-t border-zinc-800/50 p-3">
-          <div className="mb-2 flex items-center gap-3 rounded-lg px-3 py-2">
-            <div className="flex size-8 items-center justify-center rounded-full bg-zinc-800 text-xs font-medium text-zinc-400">
-              {user.email.charAt(0).toUpperCase()}
+      <div className="border-t border-zinc-800/50 p-3">
+        {user && (
+          <>
+            <div className="mb-2 flex items-center gap-3 rounded-lg px-3 py-2">
+              <div className="flex size-8 items-center justify-center rounded-full bg-zinc-800 text-xs font-medium text-zinc-400">
+                {user.email.charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-white">{user.email.split("@")[0]}</p>
+                <p className="truncate text-xs text-zinc-500">{user.email}</p>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-white">{user.email.split("@")[0]}</p>
-              <p className="truncate text-xs text-zinc-500">{user.email}</p>
-            </div>
-          </div>
-          {!user.is_superadmin && (
-            <button
-              onClick={handleSeedAdmin}
-              disabled={seedingAdmin}
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-purple-400 hover:bg-purple-500/10 disabled:opacity-60"
-            >
-              <Crown className="size-4" />
-              {seedingAdmin ? "Enabling..." : "Enable Admin Panel"}
-            </button>
-          )}
-          <button
-            onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-red-400 hover:bg-red-500/10"
-          >
-            <LogOut className="size-4" />
-            Logout
-          </button>
-        </div>
-      )}
+            {!user.is_superadmin && (
+              <button
+                onClick={handleSeedAdmin}
+                disabled={seedingAdmin}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-purple-400 hover:bg-purple-500/10 disabled:opacity-60"
+              >
+                <Crown className="size-4" />
+                {seedingAdmin ? "Enabling..." : "Enable Admin Panel"}
+              </button>
+            )}
+          </>
+        )}
+        <button
+          onClick={handleLogout}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-red-400 hover:bg-red-500/10"
+        >
+          <LogOut className="size-4" />
+          Logout
+        </button>
+      </div>
     </>
   )
 
