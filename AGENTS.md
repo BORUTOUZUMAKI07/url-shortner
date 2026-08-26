@@ -197,7 +197,7 @@ The cutoff was derived from `now - 60s` rather than the events actually aggregat
 
 ## Polling Workers — Non-Graceful SIGTERM/SIGINT
 
-**File:** `backend/src/links/workers/cleanup_worker.py`, `backend/src/links/workers/expiry_worker.py`, `backend/src/webhooks/workers/webhook_retry_worker.py`, `backend/src/shared/workers/kafka_consumer_pool.py`
+**File:** `backend/src/analytics/workers/aggregation_worker.py` (includes cleanup purge), `backend/src/webhooks/workers/webhook_retry_worker.py`, `backend/src/shared/workers/kafka_consumer_pool.py`
 
 `KeyboardInterrupt`/`CancelledError` escaped the asyncio loops → dirty exit, partial batches, noisy logs.
 
@@ -333,8 +333,6 @@ uv run python run_worker_webhook_click.py
 uv run python run_worker_webhook_retry.py
 uv run python run_worker_dlq_replay.py
 uv run python run_worker_aggregation.py
-uv run python run_worker_cleanup.py
-uv run python run_worker_expiry.py
 ```
 
 ## Start Frontend

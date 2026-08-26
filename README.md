@@ -93,19 +93,20 @@ Enterprise URL shortener with multi-tenant workspaces, click analytics, QR codes
              │  Analytics  │ │  Webhook    │ │  Metadata   │
              │   Worker    │ │  Consumer   │ │   Worker    │
              └─────────────┘ └─────────────┘ └─────────────┘
-             ┌──────▼──────┐ ┌──────▼──────┐ ┌──────▼──────┐
-             │Aggregation  │ │   Expiry    │ │   Cleanup   │
-             │   Worker    │ │   Worker    │ │   Worker    │
-             └─────────────┘ └─────────────┘ └─────────────┘
              ┌──────▼──────┐ ┌──────▼──────┐
-             │Webhook Retry│ │  DLQ Replay │
-             │   Worker    │ │   Worker    │
+             │Aggregation  │ │Webhook Retry│
+             │ + Cleanup   │ │   Worker    │
              └─────────────┘ └─────────────┘
+             ┌──────▼──────┐
+             │  DLQ Replay │
+             │   Worker    │
+             └─────────────┘
 ```
 
-- **Event-driven**: Click events and URL mutations are published to Kafka (Avro-serialized) and consumed by 8 dedicated workers.
+- **Event-driven**: Click events and URL mutations are published to Kafka (Avro-serialized) and consumed by 6 dedicated workers.
 - **Multi-database**: PostgreSQL for relational data, MongoDB for click event analytics, Redis for caching/rate limiting/idempotency/quotas.
-- **Resilient**: DLQ (Dead Letter Queue) for failed events, exponential backoff reconnection, scheduled workers for expiry/cleanup/aggregation.
+- **Resilient**: DLQ (Dead Letter Queue) for failed events, exponential backoff reconnection, aggregated rollups updated every 60s.
+- Housekeeping (purge of soft-deleted URLs) runs hourly inside the aggregation worker instead of a dedicated poller; expiry is computed at query time — no status-flipping worker needed.
 - Workers run **embedded** in the web process by default, or **standalone** with `STANDALONE_WORKERS=1`.
 
 ---
@@ -175,8 +176,6 @@ uv run python run_worker_webhook_click.py
 uv run python run_worker_webhook_retry.py
 uv run python run_worker_dlq_replay.py
 uv run python run_worker_aggregation.py
-uv run python run_worker_cleanup.py
-uv run python run_worker_expiry.py
 ```
 
 ### 5. Enable the admin panel
@@ -220,8 +219,9 @@ Copy `backend/.env.example` to `backend/.env` and fill in your values. Key varia
 | **Webhook Retry** | Schedule (60s) | Retry failed webhook deliveries (exponential backoff, max 5 retries) |
 | **DLQ Replay** | Kafka (DLQ topics) | Replay failed messages back to original topics |
 | **Aggregation** | Schedule (60s) | Compute click counts and unique IPs per URL via MongoDB aggregation |
-| **Cleanup** | Schedule (45s) | Purge soft-deleted URLs and associated data from all stores |
-| **Expiry** | Schedule (30s) | Disable expired URLs, evict from Redis cache |
+| **Cleanup** | Hourly (inside Aggregation) | Hard-delete soft-deleted URLs after 30-day grace period |
+
+Expiry is computed at query time — no worker needed.
 
 Kafka topics (created in Aiven): `url-clicked`, `url-created`, `dlq-url-clicked`, `dlq-url-created`.
 

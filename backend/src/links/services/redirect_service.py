@@ -93,7 +93,14 @@ class RedirectService:
             "status": url_obj.status.value,
             "expires_at": url_obj.expires_at.isoformat() if url_obj.expires_at else None,
         }
-        await set_url_cache(short_code, url_data)
+        # Bound the cache TTL to the URL's remaining lifetime so a cached
+        # entry never outlives the expiry (otherwise an expired link could
+        # keep redirecting until the TTL expires).
+        max_ttl = 86400
+        if url_obj.expires_at:
+            remaining = (url_obj.expires_at - datetime.now(timezone.utc)).total_seconds()
+            max_ttl = max(0, min(max_ttl, int(remaining)))
+        await set_url_cache(short_code, url_data, ttl=max_ttl)
         return url_data
 
     def _validate(self, url_data: dict):

@@ -1,8 +1,12 @@
 import asyncio
+import time
 import traceback
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
+
 from src.analytics.repositories import AnalyticsRepository
+from src.links.models.url import URL, URLStatus
 from src.links.repositories import URLRepository
 from src.shared import get_logger, setup_logging
 from src.shared.core.click_event import ClickEvent
@@ -13,6 +17,12 @@ from src.shared.workers.shutdown import install_signal_handlers, wait_for_shutdo
 
 _CUTOFF_KEY = "aggregation:last_cutoff"
 _last_cutoff: datetime | None = None
+
+# Soft-delete → hard-delete housekeeping (formerly the cleanup_worker).
+# Runs once per hour inside this process instead of a dedicated poller.
+_PURGE_INTERVAL = 3600          # seconds between purge runs
+_PURGE_STALE_SECONDS = 30 * 86400  # 30-day grace period
+_last_purge_ts: float = 0.0
 
 
 async def _load_cutoff() -> datetime | None:
@@ -96,6 +106,46 @@ async def run_aggregation_rollup(logger):
     await _save_cutoff(window_max)
 
 
+async def run_purge_soft_deleted(logger):
+    """Chunked hard-delete of soft-deleted URLs older than the grace period.
+
+    This was previously a standalone cleanup_worker.  Folding it here avoids an
+    always-on process for work that only needs to happen once an hour.
+    The URL model has no `updated_at`, so we use `created_at` to derive the
+    grace cutoff (a URL created > 30 days ago and currently soft-deleted is safe
+    to hard-delete).
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=_PURGE_STALE_SECONDS)
+    async with AsyncSessionLocal() as db:
+        url_repo = URLRepository(db)
+        analytics_repo = AnalyticsRepository(db)
+
+        while True:
+            result = await db.execute(
+                select(URL.id, URL.short_code)
+                .where(URL.status == URLStatus.deleted, URL.created_at < cutoff)
+                .limit(500)
+            )
+            rows = result.all()
+            if not rows:
+                break
+
+            url_ids = [row.id for row in rows]
+            short_codes = [row.short_code for row in rows]
+            logger.info("Purging %d soft-deleted URLs (chunk).", len(rows))
+
+            try:
+                await ClickEvent.find({"short_code": {"$in": short_codes}}).delete()
+            except Exception as e:
+                logger.warning("Failed to purge MongoDB events: %s", str(e))
+
+            await analytics_repo.delete_by_url_ids(url_ids)
+            for url_id in url_ids:
+                await url_repo.delete(url_id)
+
+    logger.info("Soft-delete purge complete.")
+
+
 async def start_worker():
     setup_logging()
     from src.shared.core.tracing import init_metrics, init_tracing
@@ -116,6 +166,16 @@ async def start_worker():
             await run_aggregation_rollup(logger)
         except Exception as e:
             logger.warning("Error in aggregation loop: %s", str(e))
+
+        # Hourly purge of stale soft-deleted URLs (replaces cleanup_worker).
+        global _last_purge_ts
+        if time.monotonic() - _last_purge_ts >= _PURGE_INTERVAL:
+            try:
+                await run_purge_soft_deleted(logger)
+                _last_purge_ts = time.monotonic()
+            except Exception as e:
+                logger.warning("Error in purge loop: %s", str(e))
+
         try:
             await asyncio.wait_for(asyncio.shield(wait_for_shutdown()), timeout=interval)
         except asyncio.TimeoutError:

@@ -103,6 +103,7 @@ export interface URLItem {
   is_ab_test: boolean; is_one_time: boolean; ios_url: string | null; android_url: string | null
   expires_at: string | null; status: string; qr_code: string | null; created_at: string
   tags?: string[]
+  title: string | null; description: string | null; og_image: string | null
 }
 export interface Workspace { id: number; name: string; owner_id: number; created_at: string }
 export interface WorkspaceMember { id: number; workspace_id: number; user_id: number; email: string; role: string; joined_at: string }

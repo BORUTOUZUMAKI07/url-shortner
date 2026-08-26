@@ -8,12 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from src.analytics.models.analytics import URLAnalyticsSummary
-from src.analytics.workers.aggregation_worker import run_aggregation_rollup
+from src.analytics.workers.aggregation_worker import run_aggregation_rollup, run_purge_soft_deleted
 from src.analytics.workers.analytics_worker import process_event
 from src.identity.models.user import User
 from src.links.models.url import URL, URLStatus
-from src.links.workers.cleanup_worker import run_cleanup
-from src.links.workers.expiry_worker import scan_and_expire_urls
+from src.links.repositories.url_repository import URLRepository
 from src.shared.core.click_event import ClickEvent
 from src.shared.core.mongodb import init_mongodb
 from src.webhooks.workers.webhook_retry_worker import backoff_delay
@@ -135,31 +134,38 @@ async def test_aggregation_worker_rollup(setup_db):
 
 
 @pytest.mark.asyncio
-async def test_expiry_worker_disables_expired_urls(setup_db):
+async def test_query_time_expiry_excludes_expired_urls(setup_db):
+    """Expiry is now computed at query time via _IS_NOT_EXPIRED in url_repository.
+    An expired URL must not appear in get_workspace_urls results."""
     url, user, workspace = setup_db
-    url.created_at = datetime.now(timezone.utc) - timedelta(hours=2)
     url.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
     async with _get_session_local()() as db:
         db.add(url)
         await db.commit()
-    await scan_and_expire_urls(logger)
     async with _get_session_local()() as db:
-        result = await db.execute(select(URL).where(URL.short_code == "test123"))
-        updated = result.scalar_one()
-        assert updated.status == URLStatus.disabled
+        url_repo = URLRepository(db)
+        result = await url_repo.get_workspace_urls(workspace_id=workspace.id)
+        # The expired URL must not be returned
+        assert all(item.short_code != "test123" for item in result["items"])
 
 
 @pytest.mark.asyncio
-async def test_cleanup_worker_purges_deleted_urls(setup_db):
+async def test_purge_soft_deleted_urls(setup_db):
+    """run_purge_soft_deleted hard-deletes URLs older than the grace period."""
     url, user, workspace = setup_db
+    # Make the URL old enough to purge (> 30 days)
+    url.created_at = datetime.now(timezone.utc) - timedelta(days=31)
     url.status = URLStatus.deleted
-    url.deleted_at = datetime.now(timezone.utc) - timedelta(days=31)
     async with _get_session_local()() as db:
         db.add(url)
         await db.commit()
     await init_mongodb()
-    async with _get_session_local()() as db:
-        await run_cleanup(logger, db)
+    # Import and patch the purge interval to 0 so it runs immediately
+    import src.analytics.workers.aggregation_worker as agg
+    agg._last_purge_ts = 0.0
+    agg._PURGE_STALE_SECONDS = 0  # no grace period for this test
+    await run_purge_soft_deleted(logger)
+    agg._PURGE_STALE_SECONDS = 30 * 86400  # restore
     async with _get_session_local()() as db:
         result = await db.execute(select(URL).where(URL.short_code == "test123"))
         assert result.scalar_one_or_none() is None
@@ -189,11 +195,14 @@ async def test_multiple_workers_end_to_end(setup_db):
         assert summary.total_clicks == 10
         assert summary.unique_clicks == 10
     url.status = URLStatus.deleted
+    url.created_at = datetime.now(timezone.utc) - timedelta(days=31)
     async with _get_session_local()() as db:
         db.add(url)
         await db.commit()
-    async with _get_session_local()() as db:
-        await run_cleanup(logger, db)
+    import src.analytics.workers.aggregation_worker as agg
+    agg._PURGE_STALE_SECONDS = 0
+    await run_purge_soft_deleted(logger)
+    agg._PURGE_STALE_SECONDS = 30 * 86400
     async with _get_session_local()() as db:
         result = await db.execute(select(URL).where(URL.short_code == "test123"))
         assert result.scalar_one_or_none() is None

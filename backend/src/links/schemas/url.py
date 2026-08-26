@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_serializer, field_validator
@@ -48,8 +48,32 @@ class URLResponse(BaseModel):
     qr_code: Optional[str] = None
     created_at: datetime
     tags: List[str] = []
+    title: Optional[str] = None
+    description: Optional[str] = None
+    og_image: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator('status', mode='before')
+    @classmethod
+    def compute_display_status(cls, v: Any, info) -> URLStatus:
+        """Map the stored status to a computed display status so the UI never
+        shows 'Active' for an expired or soft-deleted URL.  Expiry is checked
+        at read time instead of via a status-flipping worker — this is the
+        single place where the mapping happens."""
+        if isinstance(v, str):
+            try:
+                v = URLStatus(v)
+            except ValueError:
+                return v  # type: ignore[return-value]
+        # expires_at is available on the model instance being serialized
+        expires_at = info.data.get("expires_at") if hasattr(info, "data") else None
+        if expires_at and isinstance(expires_at, datetime):
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at < datetime.now(timezone.utc):
+                return URLStatus.disabled  # "expired" maps to disabled in DB
+        return v  # type: ignore[return-value]
 
     @field_validator('tags', mode='before')
     @classmethod

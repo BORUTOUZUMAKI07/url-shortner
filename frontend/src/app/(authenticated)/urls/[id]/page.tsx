@@ -269,6 +269,25 @@ export default function URLDetailPage() {
         </Card>
 
         <div className="space-y-6">
+          {(url.title || url.og_image) && (
+            <Card>
+              <CardHeader><CardTitle>Preview</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                {url.og_image && (
+                  <div className="relative w-full aspect-video overflow-hidden rounded-lg bg-zinc-800">
+                    <img src={url.og_image} alt={url.title || "Preview"} className="w-full h-full object-cover" />
+                  </div>
+                )}
+                {url.title && (
+                  <p className="text-sm font-medium text-foreground">{url.title}</p>
+                )}
+                {url.description && (
+                  <p className="text-xs text-muted-foreground line-clamp-2">{url.description}</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader><CardTitle>Info</CardTitle></CardHeader>
             <CardContent className="space-y-3">

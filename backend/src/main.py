@@ -33,8 +33,6 @@ from src.analytics.workers.aggregation_worker import start_worker as start_aggre
 from src.analytics.workers.analytics_worker import consume_url_clicked_events
 from src.identity.routes import api_keys, auth, profile
 from src.links.routes import bulk, favorites, folders, redirect, tags, urls
-from src.links.workers.cleanup_worker import start_worker as start_cleanup_worker
-from src.links.workers.expiry_worker import start_worker as start_expiry_worker
 from src.shared import get_logger, setup_logging
 from src.shared.core.config import settings
 from src.shared.core.database import check_db_health, engine, init_db
@@ -213,14 +211,12 @@ async def lifespan(app: FastAPI):
         webhook_click_task = asyncio.create_task(consume_url_clicked_webhooks())
         webhook_retry_task = asyncio.create_task(start_webhook_retry_worker())
         aggregation_task = asyncio.create_task(start_aggregation_worker())
-        expiry_task = asyncio.create_task(start_expiry_worker())
-        cleanup_task = asyncio.create_task(start_cleanup_worker())
         dlq_replay_task = asyncio.create_task(consume_dlq_replay())
 
         yield
 
         logger.info("Shutting down URL Shortener workers...")
-        tasks = [analytics_task, metadata_task, webhook_click_task, webhook_retry_task, aggregation_task, expiry_task, cleanup_task, dlq_replay_task]
+        tasks = [analytics_task, metadata_task, webhook_click_task, webhook_retry_task, aggregation_task, dlq_replay_task]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*[task if task.done() else asyncio.wait_for(task, timeout=5) for task in tasks], return_exceptions=True)

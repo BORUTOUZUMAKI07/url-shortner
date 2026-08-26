@@ -1,4 +1,6 @@
-from sqlalchemy import and_, or_, select, text, update
+from datetime import datetime, timezone
+
+from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.orm import selectinload
 
 from src.links.models.tag import Tag
@@ -6,6 +8,15 @@ from src.links.models.url import URL, URLStatus
 from src.shared.core.base62 import hashid_encode
 from src.shared.core.base_repository import BaseRepository
 from src.shared.core.config import settings
+
+# Predicate applied wherever "active" URLs are listed or counted so that expired
+# URLs are excluded *without* a worker flipping a status flag.  Must be applied in
+# every query that returns user-visible URLs; keeping it as a single constant
+# avoids the drift bugs that scattered predicates cause.
+_IS_NOT_EXPIRED = or_(
+    URL.expires_at.is_(None),
+    URL.expires_at > datetime.now(timezone.utc),
+)
 
 
 class URLRepository(BaseRepository[URL]):
@@ -43,7 +54,7 @@ class URLRepository(BaseRepository[URL]):
         user_id: int | None = None,
         url_ids: list[int] | None = None,
     ) -> dict[str, object]:
-        query = select(URL).where(URL.status != URLStatus.deleted)
+        query = select(URL).where(URL.status != URLStatus.deleted, _IS_NOT_EXPIRED)
         if workspace_id is not None:
             query = query.where(URL.workspace_id == workspace_id)
         elif user_id is not None:
@@ -77,7 +88,6 @@ class URLRepository(BaseRepository[URL]):
         query = query.order_by(URL.created_at.desc())
 
         # Get total count first
-        from sqlalchemy import func
         count_query = select(func.count()).select_from(query.subquery())
         total_result = await self.db.execute(count_query)
         total = total_result.scalar() or 0
@@ -159,7 +169,7 @@ class URLRepository(BaseRepository[URL]):
         """
         query = (
             select(URL)
-            .where(URL.workspace_id == workspace_id, URL.status != URLStatus.deleted)
+            .where(URL.workspace_id == workspace_id, URL.status != URLStatus.deleted, _IS_NOT_EXPIRED)
             .order_by(URL.created_at.desc())
             .options(selectinload(URL.tags))
         )
