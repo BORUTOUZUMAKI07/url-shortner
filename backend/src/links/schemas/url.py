@@ -61,11 +61,14 @@ class URLResponse(BaseModel):
         shows 'Active' for an expired or soft-deleted URL.  Expiry is checked
         at read time instead of via a status-flipping worker — this is the
         single place where the mapping happens."""
+        status: URLStatus | None = None
         if isinstance(v, str):
             try:
-                v = URLStatus(v)
+                status = URLStatus(v)
             except ValueError:
-                return v  # type: ignore[return-value]
+                return URLStatus.active
+        else:
+            status = v
         # expires_at is available on the model instance being serialized
         expires_at = info.data.get("expires_at") if hasattr(info, "data") else None
         if expires_at and isinstance(expires_at, datetime):
@@ -73,7 +76,7 @@ class URLResponse(BaseModel):
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
             if expires_at < datetime.now(timezone.utc):
                 return URLStatus.disabled  # "expired" maps to disabled in DB
-        return v  # type: ignore[return-value]
+        return status or URLStatus.active
 
     @field_validator('tags', mode='before')
     @classmethod
