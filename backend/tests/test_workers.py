@@ -138,6 +138,7 @@ async def test_query_time_expiry_excludes_expired_urls(setup_db):
     """Expiry is now computed at query time via _IS_NOT_EXPIRED in url_repository.
     An expired URL must not appear in get_workspace_urls results."""
     url, user, workspace = setup_db
+    url.created_at = datetime.now(timezone.utc) - timedelta(hours=2)
     url.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
     async with _get_session_local()() as db:
         db.add(url)
