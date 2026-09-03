@@ -18,6 +18,9 @@ export const metadata: Metadata = {
   title: "LinkForge - URL Shortener",
   description: "Enterprise-grade URL shortener with analytics and team collaboration",
   icons: { icon: "/favicon.svg" },
+  other: {
+    "google-site-verification": "eo9WMAMMMPONVPpj-LwY_9rVJ-tE4ZfbKQmAk0xw0Mc",
+  },
   openGraph: {
     title: "LinkForge - URL Shortener",
     description: "Enterprise-grade URL shortener with analytics and team collaboration",
