@@ -123,11 +123,11 @@ async def retry_failed_events(logger):
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            for result in results:
-                if isinstance(result, Exception):
-                    logger.warning("Retry task raised: %s", result)
+            for retry_result in results:
+                if isinstance(retry_result, BaseException):
+                    logger.warning("Retry task raised: %s", retry_result)
                     continue
-                event, success, code, error = result
+                event, success, code, error = retry_result
                 if error == "backoff":
                     continue
                 if success:
@@ -169,9 +169,9 @@ async def _purge_old_dlq(logger):
             result = await db.execute(
                 delete(DeadLetterEvent).where(DeadLetterEvent.created_at < cutoff)
             )
-            if result.rowcount:
+            if result.rowcount:  # type: ignore[attr-defined]
                 await db.commit()
-                logger.info("Purged %d DLQ events older than %d days", result.rowcount, _DLQ_RETENTION_DAYS)
+                logger.info("Purged %d DLQ events older than %d days", result.rowcount, _DLQ_RETENTION_DAYS)  # type: ignore[attr-defined]
     except Exception as e:
         logger.warning("DLQ purge failed: %s", e)
 

@@ -67,9 +67,9 @@ async def _pick_public_address(hostname: str, port: int) -> str | None:
     except socket.gaierror:
         return None
     for family, _stype, _proto, _canon, sockaddr in infos:
-        ip = ipaddress.ip_address(sockaddr[0])
+        ip = ipaddress.ip_address(str(sockaddr[0]))
         if _is_public_ip(ip):
-            return f"[{sockaddr[0]}]" if ":" in sockaddr[0] else sockaddr[0]
+            return f"[{sockaddr[0]}]" if ":" in str(sockaddr[0]) else str(sockaddr[0])
     return None
 
 

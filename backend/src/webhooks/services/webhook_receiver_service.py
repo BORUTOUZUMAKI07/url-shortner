@@ -33,10 +33,10 @@ class WebhookReceiverService:
             return True
         key = f"{_RECEIVER_RATE_LIMIT_KEY}:{source_ip}"
         try:
-            current = await redis_client.incr(key)
+            current: int = await redis_client.incr(key)  # type: ignore[assignment]
             if current == 1:
                 await redis_client.expire(key, _RECEIVER_RATE_WINDOW)
-            return current <= _RECEIVER_RATE_LIMIT
+            return bool(current <= _RECEIVER_RATE_LIMIT)
         except Exception:
             return True  # fail-open if Redis is down
 
