@@ -1,9 +1,6 @@
 import asyncio
-import hashlib
-import hmac
 import json
 
-import httpx
 from sqlalchemy import select
 
 from src.shared import get_logger, setup_logging
@@ -17,7 +14,7 @@ from src.shared.workers.kafka_consumer_pool import KafkaConnectionPool
 from src.webhooks.models.webhook import Webhook
 from src.webhooks.models.webhook_event import WebhookEvent
 from src.webhooks.models.webhook_subscription import WebhookSubscription
-from src.webhooks.services.webhook_service import decrypt_secret
+from src.webhooks.services.webhook_service import deliver_single_webhook
 
 
 async def consume_url_clicked_webhooks():
@@ -67,7 +64,6 @@ async def deliver_click_webhooks(event_data: dict, logger):
     event_id = event_data.get("event_id")
     if event_id:
         idempotency_key = f"idempotency:webhook_click:{event_id}"
-        # Redis is best-effort here — a blip must not drop the delivery.
         try:
             already_processed = await redis_client.get(idempotency_key)
         except Exception:
@@ -107,58 +103,24 @@ async def deliver_click_webhooks(event_data: dict, logger):
         webhooks = list(result.scalars().all())
 
         for wh in webhooks:
-            secret = decrypt_secret(wh.secret)
-            payload_bytes = json.dumps(click_payload).encode()
-            signature = hmac.new(secret.encode(), payload_bytes, hashlib.sha256).hexdigest()
-
-            try:
-                async with httpx.AsyncClient() as client:
-                    resp = await client.post(
-                        wh.url,
-                        content=payload_bytes,
-                        headers={
-                            "Content-Type": "application/json",
-                            "X-Webhook-Signature": signature,
-                            "X-Webhook-Event": "url.clicked",
-                        },
-                        timeout=10.0,
-                    )
-                # Match webhook_service.deliver_event semantics: only 2xx counts
-                # as delivered; 5xx/429 must be retried by the retry worker.
-                if resp.is_success:
-                    db.add(WebhookEvent(
-                        webhook_id=wh.id,
-                        event_type="url.clicked",
-                        payload=json.dumps(click_payload),
-                        status="delivered",
-                        response_code=resp.status_code,
-                    ))
-                else:
-                    db.add(WebhookEvent(
-                        webhook_id=wh.id,
-                        event_type="url.clicked",
-                        payload=json.dumps(click_payload),
-                        status="failed",
-                        response_code=resp.status_code,
-                        error=f"HTTP {resp.status_code}: {resp.text[:200]}",
-                    ))
-                logger.info("Delivered url.clicked webhook %s -> %s (status %s)", wh.id, wh.url, resp.status_code)
-            except Exception as e:
-                db.add(WebhookEvent(
-                    webhook_id=wh.id,
-                    event_type="url.clicked",
-                    payload=json.dumps(click_payload),
-                    status="failed",
-                    error=str(e),
-                ))
-                logger.warning("Failed to deliver url.clicked webhook %s -> %s: %s", wh.id, wh.url, str(e))
+            success, code, error = await deliver_single_webhook(
+                wh.id, wh.url, wh.secret, click_payload, "url.clicked",
+            )
+            db.add(WebhookEvent(
+                webhook_id=wh.id,
+                event_type="url.clicked",
+                payload=json.dumps(click_payload),
+                status="delivered" if success else "failed",
+                response_code=code,
+                error=error,
+            ))
+            if success:
+                logger.info("Delivered url.clicked webhook %s -> %s (status %s)", wh.id, wh.url, code)
+            else:
+                logger.warning("Failed to deliver url.clicked webhook %s -> %s: %s", wh.id, wh.url, error)
 
         await db.commit()
 
-    # Mark idempotency ONLY after the DB commit succeeds. Setting it earlier
-    # meant a crash after the setex but before commit permanently swallowed the
-    # event: on re-delivery the key was present so no WebhookEvent row was ever
-    # written and the retry worker never saw it.
     if event_id:
         try:
             await redis_client.setex(idempotency_key, 86400 * 7, "1")

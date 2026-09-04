@@ -2,14 +2,13 @@ import asyncio
 import json
 from urllib.parse import urlparse
 
-import httpx
 from bs4 import BeautifulSoup
 
 from src.links.repositories.url_repository import URLRepository
 from src.shared import get_logger, setup_logging
 from src.shared.core.config import settings
 from src.shared.core.database import AsyncSessionLocal
-from src.shared.core.safe_url import is_safe_url
+from src.shared.core.safe_url import safe_fetch
 from src.shared.events.kafka import publish_raw
 from src.shared.events.schemas import deserialize
 from src.shared.workers._sni_patch import _make_sni_context
@@ -18,24 +17,16 @@ from src.shared.workers.kafka_consumer_pool import KafkaConnectionPool
 MAX_REDIRECTS = 3
 
 
-async def _is_safe_url(url: str, logger) -> bool:
-    safe = await is_safe_url(url)
-    if not safe:
-        logger.warning("Rejected non-public URL for metadata fetch: %s", url)
-    return safe
-
-
 async def extract_metadata(url: str, logger) -> dict[str, str | None]:
     result: dict[str, str | None] = {"title": None, "description": None, "og_image": None}
     current = url
     for _ in range(MAX_REDIRECTS):
-        if not await _is_safe_url(current, logger):
-            return result
-        try:
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
-                resp = await client.get(current, headers={"User-Agent": "LinkForgeBot/1.0"})
-        except Exception as e:
-            logger.warning("Failed to extract metadata from %s: %s", current, e)
+        # safe_fetch resolves each hop's hostname once and pins the connection
+        # to a validated public IP — DNS-rebinding SSRF is prevented because the
+        # socket is established against the address that passed validation.
+        resp = await safe_fetch(current, headers={"User-Agent": "LinkForgeBot/1.0"}, timeout=10.0)
+        if resp is None:
+            logger.warning("Rejected non-public URL for metadata fetch: %s", current)
             return result
         if resp.is_redirect:
             location = resp.headers.get("location")

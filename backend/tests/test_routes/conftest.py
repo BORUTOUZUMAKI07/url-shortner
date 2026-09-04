@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
@@ -72,6 +73,11 @@ async def patch_async_session_local():
 
 @pytest_asyncio.fixture
 async def db():
+    if os.environ.get("_USE_TESTCONTAINERS") != "1":
+        pytest.fail(
+            "DB-backed route tests require --use-testcontainers (Docker). "
+            "Refusing to connect to the real .env database. Never run the route suite without it."
+        )
     engine = _get_test_engine()
     conn = await engine.connect()
     await conn.begin()

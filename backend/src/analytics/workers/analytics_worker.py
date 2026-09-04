@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from user_agents import parse
 
@@ -16,6 +16,18 @@ from src.shared.events.kafka import publish_raw
 from src.shared.events.schemas import deserialize
 from src.shared.workers._sni_patch import _make_sni_context
 from src.shared.workers.kafka_consumer_pool import KafkaConnectionPool
+
+
+def _get_clicked_at(event_data: dict) -> datetime:
+    """Always return a timezone-aware clicked_at (#12)."""
+    raw = event_data.get("clicked_at")
+    if raw:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            # Naive parsed value — assume UTC rather than returning a naive time.
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+    return datetime.now(timezone.utc)
 
 
 async def consume_url_clicked_events():
@@ -106,7 +118,7 @@ async def process_event(event_data: dict, logger):
         utm_source=event_data.get("utm_source"),
         utm_medium=event_data.get("utm_medium"),
         utm_campaign=event_data.get("utm_campaign"),
-        clicked_at=datetime.fromisoformat(event_data["clicked_at"]) if "clicked_at" in event_data else datetime.utcnow(),
+        clicked_at=_get_clicked_at(event_data),
     )
     event_id = event_data.get("event_id")
     if event_id:

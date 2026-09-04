@@ -135,18 +135,12 @@ class URLService:
             url = refetched
             _ = [t.name for t in url.tags]
 
-        try:
-            await self.webhooks.deliver_event(payload.workspace_id, "url.created", {
-                "short_code": url.short_code, "original_url": url.original_url,
-                "workspace_id": url.workspace_id, "user_id": user_id,
-            })
-        except Exception as e:
-            logger.warning("Webhook delivery failed: %s", e)
-            await self.url_repo.rollback()
-            refetched = await self.url_repo.get(url.id)
-            assert refetched is not None
-            url = refetched
-            _ = [t.name for t in url.tags]
+        # deliver_event is fire-and-forget (spawns a background task) — it
+        # never raises here, so no try/except or rollback is needed.
+        await self.webhooks.deliver_event(payload.workspace_id, "url.created", {
+            "short_code": url.short_code, "original_url": url.original_url,
+            "workspace_id": url.workspace_id, "user_id": user_id,
+        })
 
         return url
 
@@ -209,14 +203,10 @@ class URLService:
             logger.warning("Audit log failed: %s", e)
             await self.url_repo.rollback()
 
-        try:
-            await self.webhooks.deliver_event(url.workspace_id, "url.updated", {
-                "short_code": url.short_code, "original_url": url.original_url,
-                "workspace_id": url.workspace_id, "user_id": user_id,
-            })
-        except Exception as e:
-            logger.warning("Webhook delivery failed: %s", e)
-            await self.url_repo.rollback()
+        await self.webhooks.deliver_event(url.workspace_id, "url.updated", {
+            "short_code": url.short_code, "original_url": url.original_url,
+            "workspace_id": url.workspace_id, "user_id": user_id,
+        })
 
         result = await self.url_repo.get(url.id)
         assert result is not None
@@ -242,11 +232,7 @@ class URLService:
             logger.warning("Audit log failed: %s", e)
             await self.url_repo.rollback()
 
-        try:
-            await self.webhooks.deliver_event(url.workspace_id, "url.deleted", {
-                "short_code": url.short_code, "original_url": url.original_url,
-                "workspace_id": url.workspace_id, "user_id": user_id,
-            })
-        except Exception as e:
-            logger.warning("Webhook delivery failed: %s", e)
-            await self.url_repo.rollback()
+        await self.webhooks.deliver_event(url.workspace_id, "url.deleted", {
+            "short_code": url.short_code, "original_url": url.original_url,
+            "workspace_id": url.workspace_id, "user_id": user_id,
+        })

@@ -264,7 +264,9 @@ export const apiKeysApi = {
 function generateWebhookSecret(): string {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
   let result = "whsec_"
-  for (let i = 0; i < 32; i++) result += chars.charAt(Math.floor(Math.random() * chars.length))
+  const randomBytes = new Uint8Array(32)
+  crypto.getRandomValues(randomBytes)
+  for (let i = 0; i < 32; i++) result += chars.charAt(randomBytes[i] % chars.length)
   return result
 }
 

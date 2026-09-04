@@ -88,6 +88,12 @@ class Settings(BaseSettings):
         return "PLAIN" if info.data.get("KAFKA_SASL_USERNAME") else "GSSAPI"
 
     @model_validator(mode="after")
+    def webhook_secret_fallback(self):
+        if not self.WEBHOOK_SECRET_KEY:
+            self.WEBHOOK_SECRET_KEY = self.SECRET_KEY
+        return self
+
+    @model_validator(mode="after")
     def write_ca_cert(self):
         ca_content = self.KAFKA_SSL_CA
         if ca_content and not self.KAFKA_SSL_CA_PATH:
@@ -119,6 +125,9 @@ class Settings(BaseSettings):
     SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+
+    # --- Webhook encryption (separate from JWT SECRET_KEY) ---
+    WEBHOOK_SECRET_KEY: str = ""
 
     # --- Google OAuth 2.0 ---
     GOOGLE_OAUTH_CLIENT_ID: Optional[str] = None
