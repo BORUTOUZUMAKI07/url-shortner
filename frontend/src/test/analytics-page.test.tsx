@@ -48,8 +48,11 @@ describe("AnalyticsPage", () => {
 
   it("shows analytics values", async () => {
     render(<AnalyticsPage />)
-    expect(await screen.findByText("100")).toBeDefined()
-    expect(await screen.findByText("50")).toBeDefined()
+    // The summary numbers require the whole query chain (url → analytics
+    // summary+timeseries) to resolve; under parallel suite load that can
+    // exceed the 5s async-util default, so wait with a larger window.
+    expect(await screen.findByText("100", {}, { timeout: 10_000 })).toBeDefined()
+    expect(await screen.findByText("50", {}, { timeout: 10_000 })).toBeDefined()
   })
 
   it("renders back button", async () => {
