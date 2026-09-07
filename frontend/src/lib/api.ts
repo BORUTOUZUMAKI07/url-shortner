@@ -26,6 +26,7 @@ function tryRefresh(): Promise<boolean> {
 }
 
 function clearTokens() {
+  if (typeof document === "undefined") return
   document.cookie = "access_token=; path=/; max-age=0"
   document.cookie = "refresh_token=; path=/; max-age=0"
 }

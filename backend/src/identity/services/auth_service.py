@@ -51,20 +51,22 @@ local rec = redis.call('GET', KEYS[1])
 if not rec then
     return -1
 end
+-- Redis Lua exposes no os.time(); TIME is the sandbox-safe clock.
+local now = tonumber(redis.call('TIME')[1])
 local presented = ARGV[1]
 local new_jti = ARGV[2]
 local grace = tonumber(ARGV[3])
 local obj = cjson.decode(rec)
 if obj.jti == presented then
     obj.prev_jti = obj.jti
-    obj.prev_at = os.time()
+    obj.prev_at = now
     obj.jti = new_jti
     redis.call('SET', KEYS[1], cjson.encode(obj), 'EX', 604800)
     return 1
 end
-if obj.prev_jti == presented and (os.time() - (obj.prev_at or 0)) <= grace then
+if obj.prev_jti == presented and (now - (obj.prev_at or 0)) <= grace then
     obj.prev_jti = obj.jti
-    obj.prev_at = os.time()
+    obj.prev_at = now
     obj.jti = new_jti
     redis.call('SET', KEYS[1], cjson.encode(obj), 'EX', 604800)
     return 1

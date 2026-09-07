@@ -341,6 +341,30 @@ cd frontend
 npm run dev
 ```
 
+## E2E / Integration Test Layers
+
+All run only with Docker available (each boots Postgres 16 + Mongo 7 + Redis 7 testcontainers and **never** touches `.env` production services). Do not run them while another app is squatting on `127.0.0.1:8000`.
+
+**Backend E2E** — real uvicorn process (:8001) driven over real HTTP:
+```
+cd backend
+uv run pytest tests/test_e2e -v --use-testcontainers
+```
+
+**Frontend integration** — vitest (node env, in-test cookie jar) against the real backend:
+**Frontend E2E** — Playwright browser against the real backend via the Next proxy.
+Both need the standalone backend running on `127.0.0.1:8000` (the frontend `BACKEND_URL` default):
+```
+cd backend
+uv run python scripts/e2e_server.py          # E2E_PORT to override the port
+# then, in a second terminal:
+cd frontend
+npm run test:integration                     # vitest integration config
+npm run test:e2e:real                        # playwright.real.config.ts
+```
+
+`scripts/e2e_server.py` and `tests/test_e2e/conftest.py` both boot uvicorn with an env scrubbed by `tests/e2e_env.py` (SMTP, Upstash Redis, OTLP/New Relic, Kafka bootstrap, SECRET_KEY) so a subprocess can never reach real external services — the isolated env is the whole point, since `mock_external_services`/`fast_password_hashing` patches do NOT cross process boundaries. Kafka fails fast against `127.0.0.1:1`; the lifespan logs and continues.
+
 ## API Base
 All routes under `/api/v1/` except redirect (`/{short_code}`).
 

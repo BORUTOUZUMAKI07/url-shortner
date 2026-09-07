@@ -47,3 +47,4 @@ build/
 # Tooling artifacts
 .agents/
 .playwright-cli/
+frontend/test-results/

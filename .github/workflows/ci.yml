@@ -101,10 +101,99 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  backend-e2e:
+    name: Backend E2E (Real HTTP)
+    runs-on: ubuntu-latest
+    env:
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --extra dev --extra testcontainers
+      - name: Run backend E2E against Docker testcontainers
+        shell: bash
+        run: |
+          # The server boots a subprocess + 3 containers; retry once for the
+          # same GitHub-runner startup races the main suite handles.
+          log=/tmp/backend-e2e.log
+          for attempt in 1 2 3; do
+            echo "== pytest tests/test_e2e attempt $attempt ==" | tee -a "$log"
+            if uv run pytest tests/test_e2e -v --use-testcontainers 2>&1 | tee -a "$log"; then
+              exit 0
+            fi
+          done
+          exit 1
+      - name: Upload log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-e2e-log
+          path: /tmp/backend-e2e.log
+
+  frontend-integration:
+    name: Frontend Integration + E2E (Real Backend)
+    runs-on: ubuntu-latest
+    env:
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install backend deps
+        working-directory: backend
+        run: uv sync --extra dev --extra testcontainers
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Start backend against testcontainers
+        working-directory: backend
+        shell: bash
+        run: |
+          # Standalone server boot: testcontainers + alembic + uvicorn on :8000.
+          nohup uv run python scripts/e2e_server.py > /tmp/e2e-backend.log 2>&1 &
+          echo "backend pid: $!"
+      - name: Wait for backend
+        shell: bash
+        run: |
+          for i in $(seq 1 150); do
+            if curl -sf http://127.0.0.1:8000/api/v1/ping >/dev/null 2>&1; then
+              echo "backend ready after ${i} checks"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "backend did not become ready:"
+          tail -200 /tmp/e2e-backend.log
+          exit 1
+      - name: Frontend integration tests (real backend)
+        working-directory: frontend
+        run: npm run test:integration
+      - name: Frontend E2E (real backend)
+        working-directory: frontend
+        run: npm run test:e2e:real
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-integration-logs
+          path: /tmp/e2e-backend.log
+
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: [backend-lint, backend-test, frontend-lint, frontend-test, frontend-build]
+    needs: [backend-lint, backend-test, frontend-lint, frontend-test, frontend-build, backend-e2e, frontend-integration]
     permissions:
       contents: read
       packages: write
