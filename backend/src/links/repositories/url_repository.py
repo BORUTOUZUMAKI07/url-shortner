@@ -34,6 +34,20 @@ class URLRepository(BaseRepository[URL]):
         result = await self.db.execute(select(URL).options(selectinload(URL.tags)).where(URL.id == id))
         return result.scalar_one_or_none()
 
+    async def list_all(self, skip: int = 0, limit: int = 100) -> list[URL]:
+        # URLResponse serializes url.tags; the inherited list_all() did a bare
+        # select and lazy-loaded the relationship outside a greenlet -> the
+        # admin GET /urls endpoint 500'd with MissingGreenlet.
+        stmt = (
+            select(URL)
+            .options(selectinload(URL.tags))
+            .order_by(URL.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
     async def alias_exists(self, alias: str) -> bool:
         # EXISTS() instead of loading a full URL row just for a boolean.
         stmt = select(URL.id).where(

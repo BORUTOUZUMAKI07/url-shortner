@@ -11,6 +11,7 @@ Usage (from the backend directory):
 """
 from __future__ import annotations
 
+import os
 import socket
 import subprocess
 import sys
@@ -34,8 +35,7 @@ def main() -> int:
     from tests.e2e_env import build_e2e_env
     from tests.testcontainers import start_containers, stop_containers
 
-    env = build_e2e_env()
-    port = int(env.get("E2E_PORT", "8000"))
+    port = int(os.environ.get("E2E_PORT", "8000"))
     if not _port_free(port):
         print(
             f"Port {port} is already in use (the frontend proxies to this port). "
@@ -44,7 +44,13 @@ def main() -> int:
         )
         return 2
 
+    # Containers FIRST, env snapshot AFTER: start_containers() writes the
+    # container DATABASE_URL/MONGODB_URI/REDIS_URL into os.environ, and
+    # build_e2e_env() copies os.environ. The uvicorn subprocess gets a
+    # Popen(env=...) dict, so building the env beforehand would hand it the
+    # pre-container URLs and it would fall back to .env / defaults.
     start_containers()
+    env = build_e2e_env()
     proc = subprocess.Popen(
         [
             sys.executable,
