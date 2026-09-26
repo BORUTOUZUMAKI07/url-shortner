@@ -62,20 +62,25 @@ export default function BillingPage() {
       <button onClick={() => router.back()} className="mb-4 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" /> Back
       </button>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Billing & Plans</h1>
-        <p className="text-sm text-muted-foreground">Your current plan: <Badge variant="success" className="capitalize">{user.plan}</Badge></p>
+      <div className="mb-6 flex items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <Crown className="size-4.5" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-heading font-semibold tracking-tight">Billing & Plans</h1>
+          <p className="text-sm text-muted-foreground">Your current plan: <Badge variant="success" className="capitalize">{user.plan}</Badge></p>
+        </div>
       </div>
 
-      {error && <div className="mb-4 rounded-lg bg-red-500/10 px-4 py-2 text-sm text-red-400">{error}</div>}
-      {success && <div className="mb-4 rounded-lg bg-green-500/10 px-4 py-2 text-sm text-green-400">{success}</div>}
+      {error && <div className="mb-4 rounded-lg bg-red-500/10 px-4 py-2 text-sm text-red-600">{error}</div>}
+      {success && <div className="mb-4 rounded-lg bg-green-500/10 px-4 py-2 text-sm text-green-600">{success}</div>}
 
       <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3">
         {PLANS.map((plan) => {
           const isCurrent = user.plan === plan.backend
           const isLoading = upgradeMutation.isPending && upgradeMutation.variables === plan.backend
           return (
-            <Card key={plan.name} className={`transition-all ${isCurrent ? "ring-2 ring-blue-500" : "hover:ring-1 hover:ring-muted"}`}>
+            <Card key={plan.name} className={`transition-all ${isCurrent ? "ring-2 ring-emerald-500" : "hover:ring-1 hover:ring-muted"}`}>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>{plan.name}</CardTitle>
@@ -88,7 +93,7 @@ export default function BillingPage() {
                 <ul className="space-y-2">
                   {["URL shortening", "Click analytics", "Custom aliases", "API access"].map((f) => (
                     <li key={f} className="flex items-center gap-2 text-sm">
-                      <Check className="size-4 text-green-400" /> {f}
+                      <Check className="size-4 text-green-600" /> {f}
                     </li>
                   ))}
                 </ul>

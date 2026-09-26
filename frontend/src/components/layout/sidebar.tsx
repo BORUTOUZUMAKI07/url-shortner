@@ -90,20 +90,20 @@ export function Sidebar() {
 
   const content = (
     <>
-      <div className="flex h-14 items-center justify-between border-b border-zinc-800/50 px-4">
+      <div className="flex h-14 items-center justify-between border-b border-stone-200/50 px-4">
         <Link href="/dashboard">
-          <span className="text-lg font-bold text-white">
+          <span className="text-lg font-heading font-semibold text-stone-900">
             LinkForge
           </span>
         </Link>
-        <button onClick={() => setOpen(false)} className="block md:hidden p-1 text-zinc-400 hover:text-white">
+        <button onClick={() => setOpen(false)} className="block md:hidden p-1 text-stone-500 hover:text-stone-900">
           <X className="size-5" />
         </button>
       </div>
       <nav className="flex-1 space-y-4 overflow-y-auto p-3 scrollbar-thin">
         {allSections.map((section) => (
           <div key={section.label}>
-            <div className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            <div className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-stone-500">
               {section.label}
             </div>
             <div className="space-y-0.5">
@@ -118,15 +118,15 @@ export function Sidebar() {
                     className={cn(
                       "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all",
                       isActive
-                        ? "bg-blue-500/10 text-blue-400"
-                        : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50",
+                        ? "bg-emerald-500/10 text-emerald-600"
+                        : "text-stone-500 hover:text-stone-700 hover:bg-stone-200/50",
                     )}
                   >
-                    <div className={cn("flex size-5 items-center justify-center", isActive ? "text-blue-400" : "text-zinc-500 group-hover:text-zinc-300")}>
+                    <div className={cn("flex size-5 items-center justify-center", isActive ? "text-emerald-600" : "text-stone-500 group-hover:text-stone-600")}>
                       <Icon className="size-4" />
                     </div>
                     {item.label}
-                    {isActive && <div className="ml-auto size-1.5 rounded-full bg-blue-500" />}
+                    {isActive && <div className="ml-auto size-1.5 rounded-full bg-emerald-500" />}
                   </Link>
                 )
               })}
@@ -134,23 +134,23 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
-      <div className="border-t border-zinc-800/50 p-3">
+      <div className="border-t border-stone-200/50 p-3">
         {user && (
           <>
             <div className="mb-2 flex items-center gap-3 rounded-lg px-3 py-2">
-              <div className="flex size-8 items-center justify-center rounded-full bg-zinc-800 text-xs font-medium text-zinc-400">
+              <div className="flex size-8 items-center justify-center rounded-full bg-stone-200 text-xs font-medium text-stone-500">
                 {user.email.charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-white">{user.email.split("@")[0]}</p>
-                <p className="truncate text-xs text-zinc-500">{user.email}</p>
+                <p className="truncate text-sm font-medium text-stone-900">{user.email.split("@")[0]}</p>
+                <p className="truncate text-xs text-stone-500">{user.email}</p>
               </div>
             </div>
             {!user.is_superadmin && (
               <button
                 onClick={handleSeedAdmin}
                 disabled={seedingAdmin}
-                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-purple-400 hover:bg-purple-500/10 disabled:opacity-60"
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-stone-500 transition-colors hover:text-amber-600 hover:bg-amber-500/10 disabled:opacity-60"
               >
                 <Crown className="size-4" />
                 {seedingAdmin ? "Enabling..." : "Enable Admin Panel"}
@@ -160,7 +160,7 @@ export function Sidebar() {
         )}
         <button
           onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-red-400 hover:bg-red-500/10"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-stone-500 transition-colors hover:text-red-600 hover:bg-red-500/10"
         >
           <LogOut className="size-4" />
           Logout
@@ -173,10 +173,10 @@ export function Sidebar() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="fixed left-3 top-3 z-40 block md:hidden rounded-lg bg-zinc-900 p-2 shadow-lg border border-zinc-800"
+        className="fixed left-3 top-3 z-40 block md:hidden rounded-lg bg-white p-2 shadow-lg border border-stone-200"
         aria-label="Open menu"
       >
-        <Menu className="size-5 text-zinc-400" />
+        <Menu className="size-5 text-stone-500" />
       </button>
 
       {open && (
@@ -188,7 +188,7 @@ export function Sidebar() {
 
       <aside
         className={cn(
-          "flex h-screen w-60 flex-col border-r border-zinc-800/50 bg-zinc-950 fixed md:sticky top-0 left-0 z-40 transition-transform duration-200 md:translate-x-0",
+          "flex h-screen w-60 flex-col border-r border-stone-200/50 bg-stone-50 fixed md:sticky top-0 left-0 z-40 transition-transform duration-200 md:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >

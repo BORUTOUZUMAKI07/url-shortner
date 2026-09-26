@@ -35,31 +35,31 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-zinc-950 px-4">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-stone-50 px-4">
       <BackgroundBeams className="opacity-40" />
-      <div className="relative z-10 w-full max-w-sm space-y-4 rounded-xl border border-zinc-800 bg-zinc-900/80 p-8 shadow-2xl backdrop-blur-sm">
-        <h1 className="text-center text-2xl font-bold tracking-tight text-white">Forgot Password</h1>
+      <div className="relative z-10 w-full max-w-sm space-y-4 rounded-xl border border-stone-200 bg-white/80 p-8 shadow-lg backdrop-blur-sm">
+        <h1 className="text-center text-2xl font-heading font-semibold tracking-tight text-stone-900">Forgot Password</h1>
         {sent ? (
-          <p className="text-center text-sm text-green-400">If that email exists, a reset link has been sent.</p>
+          <p className="text-center text-sm text-green-600">If that email exists, a reset link has been sent.</p>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            {error && <p className="text-center text-sm text-red-400">{error}</p>}
+            {error && <p className="text-center text-sm text-red-600">{error}</p>}
             <div className="space-y-1">
               <Input
                 type="email"
                 placeholder="Your email"
                 {...register("email")}
-                className="border-zinc-700 bg-zinc-800 text-white placeholder-zinc-400"
+                className="border-stone-300 bg-stone-200 text-stone-900 placeholder-stone-500"
               />
-              {errors.email && <p className="text-xs text-red-400">{errors.email.message}</p>}
+              {errors.email && <p className="text-xs text-red-600">{errors.email.message}</p>}
             </div>
-            <Button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white hover:bg-blue-700">
+            <Button type="submit" disabled={isSubmitting} className="w-full bg-emerald-600 text-white hover:bg-emerald-700">
               {isSubmitting ? "Sending..." : "Send Reset Link"}
             </Button>
           </form>
         )}
-        <p className="text-center text-sm text-zinc-400">
-          <Link href="/login" className="text-blue-400 hover:underline">Back to Sign In</Link>
+        <p className="text-center text-sm text-stone-500">
+          <Link href="/login" className="text-emerald-600 hover:underline">Back to Sign In</Link>
         </p>
       </div>
     </div>
