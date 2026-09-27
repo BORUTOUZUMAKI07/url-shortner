@@ -158,11 +158,11 @@ export default function Home() {
               </g>
 
               {/* central short-link pill */}
-              <g transform="translate(310,182)">
-                <rect x="0" y="0" width="180" height="56" rx="28" fill="url(#hero-pill)" />
+              <g transform="translate(295,182)">
+                <rect x="0" y="0" width="210" height="56" rx="28" fill="url(#hero-pill)" />
                 <circle cx="28" cy="28" r="12" fill="white" fillOpacity="0.15" />
                 <path d="M22 28 h12 M25 24 a4 4 0 0 1 0 8 M31 24 a4 4 0 0 1 0 8" stroke="white" strokeWidth="2.5" strokeLinecap="round" fill="none" />
-                <text x="52" y="33" fontSize="17" fontFamily="ui-monospace, monospace" fill="white" fontWeight="600">lnkfg.co/x7K9p</text>
+                <text x="52" y="33" fontSize="15.5" fontFamily="ui-monospace, monospace" fill="white" fontWeight="600" letterSpacing="-0.2">lnkfg.co/x7K9p</text>
               </g>
             </svg>
           </motion.div>
