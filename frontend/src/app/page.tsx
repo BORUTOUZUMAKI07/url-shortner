@@ -102,34 +102,69 @@ export default function Home() {
             </div>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.3 }} className="mt-16">
-            <div className="mx-auto max-w-4xl rounded-2xl border border-stone-200 bg-white/50 p-2 backdrop-blur-sm">
-              <div className="rounded-xl border border-stone-200 bg-stone-50 p-4">
-                <div className="flex items-center gap-2 border-b border-stone-200 pb-3">
-                  <div className="size-3 rounded-full bg-red-500" />
-                  <div className="size-3 rounded-full bg-yellow-500" />
-                  <div className="size-3 rounded-full bg-green-500" />
-                  <span className="ml-2 text-xs text-stone-500">Preview</span>
-                </div>
-                <div className="mt-4 grid grid-cols-3 gap-3">
-                  <div className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
-                    <Link2 className="size-4 text-emerald-600" />
-                    <div className="mt-2 text-xs text-stone-500">Smart Links</div>
-                    <div className="mt-0.5 text-sm font-semibold text-stone-900">Custom aliases &amp; QR codes</div>
-                  </div>
-                  <div className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
-                    <BarChart3 className="size-4 text-amber-600" />
-                    <div className="mt-2 text-xs text-stone-500">Analytics</div>
-                    <div className="mt-0.5 text-sm font-semibold text-stone-900">Real-time dashboards</div>
-                  </div>
-                  <div className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
-                    <Users className="size-4 text-emerald-600" />
-                    <div className="mt-2 text-xs text-stone-500">Collaboration</div>
-                    <div className="mt-0.5 text-sm font-semibold text-stone-900">Team workspaces</div>
-                  </div>
-                </div>
-              </div>
+          <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.3 }} className="relative mt-16">
+            <div className="pointer-events-none absolute inset-0 -z-10">
+              <div className="absolute left-1/2 top-1/2 h-[420px] w-[720px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-br from-emerald-200/40 via-sky-100/30 to-amber-100/40 blur-3xl" />
             </div>
+            <svg viewBox="0 0 800 440" className="mx-auto w-full max-w-3xl" role="img" aria-label="Illustration of a shortened link fanning out to click, analytics, team, and location destinations">
+              <defs>
+                <linearGradient id="hero-pill" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#059669" />
+                  <stop offset="100%" stopColor="#047857" />
+                </linearGradient>
+              </defs>
+
+              {/* connecting paths from the short-link pill to each destination node */}
+              <path d="M400 210 C 320 170, 250 130, 165 100" fill="none" stroke="#0284c7" strokeWidth="2" strokeDasharray="1 8" strokeLinecap="round" opacity="0.5" />
+              <path d="M400 210 C 320 250, 250 290, 165 335" fill="none" stroke="#e11d48" strokeWidth="2" strokeDasharray="1 8" strokeLinecap="round" opacity="0.5" />
+              <path d="M400 210 C 480 170, 560 130, 645 95" fill="none" stroke="#d97706" strokeWidth="2" strokeDasharray="1 8" strokeLinecap="round" opacity="0.5" />
+              <path d="M400 210 C 480 255, 560 295, 645 340" fill="none" stroke="#7c3aed" strokeWidth="2" strokeDasharray="1 8" strokeLinecap="round" opacity="0.5" />
+
+              {/* destination node: click */}
+              <g transform="translate(120,75)">
+                <rect x="0" y="0" width="90" height="52" rx="14" fill="white" stroke="#e7e5e4" />
+                <circle cx="26" cy="26" r="11" fill="#0284c7" fillOpacity="0.12" />
+                <path d="M22 20 L32 26 L22 32 Z" fill="#0284c7" />
+                <rect x="44" y="18" width="34" height="5" rx="2.5" fill="#e7e5e4" />
+                <rect x="44" y="28" width="24" height="5" rx="2.5" fill="#e7e5e4" />
+              </g>
+
+              {/* destination node: analytics */}
+              <g transform="translate(120,310)">
+                <rect x="0" y="0" width="90" height="52" rx="14" fill="white" stroke="#e7e5e4" />
+                <rect x="16" y="30" width="8" height="12" rx="2" fill="#e11d48" fillOpacity="0.7" />
+                <rect x="28" y="22" width="8" height="20" rx="2" fill="#e11d48" />
+                <rect x="40" y="14" width="8" height="28" rx="2" fill="#e11d48" fillOpacity="0.7" />
+                <rect x="58" y="18" width="24" height="5" rx="2.5" fill="#e7e5e4" />
+                <rect x="58" y="28" width="18" height="5" rx="2.5" fill="#e7e5e4" />
+              </g>
+
+              {/* destination node: team */}
+              <g transform="translate(590,70)">
+                <rect x="0" y="0" width="90" height="52" rx="14" fill="white" stroke="#e7e5e4" />
+                <circle cx="24" cy="22" r="9" fill="#d97706" fillOpacity="0.85" />
+                <circle cx="36" cy="22" r="9" fill="#d97706" fillOpacity="0.35" />
+                <rect x="16" y="36" width="52" height="5" rx="2.5" fill="#e7e5e4" />
+              </g>
+
+              {/* destination node: global reach */}
+              <g transform="translate(590,315)">
+                <rect x="0" y="0" width="90" height="52" rx="14" fill="white" stroke="#e7e5e4" />
+                <circle cx="26" cy="26" r="12" fill="none" stroke="#7c3aed" strokeWidth="2" />
+                <ellipse cx="26" cy="26" rx="5" ry="12" fill="none" stroke="#7c3aed" strokeWidth="1.5" />
+                <line x1="14" y1="26" x2="38" y2="26" stroke="#7c3aed" strokeWidth="1.5" />
+                <rect x="46" y="20" width="30" height="5" rx="2.5" fill="#e7e5e4" />
+                <rect x="46" y="30" width="20" height="5" rx="2.5" fill="#e7e5e4" />
+              </g>
+
+              {/* central short-link pill */}
+              <g transform="translate(310,182)">
+                <rect x="0" y="0" width="180" height="56" rx="28" fill="url(#hero-pill)" />
+                <circle cx="28" cy="28" r="12" fill="white" fillOpacity="0.15" />
+                <path d="M22 28 h12 M25 24 a4 4 0 0 1 0 8 M31 24 a4 4 0 0 1 0 8" stroke="white" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+                <text x="52" y="33" fontSize="17" fontFamily="ui-monospace, monospace" fill="white" fontWeight="600">lnkfg.co/x7K9p</text>
+              </g>
+            </svg>
           </motion.div>
         </div>
       </section>

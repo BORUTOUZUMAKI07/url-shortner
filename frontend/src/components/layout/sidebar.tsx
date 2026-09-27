@@ -4,6 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { CATEGORY_COLORS, categoryForPath } from "@/lib/category-colors"
 import {
   LayoutDashboard, Link2, Plus, FolderOpen, Tags,
   Key, Webhook, Upload, Settings, Users, LogOut,
@@ -110,6 +111,7 @@ export function Sidebar() {
               {section.items.map((item) => {
                 const Icon = item.icon
                 const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
+                const colors = CATEGORY_COLORS[categoryForPath(item.href)]
                 return (
                   <Link
                     key={item.href}
@@ -118,15 +120,15 @@ export function Sidebar() {
                     className={cn(
                       "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all",
                       isActive
-                        ? "bg-emerald-500/10 text-emerald-600"
+                        ? colors.active
                         : "text-stone-500 hover:text-stone-700 hover:bg-stone-200/50",
                     )}
                   >
-                    <div className={cn("flex size-5 items-center justify-center", isActive ? "text-emerald-600" : "text-stone-500 group-hover:text-stone-600")}>
+                    <div className={cn("flex size-5 items-center justify-center", isActive ? colors.chip.split(" ")[1] : "text-stone-500 group-hover:text-stone-600")}>
                       <Icon className="size-4" />
                     </div>
                     {item.label}
-                    {isActive && <div className="ml-auto size-1.5 rounded-full bg-emerald-500" />}
+                    {isActive && <div className={cn("ml-auto size-1.5 rounded-full", colors.dot)} />}
                   </Link>
                 )
               })}

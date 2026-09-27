@@ -63,7 +63,7 @@ export default function BillingPage() {
         <ArrowLeft className="size-4" /> Back
       </button>
       <div className="mb-6 flex items-center gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600">
           <Crown className="size-4.5" />
         </div>
         <div>
@@ -80,7 +80,7 @@ export default function BillingPage() {
           const isCurrent = user.plan === plan.backend
           const isLoading = upgradeMutation.isPending && upgradeMutation.variables === plan.backend
           return (
-            <Card key={plan.name} className={`transition-all ${isCurrent ? "ring-2 ring-emerald-500" : "hover:ring-1 hover:ring-muted"}`}>
+            <Card key={plan.name} className={`transition-all ${isCurrent ? "ring-2 ring-emerald-500 shadow-lg" : "hover:ring-1 hover:ring-muted"}`}>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>{plan.name}</CardTitle>

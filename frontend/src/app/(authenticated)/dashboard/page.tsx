@@ -76,11 +76,11 @@ export default function DashboardPage() {
       </div>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2">
-        {stats.map((s) => {
+        {stats.map((s, idx) => {
           const Icon = s.icon
           const c = colorMap[s.color]
           return (
-            <Card key={s.title} className="border-stone-200/50">
+            <Card key={s.title} className={idx === 0 ? "border-emerald-200/60 shadow-md" : "border-stone-200/50"}>
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>

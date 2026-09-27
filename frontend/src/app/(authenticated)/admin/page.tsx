@@ -72,7 +72,7 @@ export default function AdminPage() {
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-fuchsia-500/10 text-fuchsia-600">
           <Shield className="size-4.5" />
         </div>
         <h1 className="text-2xl font-heading font-semibold tracking-tight">Admin Panel</h1>
@@ -96,8 +96,8 @@ export default function AdminPage() {
 
       {tab === "stats" && stats && (
         <div className="grid gap-4 sm:grid-cols-3">
-          <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Users className="size-5" /> Users</CardTitle></CardHeader>
+          <Card className="border-fuchsia-200/60 shadow-md">
+            <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Users className="size-5 text-fuchsia-600" /> Users</CardTitle></CardHeader>
             <CardContent><p className="text-3xl font-bold">{stats.total_users}</p></CardContent>
           </Card>
           <Card>

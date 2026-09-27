@@ -47,7 +47,7 @@ export default function ApiKeysPage() {
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600">
           <Key className="size-4.5" />
         </div>
         <div>

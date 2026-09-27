@@ -75,7 +75,7 @@ export default function TagsPage() {
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600">
           <TagsIcon className="size-4.5" />
         </div>
         <h1 className="text-2xl font-heading font-semibold tracking-tight">Tags</h1>
