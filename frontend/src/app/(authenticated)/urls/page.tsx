@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { useMe, useWorkspaces, useWorkspaceMembers, useUrls, useFolders, useTags, useFavorites, useDeleteUrlMutation, useAddFavoriteMutation, useRemoveFavoriteMutation } from "@/queries"
-import { Search, ExternalLink, Trash2, BarChart3, Heart, Tags, Link2, Plus, X } from "lucide-react"
+import { Search, ExternalLink, Trash2, BarChart3, Heart, Tags, Link2, Plus, X, Copy } from "lucide-react"
+import { buildShortUrl } from "@/lib/utils"
+import { toast } from "sonner"
 
 export default function URLsPage() {
   useEffect(() => { document.title = "URLs - LinkForge" }, [])
@@ -156,9 +158,16 @@ export default function URLsPage() {
                 <div key={url.id} className="group flex flex-col gap-2 px-6 py-3.5 transition-colors hover:bg-white/30 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <a href={`/${url.short_code}`} target="_blank" className="text-sm font-medium text-stone-100 hover:text-emerald-600 transition-colors">
+                      <a href={buildShortUrl(url)} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-stone-900 hover:text-emerald-600 transition-colors">
                         {url.short_code} <ExternalLink className="inline size-3" />
                       </a>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(buildShortUrl(url)); toast.success("Short URL copied") }}
+                        className="rounded-md p-1 text-stone-400 hover:text-emerald-600 hover:bg-emerald-500/10 transition-colors"
+                        title="Copy short URL"
+                      >
+                        <Copy className="size-3.5" />
+                      </button>
                       <Badge variant={url.status === "active" ? "success" : "secondary"} className="text-xs px-1.5 py-0">
                         {url.status === "active" ? "Live" : url.status}
                       </Badge>

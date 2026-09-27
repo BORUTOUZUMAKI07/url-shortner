@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { auth, foldersApi, getErrorMessage, tagsApi, urls } from "@/lib/api"
+import { buildShortUrl } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
 import { ExternalLink, ArrowLeft, BarChart3, Calendar, Hash, Globe, QrCode, Download, FolderOpen, Tags, Link2, type LucideIcon } from "lucide-react"
 
@@ -161,10 +162,8 @@ export default function URLDetailPage() {
     </div>
   )
 
-  const baseUrl = window.location.origin
-
   const infoItems: InfoItem[] = [
-    { label: "Short Code", value: url.short_code, icon: Hash, link: `${baseUrl}/${url.short_code}` },
+    { label: "Short Code", value: url.short_code, icon: Hash, link: buildShortUrl(url) },
     { label: "Created", value: new Date(url.created_at).toLocaleDateString(), icon: Calendar },
     { label: "Workspace ID", value: url.workspace_id, icon: Globe },
   ]
