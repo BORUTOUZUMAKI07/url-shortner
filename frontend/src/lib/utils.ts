@@ -13,3 +13,13 @@ export function buildShortUrl(url: { domain?: string | null; short_code: string 
   if (url.domain) return `https://${url.domain}/${url.short_code}`
   return `/${url.short_code}`
 }
+
+// For copy-to-clipboard / anywhere the URL leaves the app (Slack, email, a
+// README) a relative path is useless — this always returns a full,
+// paste-anywhere URL. Client-only (reads window.location), which is fine
+// since every caller is a click handler, never SSR render.
+export function buildShareableShortUrl(url: { domain?: string | null; short_code: string }) {
+  if (url.domain) return `https://${url.domain}/${url.short_code}`
+  const origin = typeof window !== "undefined" ? window.location.origin : ""
+  return `${origin}/${url.short_code}`
+}
