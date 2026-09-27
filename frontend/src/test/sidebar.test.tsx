@@ -60,6 +60,6 @@ describe("Sidebar", () => {
   it("highlights active nav item", () => {
     const { container } = render(<Sidebar />)
     const dashboardLink = container.querySelector('nav a[href="/dashboard"]')
-    expect(dashboardLink?.className).toContain("bg-blue-500/10")
+    expect(dashboardLink?.className).toContain("bg-emerald-500/10")
   })
 })

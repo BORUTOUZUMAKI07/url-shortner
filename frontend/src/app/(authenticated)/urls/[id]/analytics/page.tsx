@@ -25,7 +25,7 @@ const Legend = dynamic(() => import("recharts").then(mod => mod.Legend), { ssr: 
 import { ArrowLeft, MousePointerClick, Users, BarChart3, Globe, Monitor, Smartphone, ExternalLink, Tags } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"]
+const COLORS = ["#059669", "#d97706", "#0284c7", "#e11d48", "#7c3aed", "#0d9488", "#ea580c", "#65a30d"]
 
 const DAYS_OPTIONS: Record<string, number | undefined> = { "24h": 1, "7d": 7, "30d": 30, "all": 90 }
 
@@ -102,7 +102,7 @@ export default function AnalyticsPage() {
   if (urlError) return (
     <div className="flex min-h-[60vh] items-center justify-center">
       <div className="flex flex-col items-center gap-3 text-center">
-        <p className="text-lg font-medium text-red-400">Failed to load analytics</p>
+        <p className="text-lg font-medium text-red-600">Failed to load analytics</p>
         <p className="text-sm text-muted-foreground">This URL may have been deleted or you don&apos;t have access to it.</p>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => router.push("/urls")}>Back to URLs</Button>
@@ -115,16 +115,16 @@ export default function AnalyticsPage() {
   if (!url) return (
     <div className="flex min-h-[60vh] items-center justify-center">
       <div className="flex flex-col items-center gap-2">
-        <div className="size-6 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+        <div className="size-6 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
         <p className="text-sm text-muted-foreground">Loading...</p>
       </div>
     </div>
   )
 
   const stats = [
-    { title: "Total Clicks", value: actualSummary?.total_clicks ?? 0, icon: MousePointerClick, color: "text-blue-400", bg: "bg-blue-500/10" },
-    { title: "Unique Visitors", value: actualSummary?.unique_clicks ?? 0, icon: Users, color: "text-green-400", bg: "bg-green-500/10" },
-    { title: "Status", value: url.status, icon: BarChart3, color: "text-purple-400", bg: "bg-purple-500/10" },
+    { title: "Total Clicks", value: actualSummary?.total_clicks ?? 0, icon: MousePointerClick, color: "text-emerald-600", bg: "bg-emerald-500/10" },
+    { title: "Unique Visitors", value: actualSummary?.unique_clicks ?? 0, icon: Users, color: "text-green-600", bg: "bg-green-500/10" },
+    { title: "Status", value: url.status, icon: BarChart3, color: "text-amber-600", bg: "bg-amber-500/10" },
   ]
 
   return (
@@ -134,9 +134,14 @@ export default function AnalyticsPage() {
       </button>
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <BarChart3 className="size-4.5" />
+        </div>
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight">Analytics</h1>
+          <h1 className="text-2xl font-heading font-semibold tracking-tight">Analytics</h1>
           <p className="text-sm text-muted-foreground break-all">/{url.short_code} — {url.original_url}</p>
+        </div>
         </div>
         <Select value={period} onChange={(e) => setPeriod(e.target.value)} className="w-full sm:w-32">
           <option value="24h">24 hours</option>
@@ -149,7 +154,7 @@ export default function AnalyticsPage() {
       {breakdownError && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4">
           <div>
-            <p className="text-sm font-medium text-red-400">Failed to load analytics data</p>
+            <p className="text-sm font-medium text-red-600">Failed to load analytics data</p>
             <p className="text-xs text-muted-foreground">Some charts may be missing. This often means the URL has no clicks yet.</p>
           </div>
           <Button variant="outline" size="sm" onClick={refetchBreakdowns}>Try again</Button>
@@ -186,7 +191,7 @@ export default function AnalyticsPage() {
                   <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} />
                   <Tooltip />
-                  <Bar dataKey="clicks" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="clicks" fill="#059669" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : <p className="py-12 text-center text-sm text-muted-foreground">No data yet</p>}

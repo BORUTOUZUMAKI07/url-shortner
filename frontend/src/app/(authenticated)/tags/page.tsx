@@ -75,7 +75,10 @@ export default function TagsPage() {
   return (
     <div className="p-6">
       <div className="mb-6 flex items-center gap-3">
-        <h1 className="text-2xl font-bold tracking-tight">Tags</h1>
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <TagsIcon className="size-4.5" />
+        </div>
+        <h1 className="text-2xl font-heading font-semibold tracking-tight">Tags</h1>
         <Select value={String(wsId ?? "")} onChange={(e) => setSelectedWsId(Number(e.target.value))} className="w-44">
           {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
         </Select>
@@ -86,7 +89,7 @@ export default function TagsPage() {
         <CardHeader><CardTitle>Create Tag</CardTitle></CardHeader>
         <CardContent className="flex gap-2">
           <Input placeholder="Tag name" value={newName} onChange={(e) => setNewName(e.target.value)} />
-          <Button onClick={handleCreate} className="bg-blue-600 text-white hover:bg-blue-700">
+          <Button onClick={handleCreate} className="bg-emerald-600 text-white hover:bg-emerald-700">
             <Plus className="mr-1 size-4" />Create
           </Button>
         </CardContent>
@@ -94,13 +97,13 @@ export default function TagsPage() {
 
       {tagsError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
-          <TagsIcon className="mx-auto mb-3 size-10 text-red-400" />
+          <TagsIcon className="mx-auto mb-3 size-10 text-red-600" />
           <p className="text-lg font-medium">Failed to load tags</p>
           <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your tags.</p>
           <Button variant="outline" className="mt-4" onClick={() => refetchTags()}>Try again</Button>
         </div>
       ) : tags.length === 0 ? (
-        <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
+        <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
           <TagsIcon className="mx-auto mb-3 size-10 text-muted-foreground" />
           <p className="text-lg font-medium">No tags yet</p>
           <p className="mt-1 text-sm text-muted-foreground">Create tags to organize your URLs.</p>

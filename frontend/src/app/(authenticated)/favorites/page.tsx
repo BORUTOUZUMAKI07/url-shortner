@@ -63,20 +63,25 @@ export default function FavoritesPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Favorites</h1>
-        <p className="text-sm text-muted-foreground">Your bookmarked URLs.</p>
+      <div className="mb-6 flex items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <Heart className="size-4.5" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-heading font-semibold tracking-tight">Favorites</h1>
+          <p className="text-sm text-muted-foreground">Your bookmarked URLs.</p>
+        </div>
       </div>
 
       {urlsError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
-          <Heart className="mx-auto mb-3 size-10 text-red-400" />
+          <Heart className="mx-auto mb-3 size-10 text-red-600" />
           <p className="text-lg font-medium">Failed to load favorites</p>
           <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your bookmarks.</p>
           <Button variant="outline" className="mt-4" onClick={() => refetchFavorites()}>Try again</Button>
         </div>
       ) : urlsData.length === 0 ? (
-        <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
+        <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
           <Heart className="mx-auto mb-3 size-10 text-muted-foreground" />
           <p className="text-lg font-medium">No favorites yet</p>
           <p className="mt-1 text-sm text-muted-foreground">Bookmark URLs from the URLs page.</p>
@@ -87,8 +92,8 @@ export default function FavoritesPage() {
             <div key={url.id} className="flex flex-col gap-2 rounded-lg border bg-card px-4 py-3 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Heart className="size-3.5 text-red-400 shrink-0" />
-                  <a href={`${baseUrl}/${url.short_code}`} target="_blank" className="text-sm font-medium text-blue-400 hover:underline break-all">
+                  <Heart className="size-3.5 text-red-600 shrink-0" />
+                  <a href={`${baseUrl}/${url.short_code}`} target="_blank" className="text-sm font-medium text-emerald-600 hover:underline break-all">
                     {url.short_code} <ExternalLink className="inline size-3" />
                   </a>
                   <Badge variant={url.status === "active" ? "success" : "secondary"}>{url.status}</Badge>

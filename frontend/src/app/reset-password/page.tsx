@@ -39,28 +39,28 @@ function ResetForm() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-zinc-950 px-4">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-stone-50 px-4">
       <BackgroundBeams className="opacity-40" />
-      <div className="relative z-10 w-full max-w-sm space-y-4 rounded-xl border border-zinc-800 bg-zinc-900/80 p-8 shadow-2xl backdrop-blur-sm">
-        <h1 className="text-center text-2xl font-bold tracking-tight text-white">Reset Password</h1>
+      <div className="relative z-10 w-full max-w-sm space-y-4 rounded-xl border border-stone-200 bg-white/80 p-8 shadow-lg backdrop-blur-sm">
+        <h1 className="text-center text-2xl font-heading font-semibold tracking-tight text-stone-900">Reset Password</h1>
         {done ? (
           <div className="space-y-4 text-center">
-            <p className="text-sm text-green-400">Password reset successfully!</p>
-            <Link href="/login"><Button className="bg-blue-600 text-white hover:bg-blue-700">Sign In</Button></Link>
+            <p className="text-sm text-green-600">Password reset successfully!</p>
+            <Link href="/login"><Button className="bg-emerald-600 text-white hover:bg-emerald-700">Sign In</Button></Link>
           </div>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            {error && <p className="text-center text-sm text-red-400">{error}</p>}
+            {error && <p className="text-center text-sm text-red-600">{error}</p>}
             <div className="space-y-1">
               <Input
                 type="password"
                 placeholder="New password"
                 {...register("password")}
-                className="border-zinc-700 bg-zinc-800 text-white placeholder-zinc-400"
+                className="border-stone-300 bg-stone-200 text-stone-900 placeholder-stone-500"
               />
-              {errors.password && <p className="text-xs text-red-400">{errors.password.message}</p>}
+              {errors.password && <p className="text-xs text-red-600">{errors.password.message}</p>}
             </div>
-            <Button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white hover:bg-blue-700">
+            <Button type="submit" disabled={isSubmitting} className="w-full bg-emerald-600 text-white hover:bg-emerald-700">
               {isSubmitting ? "Resetting..." : "Reset Password"}
             </Button>
           </form>
@@ -71,5 +71,5 @@ function ResetForm() {
 }
 
 export default function ResetPasswordPage() {
-  return <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-zinc-950 text-white">Loading...</div>}><ResetForm /></Suspense>
+  return <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-stone-50 text-stone-900">Loading...</div>}><ResetForm /></Suspense>
 }

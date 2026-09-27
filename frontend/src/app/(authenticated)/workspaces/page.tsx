@@ -18,7 +18,7 @@ export default function WorkspacesPage() {
   return (
     <Suspense fallback={
       <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="size-6 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+        <div className="size-6 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
       </div>
     }>
       <WorkspacesPageInner />
@@ -167,12 +167,17 @@ function WorkspacesPageInner() {
   return (
     <div className="p-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <Building2 className="size-4.5" />
+        </div>
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">Workspaces</h1>
-            {user?.is_superadmin && <Badge className="bg-purple-600 text-white">Superadmin</Badge>}
+            <h1 className="text-2xl font-heading font-semibold tracking-tight">Workspaces</h1>
+            {user?.is_superadmin && <Badge className="bg-amber-600 text-white">Superadmin</Badge>}
           </div>
           <p className="text-sm text-muted-foreground">Collaborate with your team.</p>
+        </div>
         </div>
         <Dialog>
           <DialogTrigger asChild>
@@ -193,7 +198,7 @@ function WorkspacesPageInner() {
         <CardHeader><CardTitle>Create Workspace</CardTitle></CardHeader>
         <CardContent className="flex flex-col gap-2 sm:flex-row">
           <Input placeholder="Workspace name" value={newName} onValueChange={(v) => setNewName(v)} className="w-full" />
-          <Button onClick={handleCreate} className="bg-blue-600 text-white hover:bg-blue-700 shrink-0">
+          <Button onClick={handleCreate} className="bg-emerald-600 text-white hover:bg-emerald-700 shrink-0">
             <Plus className="mr-1 size-4" />Create
           </Button>
         </CardContent>
@@ -202,13 +207,13 @@ function WorkspacesPageInner() {
       <div className="space-y-4">
         {workspacesError ? (
           <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
-            <Building2 className="mx-auto mb-3 size-10 text-red-400" />
+            <Building2 className="mx-auto mb-3 size-10 text-red-600" />
             <p className="text-lg font-medium">Failed to load workspaces</p>
             <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your workspaces.</p>
             <Button variant="outline" className="mt-4" onClick={() => refetchWorkspaces()}>Try again</Button>
           </div>
         ) : workspaces.length === 0 ? (
-          <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
+          <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
             <Building2 className="mx-auto mb-3 size-10 text-muted-foreground" />
             <p className="text-lg font-medium">No workspaces yet</p>
             <p className="mt-1 text-sm text-muted-foreground">Create a workspace to collaborate.</p>
@@ -267,7 +272,7 @@ function WorkspacesPageInner() {
                 <CardContent>
                   <p className="mb-3 text-sm font-medium">Members</p>
                   {membersError ? (
-                    <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+                    <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-600">
                       Failed to load members. <button className="underline" onClick={() => refetchMembers()}>Retry</button>
                     </p>
                   ) : (
@@ -298,7 +303,7 @@ function WorkspacesPageInner() {
                   )}
 
                   {invitesError ? (
-                    <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+                    <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-600">
                       Failed to load invites. <button className="underline" onClick={() => refetchInvites()}>Retry</button>
                     </p>
                   ) : invites[ws.id]?.length > 0 && (

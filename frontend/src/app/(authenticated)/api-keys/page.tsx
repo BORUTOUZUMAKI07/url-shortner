@@ -46,17 +46,22 @@ export default function ApiKeysPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">API Keys</h1>
-        <p className="text-sm text-muted-foreground">Manage API keys for programmatic access.</p>
+      <div className="mb-6 flex items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <Key className="size-4.5" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-heading font-semibold tracking-tight">API Keys</h1>
+          <p className="text-sm text-muted-foreground">Manage API keys for programmatic access.</p>
+        </div>
       </div>
 
       {newKey && (
         <Card className="mb-6 border-amber-500/30 bg-amber-500/10">
           <CardContent className="pt-6">
-            <p className="mb-2 text-sm font-medium text-amber-300">Your new API key - copy it now, you won&apos;t see it again!</p>
+            <p className="mb-2 text-sm font-medium text-amber-600">Your new API key - copy it now, you won&apos;t see it again!</p>
             <div className="flex gap-2">
-              <code className="flex-1 rounded border border-amber-500/30 bg-zinc-900 px-3 py-2 text-sm break-all text-amber-200">{newKey}</code>
+              <code className="flex-1 rounded border border-amber-500/30 bg-white px-3 py-2 text-sm break-all text-amber-200">{newKey}</code>
               <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(newKey); setNewKey(null) }}>
                 <Copy className="mr-1 size-3" />Copy
               </Button>
@@ -67,7 +72,7 @@ export default function ApiKeysPage() {
 
       <div className="mb-6 flex gap-2">
         <Input placeholder="Key name (e.g. CI/CD)" value={newName} onChange={(e) => setNewName(e.target.value)} className="max-w-xs" />
-        <Button onClick={handleCreate} disabled={createKey.isPending} className="bg-blue-600 text-white hover:bg-blue-700">
+        <Button onClick={handleCreate} disabled={createKey.isPending} className="bg-emerald-600 text-white hover:bg-emerald-700">
           <Plus className="mr-1 size-4" />{createKey.isPending ? "Creating..." : "Create Key"}
         </Button>
       </div>
@@ -81,8 +86,8 @@ export default function ApiKeysPage() {
             <p className="text-sm text-muted-foreground">Loading...</p>
           ) : isError ? (
             <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-8 text-center">
-              <Key className="mx-auto mb-3 size-8 text-red-400" />
-              <p className="text-sm font-medium text-red-400">Failed to load API keys</p>
+              <Key className="mx-auto mb-3 size-8 text-red-600" />
+              <p className="text-sm font-medium text-red-600">Failed to load API keys</p>
               <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>Try again</Button>
             </div>
           ) : keys.length === 0 ? (

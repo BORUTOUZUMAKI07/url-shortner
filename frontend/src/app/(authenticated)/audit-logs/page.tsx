@@ -49,20 +49,25 @@ export default function AuditLogsPage() {
   })
 
   const actionColors: Record<string, string> = {
-    create: "bg-green-500/10 text-green-400",
-    update: "bg-blue-500/10 text-blue-400",
-    delete: "bg-red-500/10 text-red-400",
-    login: "bg-purple-500/10 text-purple-400",
-    invite: "bg-amber-500/10 text-amber-400",
-    update_role: "bg-amber-500/10 text-amber-400",
-    rename: "bg-amber-500/10 text-amber-400",
+    create: "bg-green-500/10 text-green-600",
+    update: "bg-emerald-500/10 text-emerald-600",
+    delete: "bg-red-500/10 text-red-600",
+    login: "bg-amber-500/10 text-amber-600",
+    invite: "bg-amber-500/10 text-amber-600",
+    update_role: "bg-amber-500/10 text-amber-600",
+    rename: "bg-amber-500/10 text-amber-600",
   }
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Audit Logs</h1>
-        <p className="text-sm text-muted-foreground">Track all events across your workspace.</p>
+      <div className="mb-6 flex items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <History className="size-4.5" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-heading font-semibold tracking-tight">Audit Logs</h1>
+          <p className="text-sm text-muted-foreground">Track all events across your workspace.</p>
+        </div>
       </div>
 
       {isLoadingWs || isLoadingLogs ? (
@@ -71,13 +76,13 @@ export default function AuditLogsPage() {
         </div>
       ) : logsError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
-          <ShieldAlert className="mx-auto mb-3 size-10 text-red-400" />
+          <ShieldAlert className="mx-auto mb-3 size-10 text-red-600" />
           <p className="text-lg font-medium">Failed to load audit logs</p>
           <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your audit logs.</p>
           <Button variant="outline" className="mt-4" onClick={() => refetchLogs()}>Try again</Button>
         </div>
       ) : logs.length === 0 ? (
-        <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
+        <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
           <ShieldAlert className="mx-auto mb-3 size-10 text-muted-foreground" />
           <p className="text-lg font-medium">No audit logs yet</p>
           <p className="mt-1 text-sm text-muted-foreground">Actions in your workspace will appear here.</p>
@@ -104,7 +109,7 @@ export default function AuditLogsPage() {
                   <div className="mt-2">
                     <button
                       onClick={() => setExpanded(expanded === log.id ? null : log.id)}
-                      className="flex items-center gap-1 text-xs text-blue-400 hover:underline"
+                      className="flex items-center gap-1 text-xs text-emerald-600 hover:underline"
                     >
                       {expanded === log.id ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
                       Show details

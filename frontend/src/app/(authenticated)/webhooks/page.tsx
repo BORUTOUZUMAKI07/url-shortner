@@ -85,15 +85,20 @@ export default function WebhooksPage() {
   return (
     <div className="p-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <WebhookIcon className="size-4.5" />
+        </div>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Webhooks</h1>
+          <h1 className="text-2xl font-heading font-semibold tracking-tight">Webhooks</h1>
           <p className="text-sm text-muted-foreground">Receive real-time events about your URLs.</p>
+        </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/webhooks/receiver">
             <Button variant="outline"><Radio className="mr-1 size-4" />Receiver Log</Button>
           </Link>
-          <Button onClick={() => setShowForm(!showForm)} className="bg-blue-600 text-white hover:bg-blue-700">
+          <Button onClick={() => setShowForm(!showForm)} className="bg-emerald-600 text-white hover:bg-emerald-700">
             <Plus className="mr-1 size-4" />Add Webhook
           </Button>
         </div>
@@ -113,8 +118,8 @@ export default function WebhooksPage() {
                     onClick={() => toggleEvent(e)}
                     className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
                       events.includes(e)
-                        ? "border-blue-500 bg-blue-500/20 text-blue-300"
-                        : "border-zinc-700 bg-background text-muted-foreground hover:bg-muted"
+                        ? "border-emerald-500 bg-emerald-500/20 text-emerald-500"
+                        : "border-stone-300 bg-background text-muted-foreground hover:bg-muted"
                     }`}
                   >
                     {e}
@@ -132,13 +137,13 @@ export default function WebhooksPage() {
 
       {hooksError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
-          <WebhookIcon className="mx-auto mb-3 size-10 text-red-400" />
+          <WebhookIcon className="mx-auto mb-3 size-10 text-red-600" />
           <p className="text-lg font-medium">Failed to load webhooks</p>
           <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your webhooks.</p>
           <Button variant="outline" className="mt-4" onClick={() => refetchHooks()}>Try again</Button>
         </div>
       ) : hooks.length === 0 ? (
-        <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
+        <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
           <WebhookIcon className="mx-auto mb-3 size-10 text-muted-foreground" />
           <p className="text-lg font-medium">No webhooks yet</p>
           <p className="mt-1 text-sm text-muted-foreground">Create a webhook to receive real-time events.</p>

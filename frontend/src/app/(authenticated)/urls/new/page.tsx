@@ -77,8 +77,8 @@ export default function CreateURLPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-blue-500/10 p-2">
-                <Link2 className="size-5 text-blue-400" />
+              <div className="rounded-lg bg-emerald-500/10 p-2">
+                <Link2 className="size-5 text-emerald-600" />
               </div>
               <div>
                 <CardTitle>Create Short URL</CardTitle>
@@ -88,13 +88,13 @@ export default function CreateURLPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              {createUrl.isError && <p className="text-sm text-red-400">{createUrl.error.message}</p>}
+              {createUrl.isError && <p className="text-sm text-red-600">{createUrl.error.message}</p>}
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
                   <Label>Original URL</Label>
                   <Input type="url" {...register("original_url")} required placeholder="https://example.com/very/long/url" />
-                  {errors.original_url && <p className="mt-1 text-xs text-red-400">{errors.original_url.message}</p>}
+                  {errors.original_url && <p className="mt-1 text-xs text-red-600">{errors.original_url.message}</p>}
                 </div>
                 <div>
                   <Label>Workspace</Label>
@@ -106,7 +106,7 @@ export default function CreateURLPage() {
                     <option value="">Select...</option>
                     {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
                   </Select>
-                  {errors.workspace_id && <p className="mt-1 text-xs text-red-400">{errors.workspace_id.message}</p>}
+                  {errors.workspace_id && <p className="mt-1 text-xs text-red-600">{errors.workspace_id.message}</p>}
                 </div>
                 <div>
                   <Label>Folder <span className="text-muted-foreground">(optional)</span></Label>
@@ -118,7 +118,7 @@ export default function CreateURLPage() {
                 <div>
                   <Label>Custom Alias <span className="text-muted-foreground">(optional)</span></Label>
                   <Input type="text" {...register("custom_alias")} placeholder="my-custom-link" />
-                  {errors.custom_alias && <p className="mt-1 text-xs text-red-400">{errors.custom_alias.message}</p>}
+                  {errors.custom_alias && <p className="mt-1 text-xs text-red-600">{errors.custom_alias.message}</p>}
                 </div>
               </div>
 
@@ -141,8 +141,8 @@ export default function CreateURLPage() {
                       <button key={t.id} type="button" onClick={() => toggleTag(t.name)}
                         className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                           selectedTagList.includes(t.name)
-                            ? "bg-blue-600 text-white"
-                            : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                            ? "bg-emerald-600 text-white"
+                            : "bg-stone-200 text-stone-600 hover:bg-stone-300"
                         }`}
                       >
                         {t.name}
@@ -154,7 +154,7 @@ export default function CreateURLPage() {
 
               <div className="flex flex-col gap-3 pt-2 sm:flex-row">
                 <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
-                <Button type="submit" disabled={isSubmitting || selectedWs === 0} className="bg-blue-600 text-white hover:bg-blue-700">
+                <Button type="submit" disabled={isSubmitting || selectedWs === 0} className="bg-emerald-600 text-white hover:bg-emerald-700">
                   {isSubmitting ? "Creating..." : "Create URL"}
                 </Button>
               </div>

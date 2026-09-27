@@ -101,7 +101,7 @@ export default function ProfilePage() {
   if (!user) return (
     <div className="flex min-h-[60vh] items-center justify-center">
       <div className="flex flex-col items-center gap-2">
-        <div className="size-6 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+        <div className="size-6 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
         <p className="text-sm text-muted-foreground">Loading...</p>
       </div>
     </div>
@@ -118,9 +118,14 @@ export default function ProfilePage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Profile</h1>
-        <p className="text-sm text-muted-foreground">Your account details and settings.</p>
+      <div className="mb-6 flex items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <User className="size-4.5" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-heading font-semibold tracking-tight">Profile</h1>
+          <p className="text-sm text-muted-foreground">Your account details and settings.</p>
+        </div>
       </div>
 
       <div className="mx-auto max-w-2xl space-y-6">
@@ -138,7 +143,7 @@ export default function ProfilePage() {
               )}
               {avatarLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                  <Loader2 className="size-5 animate-spin text-white" />
+                  <Loader2 className="size-5 animate-spin text-stone-900" />
                 </div>
               )}
             </div>
@@ -147,7 +152,7 @@ export default function ProfilePage() {
               <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={avatarLoading}>
                 <Camera className="mr-1 size-4" /> Upload Avatar
               </Button>
-              {avatarError && <p className="mt-1 text-xs text-red-400">{avatarError}</p>}
+              {avatarError && <p className="mt-1 text-xs text-red-600">{avatarError}</p>}
             </div>
           </CardContent>
         </Card>
@@ -182,14 +187,14 @@ export default function ProfilePage() {
             <form onSubmit={pwForm.handleSubmit(onPasswordSubmit)} className="space-y-3">
               <div className="space-y-1">
                 <Input type="password" placeholder="Current password" {...pwForm.register("pwCurrent")} />
-                {pwForm.formState.errors.pwCurrent && <p className="text-xs text-red-400">{pwForm.formState.errors.pwCurrent.message}</p>}
+                {pwForm.formState.errors.pwCurrent && <p className="text-xs text-red-600">{pwForm.formState.errors.pwCurrent.message}</p>}
               </div>
               <div className="space-y-1">
                 <Input type="password" placeholder="New password" {...pwForm.register("pwNew")} />
-                {pwForm.formState.errors.pwNew && <p className="text-xs text-red-400">{pwForm.formState.errors.pwNew.message}</p>}
+                {pwForm.formState.errors.pwNew && <p className="text-xs text-red-600">{pwForm.formState.errors.pwNew.message}</p>}
               </div>
-              {pwError && <p className="flex items-center gap-1 text-xs text-red-400"><AlertCircle className="size-3" /> {pwError}</p>}
-              {pwSuccess && <p className="flex items-center gap-1 text-xs text-green-400"><Check className="size-3" /> {pwSuccess}</p>}
+              {pwError && <p className="flex items-center gap-1 text-xs text-red-600"><AlertCircle className="size-3" /> {pwError}</p>}
+              {pwSuccess && <p className="flex items-center gap-1 text-xs text-green-600"><Check className="size-3" /> {pwSuccess}</p>}
               <Button type="submit" disabled={pwForm.formState.isSubmitting}>
                 {pwForm.formState.isSubmitting && <Loader2 className="mr-1 size-4 animate-spin" />} Update Password
               </Button>
@@ -204,14 +209,14 @@ export default function ProfilePage() {
             <form onSubmit={emailForm.handleSubmit(onEmailSubmit)} className="space-y-3">
               <div className="space-y-1">
                 <Input type="email" placeholder="New email address" {...emailForm.register("newEmail")} />
-                {emailForm.formState.errors.newEmail && <p className="text-xs text-red-400">{emailForm.formState.errors.newEmail.message}</p>}
+                {emailForm.formState.errors.newEmail && <p className="text-xs text-red-600">{emailForm.formState.errors.newEmail.message}</p>}
               </div>
               <div className="space-y-1">
                 <Input type="password" placeholder="Current password (to confirm)" {...emailForm.register("emailPw")} />
-                {emailForm.formState.errors.emailPw && <p className="text-xs text-red-400">{emailForm.formState.errors.emailPw.message}</p>}
+                {emailForm.formState.errors.emailPw && <p className="text-xs text-red-600">{emailForm.formState.errors.emailPw.message}</p>}
               </div>
-              {emailError && <p className="flex items-center gap-1 text-xs text-red-400"><AlertCircle className="size-3" /> {emailError}</p>}
-              {emailSuccess && <p className="flex items-center gap-1 text-xs text-green-400"><Check className="size-3" /> {emailSuccess}</p>}
+              {emailError && <p className="flex items-center gap-1 text-xs text-red-600"><AlertCircle className="size-3" /> {emailError}</p>}
+              {emailSuccess && <p className="flex items-center gap-1 text-xs text-green-600"><Check className="size-3" /> {emailSuccess}</p>}
               <Button type="submit" disabled={emailForm.formState.isSubmitting}>
                 {emailForm.formState.isSubmitting && <Loader2 className="mr-1 size-4 animate-spin" />} Update Email
               </Button>
@@ -224,7 +229,7 @@ export default function ProfilePage() {
           {!user.is_verified && (
             <Card>
               <CardContent className="flex items-center gap-4 pt-6">
-                <XCircle className="size-6 text-amber-400" />
+                <XCircle className="size-6 text-amber-600" />
                 <div className="flex-1">
                   <p className="text-sm font-medium">Email not verified</p>
                   <p className="text-xs text-muted-foreground">Check your inbox for the verification link.</p>
@@ -234,7 +239,7 @@ export default function ProfilePage() {
           )}
           <Card className="cursor-pointer hover:bg-muted/30" onClick={() => router.push("/billing")}>
             <CardContent className="flex items-center gap-4 pt-6">
-              <Crown className="size-6 text-amber-400" />
+              <Crown className="size-6 text-amber-600" />
               <div className="flex-1">
                 <p className="text-sm font-medium">Upgrade Plan</p>
                 <p className="text-xs text-muted-foreground">You&apos;re on the {user.plan} plan</p>

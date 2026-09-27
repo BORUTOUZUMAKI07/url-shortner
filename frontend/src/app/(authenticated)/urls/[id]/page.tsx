@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { auth, foldersApi, getErrorMessage, tagsApi, urls } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
-import { ExternalLink, ArrowLeft, BarChart3, Calendar, Hash, Globe, QrCode, Download, FolderOpen, Tags, type LucideIcon } from "lucide-react"
+import { ExternalLink, ArrowLeft, BarChart3, Calendar, Hash, Globe, QrCode, Download, FolderOpen, Tags, Link2, type LucideIcon } from "lucide-react"
 
 type UrlUpdateInput = Parameters<typeof urls.update>[1]
 type InfoItem = {
@@ -142,7 +142,7 @@ export default function URLDetailPage() {
   if (urlError) return (
     <div className="flex min-h-[60vh] items-center justify-center">
       <div className="flex flex-col items-center gap-3 text-center">
-        <p className="text-lg font-medium text-red-400">Failed to load URL</p>
+        <p className="text-lg font-medium text-red-600">Failed to load URL</p>
         <p className="text-sm text-muted-foreground">This URL may have been deleted or you don&apos;t have access to it.</p>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => router.push("/urls")}>Back to URLs</Button>
@@ -155,7 +155,7 @@ export default function URLDetailPage() {
   if (!url) return (
     <div className="flex min-h-[60vh] items-center justify-center">
       <div className="flex flex-col items-center gap-2">
-        <div className="size-6 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+        <div className="size-6 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
         <p className="text-sm text-muted-foreground">Loading...</p>
       </div>
     </div>
@@ -185,8 +185,11 @@ export default function URLDetailPage() {
       </button>
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <Link2 className="size-4.5" />
+        </div>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tight">URL Details</h1>
+          <h1 className="text-2xl font-heading font-semibold tracking-tight">URL Details</h1>
           <p className="text-sm text-muted-foreground break-all">/{url.short_code}</p>
           <Badge variant={url.status === "active" ? "success" : "secondary"} className="capitalize">{url.status}</Badge>
           {url.is_one_time && <Badge variant="warning">One-time</Badge>}
@@ -197,7 +200,7 @@ export default function URLDetailPage() {
         <Card>
           <CardHeader><CardTitle>Edit URL</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-sm text-red-600">{error}</p>}
             <div>
               <label className="mb-1.5 block text-sm font-medium">Original URL</label>
               <Input value={originalUrl} onChange={(e) => setOriginalUrl(e.target.value)} />
@@ -223,7 +226,7 @@ export default function URLDetailPage() {
                   <option value="">No folder</option>
                   {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </Select>
-                {foldersError && <p className="mt-1 text-xs text-red-400">Failed to load folders. <button className="underline" onClick={() => refetchFolders()}>Retry</button></p>}
+                {foldersError && <p className="mt-1 text-xs text-red-600">Failed to load folders. <button className="underline" onClick={() => refetchFolders()}>Retry</button></p>}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -233,14 +236,14 @@ export default function URLDetailPage() {
                 }
                   className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                     selectedTags.includes(t.name)
-                      ? "bg-blue-600 text-white"
-                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                      ? "bg-emerald-600 text-white"
+                      : "bg-stone-200 text-stone-600 hover:bg-stone-300"
                   }`}
                 >
                   {t.name}
                 </button>
               ))}
-              {tagsError && <p className="text-xs text-red-400">Failed to load tags. <button className="underline" onClick={() => refetchTags()}>Retry</button></p>}
+              {tagsError && <p className="text-xs text-red-600">Failed to load tags. <button className="underline" onClick={() => refetchTags()}>Retry</button></p>}
             </div>
             <Separator />
             <div className="flex items-center justify-between rounded-lg border p-3">
@@ -262,7 +265,7 @@ export default function URLDetailPage() {
                 </div>
               </div>
             )}
-            <Button onClick={handleSave} disabled={updateMutation.isPending} className="bg-blue-600 text-white hover:bg-blue-700">
+            <Button onClick={handleSave} disabled={updateMutation.isPending} className="bg-emerald-600 text-white hover:bg-emerald-700">
               {updateMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </CardContent>
@@ -274,7 +277,7 @@ export default function URLDetailPage() {
               <CardHeader><CardTitle>Preview</CardTitle></CardHeader>
               <CardContent className="space-y-3">
                 {url.og_image && (
-                  <div className="relative w-full aspect-video overflow-hidden rounded-lg bg-zinc-800">
+                  <div className="relative w-full aspect-video overflow-hidden rounded-lg bg-stone-200">
                     <img src={url.og_image} alt={url.title || "Preview"} className="w-full h-full object-cover" />
                   </div>
                 )}
@@ -300,7 +303,7 @@ export default function URLDetailPage() {
                       <span className="text-sm text-muted-foreground">{item.label}</span>
                     </div>
                     {item.link ? (
-                      <a href={item.link} target="_blank" className="text-sm font-medium text-blue-400 hover:underline flex items-center gap-1">
+                      <a href={item.link} target="_blank" className="text-sm font-medium text-emerald-600 hover:underline flex items-center gap-1">
                         {item.value} <ExternalLink className="size-3" />
                       </a>
                     ) : (

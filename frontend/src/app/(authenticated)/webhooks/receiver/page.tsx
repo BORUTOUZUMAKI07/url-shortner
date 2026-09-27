@@ -67,16 +67,16 @@ export default function WebhookReceiverPage() {
   }
 
   const eventColors: Record<string, string> = {
-    "url.created": "bg-green-500/10 text-green-400",
-    "url.clicked": "bg-blue-500/10 text-blue-400",
-    "url.expired": "bg-amber-500/10 text-amber-400",
-    "url.deleted": "bg-red-500/10 text-red-400",
+    "url.created": "bg-green-500/10 text-green-600",
+    "url.clicked": "bg-emerald-500/10 text-emerald-600",
+    "url.expired": "bg-amber-500/10 text-amber-600",
+    "url.deleted": "bg-red-500/10 text-red-600",
   }
 
   if (workspacesError) return (
     <div className="p-6">
       <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
-        <Webhook className="mx-auto mb-3 size-10 text-red-400" />
+        <Webhook className="mx-auto mb-3 size-10 text-red-600" />
         <p className="text-lg font-medium">Failed to load workspaces</p>
         <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your workspaces.</p>
         <Button variant="outline" className="mt-4" onClick={() => refetchWorkspaces()}>Try again</Button>
@@ -88,15 +88,20 @@ export default function WebhookReceiverPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Webhook Receiver</h1>
-        <p className="text-sm text-muted-foreground">View webhook events delivered to your app in real time.</p>
+      <div className="mb-6 flex items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <Webhook className="size-4.5" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-heading font-semibold tracking-tight">Webhook Receiver</h1>
+          <p className="text-sm text-muted-foreground">View webhook events delivered to your app in real time.</p>
+        </div>
       </div>
 
       <Card className="mb-6">
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Terminal className="size-5 text-blue-400" />
+            <Terminal className="size-5 text-emerald-600" />
             <CardTitle className="text-base">Receiver URL</CardTitle>
           </div>
         </CardHeader>
@@ -107,7 +112,7 @@ export default function WebhookReceiverPage() {
           <div className="flex items-center gap-2">
             <code className="flex-1 rounded bg-muted px-3 py-2 text-sm font-mono break-all">{receiverUrl}</code>
             <Button variant="outline" size="sm" onClick={copyUrl}>
-              {copied ? <CheckCircle2 className="size-4 text-green-400" /> : <Copy className="size-4" />}
+              {copied ? <CheckCircle2 className="size-4 text-green-600" /> : <Copy className="size-4" />}
             </Button>
           </div>
         </CardContent>
@@ -122,13 +127,13 @@ export default function WebhookReceiverPage() {
 
       {eventsError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
-          <Webhook className="mx-auto mb-3 size-10 text-red-400" />
+          <Webhook className="mx-auto mb-3 size-10 text-red-600" />
           <p className="text-lg font-medium">Failed to load events</p>
           <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching received events.</p>
           <Button variant="outline" className="mt-4" onClick={() => fetchEvents()}>Try again</Button>
         </div>
       ) : events.length === 0 ? (
-        <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
+        <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
           <Webhook className="mx-auto mb-3 size-10 text-muted-foreground" />
           <p className="text-lg font-medium">No events received yet</p>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -143,7 +148,7 @@ export default function WebhookReceiverPage() {
                 key={ev.id}
                 onClick={() => setSelected(ev)}
                 className={`flex items-center gap-3 rounded-lg border bg-card px-4 py-3 cursor-pointer transition-colors hover:bg-muted/50 ${
-                  selected?.id === ev.id ? "ring-2 ring-blue-500" : ""
+                  selected?.id === ev.id ? "ring-2 ring-emerald-500" : ""
                 }`}
               >
                 <div className="flex-1 min-w-0">
@@ -153,9 +158,9 @@ export default function WebhookReceiverPage() {
                     </span>
                     {ev.signature ? (
                       ev.signature_valid ? (
-                        <CheckCircle2 className="size-3.5 text-green-400" />
+                        <CheckCircle2 className="size-3.5 text-green-600" />
                       ) : (
-                        <XCircle className="size-3.5 text-red-400" />
+                        <XCircle className="size-3.5 text-red-600" />
                       )
                     ) : (
                       <XCircle className="size-3.5 text-muted-foreground" />
@@ -202,7 +207,7 @@ export default function WebhookReceiverPage() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
+              <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
                 <Terminal className="mx-auto mb-3 size-10 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">Select an event to inspect</p>
               </div>

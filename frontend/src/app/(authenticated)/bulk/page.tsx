@@ -86,7 +86,7 @@ export default function BulkPage() {
   if (workspacesError) return (
     <div className="p-6">
       <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
-        <UploadCloud className="mx-auto mb-3 size-10 text-red-400" />
+        <UploadCloud className="mx-auto mb-3 size-10 text-red-600" />
         <p className="text-lg font-medium">Failed to load workspaces</p>
         <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your workspaces.</p>
         <Button variant="outline" className="mt-4" onClick={() => refetchWorkspaces()}>Try again</Button>
@@ -173,9 +173,14 @@ export default function BulkPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Bulk Operations</h1>
-        <p className="text-sm text-muted-foreground">Create, manage, and export URLs in bulk.</p>
+      <div className="mb-6 flex items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <Upload className="size-4.5" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-heading font-semibold tracking-tight">Bulk Operations</h1>
+          <p className="text-sm text-muted-foreground">Create, manage, and export URLs in bulk.</p>
+        </div>
       </div>
 
       <div className="mb-4 flex gap-2">
@@ -188,17 +193,17 @@ export default function BulkPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
-                <div className="rounded-lg bg-blue-500/10 p-2"><UploadCloud className="size-5 text-blue-400" /></div>
+                <div className="rounded-lg bg-emerald-500/10 p-2"><UploadCloud className="size-5 text-emerald-600" /></div>
                 <CardTitle>Bulk Create</CardTitle>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">One URL per line: <code className="rounded bg-muted px-1 py-0.5">url,custom_alias</code></p>
               <Textarea className="h-40 font-mono text-sm" placeholder="https://example.com/1,my-link" value={urlsInput} onChange={(e) => setUrlsInput(e.target.value)} />
-              <Button onClick={handleBulkCreate} disabled={loading} className="bg-blue-600 text-white hover:bg-blue-700">
+              <Button onClick={handleBulkCreate} disabled={loading} className="bg-emerald-600 text-white hover:bg-emerald-700">
                 <Upload className="mr-1 size-4" />{loading ? "Creating..." : "Bulk Create"}
               </Button>
-              {result && <p className={`text-sm ${result.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>{result}</p>}
+              {result && <p className={`text-sm ${result.startsWith("Error") ? "text-red-600" : "text-green-600"}`}>{result}</p>}
             </CardContent>
           </Card>
 
@@ -218,7 +223,7 @@ export default function BulkPage() {
                     <option value="">No folder</option>
                     {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                   </Select>
-                  {foldersError && <p className="mt-1 text-xs text-red-400">Failed to load folders.</p>}
+                  {foldersError && <p className="mt-1 text-xs text-red-600">Failed to load folders.</p>}
                 </div>
                 <div>
                   <Label>Tags <span className="text-muted-foreground">(optional)</span></Label>
@@ -227,14 +232,14 @@ export default function BulkPage() {
                       <button key={t.id} type="button" onClick={() => toggleTag(t.name)}
                         className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
                           selectedTags.includes(t.name)
-                            ? "bg-blue-600 text-white"
-                            : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                            ? "bg-emerald-600 text-white"
+                            : "bg-stone-200 text-stone-600 hover:bg-stone-300"
                         }`}
                       >
                         {t.name}
                       </button>
                     ))}
-                    {tagsError ? <p className="text-xs text-red-400">Failed to load tags.</p> : tags.length === 0 && <p className="text-xs text-muted-foreground">No tags in this workspace</p>}
+                    {tagsError ? <p className="text-xs text-red-600">Failed to load tags.</p> : tags.length === 0 && <p className="text-xs text-muted-foreground">No tags in this workspace</p>}
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -297,13 +302,13 @@ export default function BulkPage() {
         <div className="space-y-4">
           {urlsError ? (
             <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
-              <Search className="mx-auto mb-3 size-10 text-red-400" />
+              <Search className="mx-auto mb-3 size-10 text-red-600" />
               <p className="text-lg font-medium">Failed to load URLs</p>
               <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your URLs.</p>
               <Button variant="outline" className="mt-4" onClick={() => refetchUrls()}>Try again</Button>
             </div>
           ) : allUrls.length === 0 ? (
-            <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
+            <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
               <Search className="mx-auto mb-3 size-10 text-muted-foreground" />
               <p className="text-lg font-medium">No URLs to manage</p>
               <p className="mt-1 text-sm text-muted-foreground">Create some URLs first.</p>
@@ -336,16 +341,16 @@ export default function BulkPage() {
                 {allUrls.map((u) => (
                   <div key={u.id} className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 transition-colors hover:bg-muted/50">
                     <input type="checkbox" checked={selectedIds.includes(u.id)} onChange={() => toggleUrl(u.id)}
-                      className="size-4 accent-blue-500" />
+                      className="size-4 accent-emerald-500" />
                     <div className="flex-1 min-w-0">
                       <p className="truncate text-sm font-medium">{u.short_code}</p>
                       <p className="truncate text-xs text-muted-foreground">{u.original_url}</p>
                     </div>
-                    <span className={`w-20 text-center text-xs font-medium capitalize ${u.status === "active" ? "text-green-400" : "text-muted-foreground"}`}>{u.status}</span>
+                    <span className={`w-20 text-center text-xs font-medium capitalize ${u.status === "active" ? "text-green-600" : "text-muted-foreground"}`}>{u.status}</span>
                   </div>
                 ))}
               </div>
-              {result && <p className={`mt-2 text-sm ${result.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>{result}</p>}
+              {result && <p className={`mt-2 text-sm ${result.startsWith("Error") ? "text-red-600" : "text-green-600"}`}>{result}</p>}
             </>
           )}
         </div>

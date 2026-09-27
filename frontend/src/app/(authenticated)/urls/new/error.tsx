@@ -15,7 +15,7 @@ export default function Error({
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center p-6">
       <div className="text-center">
-        <h2 className="mb-2 text-lg font-semibold text-red-400">Could not create URL</h2>
+        <h2 className="mb-2 text-lg font-semibold text-red-600">Could not create URL</h2>
         <p className="mb-6 text-sm text-muted-foreground">{error.message}</p>
         <Button onClick={reset} variant="outline">Try Again</Button>
       </div>

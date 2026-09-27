@@ -87,16 +87,21 @@ export default function FoldersPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Folders</h1>
-        <p className="text-sm text-muted-foreground">Group your URLs into folders.</p>
+      <div className="mb-6 flex items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <FolderOpen className="size-4.5" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-heading font-semibold tracking-tight">Folders</h1>
+          <p className="text-sm text-muted-foreground">Group your URLs into folders.</p>
+        </div>
       </div>
 
       <Card className="mb-6">
         <CardHeader><CardTitle>Create Folder</CardTitle></CardHeader>
         <CardContent className="flex gap-2">
           <Input placeholder="Folder name" value={newName} onChange={(e) => setNewName(e.target.value)} />
-          <Button onClick={handleCreate} className="bg-blue-600 text-white hover:bg-blue-700">
+          <Button onClick={handleCreate} className="bg-emerald-600 text-white hover:bg-emerald-700">
             <Plus className="mr-1 size-4" />Create
           </Button>
         </CardContent>
@@ -104,13 +109,13 @@ export default function FoldersPage() {
 
       {foldersError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
-          <FolderOpen className="mx-auto mb-3 size-10 text-red-400" />
+          <FolderOpen className="mx-auto mb-3 size-10 text-red-600" />
           <p className="text-lg font-medium">Failed to load folders</p>
           <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your folders.</p>
           <Button variant="outline" className="mt-4" onClick={() => refetchFolders()}>Try again</Button>
         </div>
       ) : folders.length === 0 ? (
-        <div className="rounded-xl border-2 border-dashed border-zinc-700 p-16 text-center">
+        <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
           <FolderOpen className="mx-auto mb-3 size-10 text-muted-foreground" />
           <p className="text-lg font-medium">No folders yet</p>
           <p className="mt-1 text-sm text-muted-foreground">Create folders to organize your URLs.</p>

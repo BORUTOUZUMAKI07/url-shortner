@@ -55,10 +55,12 @@ export default function AdminPage() {
 
   return (
     <div className="p-6">
-      <div className="mb-6 flex items-center gap-2">
-        <Shield className="size-6 text-purple-500" />
-        <h1 className="text-2xl font-bold tracking-tight">Admin Panel</h1>
-        <Badge className="bg-purple-600 text-white">Superadmin</Badge>
+      <div className="mb-6 flex items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <Shield className="size-4.5" />
+        </div>
+        <h1 className="text-2xl font-heading font-semibold tracking-tight">Admin Panel</h1>
+        <Badge className="bg-amber-600 text-white">Superadmin</Badge>
       </div>
 
       <div className="mb-6 flex gap-2">
@@ -102,7 +104,7 @@ export default function AdminPage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{u.email}</span>
-                      {u.is_superadmin && <Badge className="bg-purple-600 text-white text-xs">Superadmin</Badge>}
+                      {u.is_superadmin && <Badge className="bg-amber-600 text-white text-xs">Superadmin</Badge>}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       ID: {u.id} · Plan: {u.plan} · Role: {u.role} · {u.is_verified ? "Verified" : "Unverified"}
@@ -112,7 +114,7 @@ export default function AdminPage() {
                     <Button variant="outline" size="xs"
                       onClick={() => handleToggleSuperadmin(u.id)}
                     >
-                      <Crown className={`size-3.5 ${u.is_superadmin ? "text-purple-500" : "text-muted-foreground"}`} />
+                      <Crown className={`size-3.5 ${u.is_superadmin ? "text-amber-500" : "text-muted-foreground"}`} />
                     </Button>
                     {u.id !== user.id && (
                       <Button variant="outline" size="xs" onClick={() => handleDeleteUser(u.id)}>

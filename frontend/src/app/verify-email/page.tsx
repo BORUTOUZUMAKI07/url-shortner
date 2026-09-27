@@ -30,16 +30,16 @@ function VerifyEmailInner() {
   }, [router, token])
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-950 p-6">
+    <div className="flex min-h-screen items-center justify-center bg-stone-50 p-6">
       <Card className="w-full max-w-md">
         <CardHeader>
           <div className="flex items-center justify-center mb-4">
             {status === "loading" ? (
-              <div className="size-12 animate-spin rounded-full border-4 border-blue-400 border-t-transparent" />
+              <div className="size-12 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent" />
             ) : status === "success" ? (
-              <CheckCircle className="size-12 text-green-400" />
+              <CheckCircle className="size-12 text-green-600" />
             ) : (
-              <XCircle className="size-12 text-red-400" />
+              <XCircle className="size-12 text-red-600" />
             )}
           </div>
           <CardTitle className="text-center">
@@ -57,8 +57,8 @@ function VerifyEmailInner() {
 export default function VerifyEmailPage() {
   return (
     <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center bg-zinc-950">
-        <div className="size-12 animate-spin rounded-full border-4 border-blue-400 border-t-transparent" />
+      <div className="flex min-h-screen items-center justify-center bg-stone-50">
+        <div className="size-12 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent" />
       </div>
     }>
       <VerifyEmailInner />
