@@ -233,7 +233,7 @@ export const adminApi = {
   getUser: (id: number) => apiFetch<User>(`/admin/users/${id}`),
   toggleSuperadmin: (id: number) => apiFetch<{ detail: string }>(`/admin/users/${id}/toggle-superadmin`, { method: "PATCH" }),
   deleteUser: (id: number) => apiFetch<{ detail: string }>(`/admin/users/${id}`, { method: "DELETE" }),
-  listWorkspaces: (skip = 0, limit = 50) => apiFetch<AdminListResponse<Workspace>>(`/admin/workspaces?skip=${skip}&limit=${limit}`),
+  listWorkspaces: (skip = 0, limit = 50) => apiFetch<{ total: number; workspaces: Workspace[] }>(`/admin/workspaces?skip=${skip}&limit=${limit}`),
   listUrls: (skip = 0, limit = 50) => apiFetch<{ total: number; urls: URLItem[] }>(`/admin/urls?skip=${skip}&limit=${limit}`),
 }
 

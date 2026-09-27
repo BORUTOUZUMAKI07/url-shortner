@@ -47,7 +47,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!user?.is_superadmin) return
-    adminApi.listWorkspaces(wsPage * limit, limit).then((r) => { setWorkspaces(r.items); setTotalWorkspaces(r.total) })
+    adminApi.listWorkspaces(wsPage * limit, limit).then((r) => { setWorkspaces(r.workspaces); setTotalWorkspaces(r.total) })
   }, [user, wsPage])
 
   useEffect(() => {
@@ -164,7 +164,7 @@ export default function AdminPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>All Workspaces</CardTitle>
-            <Button variant="outline" size="sm" onClick={() => adminApi.listWorkspaces(wsPage * limit, limit).then((r) => { setWorkspaces(r.items); setTotalWorkspaces(r.total) })}>
+            <Button variant="outline" size="sm" onClick={() => adminApi.listWorkspaces(wsPage * limit, limit).then((r) => { setWorkspaces(r.workspaces); setTotalWorkspaces(r.total) })}>
               <RefreshCw className="size-4" />
             </Button>
           </CardHeader>
