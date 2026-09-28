@@ -83,6 +83,28 @@ return 0
 """
 
 
+# Read AND delete both single-use OAuth callback keys in one atomic round trip.
+#
+# These used to be mget() then delete_many() — two serial Upstash REST calls, with
+# a window between them in which a crash left the state replayable. Lua runs the
+# read and the delete as a single indivisible step, so the value can never be
+# observed by a second caller, and a crash cannot leave a live state behind.
+#
+# Both keys are consumed unconditionally, even when the caller goes on to reject
+# the callback: a state that fails CSRF must not stay valid for a retry. That
+# matches the previous behaviour deliberately.
+#
+# Lua cannot put nil in a table, so a missing key is reported as false.
+_CONSUME_OAUTH_STATE_LUA = """
+local state = redis.call('GET', KEYS[1])
+local pkce = redis.call('GET', KEYS[2])
+if state or pkce then
+    redis.call('DEL', KEYS[1], KEYS[2])
+end
+return {state or false, pkce or false}
+"""
+
+
 def _refresh_session_ttl() -> int:
     """Redis TTL for a session record. Must not outlive the refresh token it
     tracks, or a record would outlive every token that could ever be checked
@@ -431,14 +453,21 @@ class AuthService:
         if not oauth or not oauth.is_configured():
             raise OAuthNotConfigured(provider)
 
-        state_exists, code_verifier = await redis_client.mget(
-            f"oauth:state:{state}", f"oauth:pkce:{state}"
+        # One atomic round trip: read both single-use keys and delete them. The
+        # state and the PKCE verifier are consumed together, so a failure below
+        # cannot leave a replayable state behind.
+        state_value, code_verifier = await redis_client.eval(
+            _CONSUME_OAUTH_STATE_LUA,
+            2,
+            f"oauth:state:{state}",
+            f"oauth:pkce:{state}",
         )
-        # Both are single-use — delete regardless so a stale state can't be
-        # replayed; batched into one round trip.
-        await redis_client.delete_many(f"oauth:state:{state}", f"oauth:pkce:{state}")
-        if not state_exists:
+        if not state_value:
             raise CSRFValidationFailed()
+        # Lua reports a missing key as false; normalise to None so the provider
+        # sees "no verifier" rather than a boolean.
+        if not code_verifier:
+            code_verifier = None
 
         user_info = await oauth.authenticate(code, code_verifier=code_verifier)
         if not user_info:

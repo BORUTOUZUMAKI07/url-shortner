@@ -77,6 +77,26 @@ class FakeRedis:
         return len(keys)
 
     async def eval(self, script, numkeys, *args):
+        """Model the two scripts auth_service actually runs.
+
+        A real EVAL runs Lua; this cannot. Returning one canned value for every
+        script is a lie that hides shape changes — the two scripts in
+        auth_service return different types (an int status from the refresh
+        rotation, a [state, verifier] pair from the OAuth state consume), and a
+        call site that unpacks the wrong one would pass here and fail in
+        production. So each known script is modelled against the double's own
+        store, which is what the caller actually depends on.
+        """
+        if numkeys == 2 and any(str(k).startswith("oauth:state:") for k in args):
+            # _CONSUME_OAUTH_STATE_LUA: read both, delete both, report a
+            # missing key as falsy (Lua cannot put nil in a table).
+            state_key, pkce_key = str(args[0]), str(args[1])
+            state = self.data.get(state_key)
+            verifier = self.data.get(pkce_key)
+            if state is not None or verifier is not None:
+                self.data.pop(state_key, None)
+                self.data.pop(pkce_key, None)
+            return (state, verifier)
         return self.eval_result
 
 
