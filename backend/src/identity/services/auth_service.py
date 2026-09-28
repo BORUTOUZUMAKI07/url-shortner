@@ -266,12 +266,17 @@ class AuthService:
         return code
 
     async def exchange_oauth_handoff(self, code: str) -> str:
-        """One-time exchange of an OAuth handoff code for the refresh token."""
+        """One-time exchange of an OAuth handoff code for the refresh token.
+
+        GETDEL, not get()+delete(): the await between those two calls let two
+        concurrent requests both read the token before either deleted it, so a
+        code documented as single-use was redeemable twice. getdel is atomic, so
+        exactly one caller can win — and it is one Upstash REST round trip
+        instead of two.
+        """
         if not code:
             raise InvalidToken()
-        key = f"oauth:handoff:{code}"
-        token = await redis_client.get(key)
-        await redis_client.delete(key)
+        token = await redis_client.getdel(f"oauth:handoff:{code}")
         if not token:
             raise InvalidToken()
         return token  # type: ignore[no-any-return]

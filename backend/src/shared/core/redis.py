@@ -40,6 +40,15 @@ class RedisAdapter:
     async def setex(self, key: str, ttl: int, value: str):
         return await self._client.set(key, value, ex=ttl)
 
+    async def getdel(self, key: str):
+        """Atomically read and delete in ONE round trip. Returns the value or None.
+
+        Use this instead of get() + delete() for anything single-use: a separate
+        delete leaves a window in which a second caller reads the same value
+        before either delete lands, so the value is handed out twice.
+        """
+        return await self._client.getdel(key)
+
     async def delete(self, key: str):
         return await self._client.delete(key)
 
