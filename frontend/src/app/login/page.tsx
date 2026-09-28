@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useCallback, useEffect, useRef } from "react"
+import { Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
@@ -19,6 +19,15 @@ function LoginForm() {
   const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
   })
+
+  // Set when the server refused the login with "Email address is not
+  // verified". With REQUIRE_EMAIL_VERIFICATION on, this screen is the only
+  // place a locked-out user can act — the resend below is unauthenticated for
+  // exactly that reason.
+  const [needsVerification, setNeedsVerification] = useState(false)
+  const [pendingEmail, setPendingEmail] = useState("")
+  const [resending, setResending] = useState(false)
+  const [resendMsg, setResendMsg] = useState<string | null>(null)
 
   const redirectAfterLogin = useCallback(() => {
     const inviteToken = sessionStorage.getItem("invite_token")
@@ -70,13 +79,37 @@ function LoginForm() {
   }, [searchParams, redirectAfterLogin, setError, setUser])
 
   async function onSubmit(data: LoginFormData) {
+    setNeedsVerification(false)
+    setResendMsg(null)
     try {
       await auth.login(data.email, data.password)
       const user = await auth.me()
       setUser(user)
       redirectAfterLogin()
     } catch (err: unknown) {
-      setError("root", { message: getErrorMessage(err, "Login failed") })
+      const message = getErrorMessage(err, "Login failed")
+      setError("root", { message })
+      // The server refused the login because the address is unverified, and
+      // with REQUIRE_EMAIL_VERIFICATION on there is no way past this screen
+      // except the mail. The signup link's token expires after 24h, so "check
+      // your inbox" is not a recovery for most locked-out users — offer the
+      // unauthenticated resend here, inline, where the account's address is
+      // already in the form.
+      setNeedsVerification(message.toLowerCase().includes("not verified"))
+      setPendingEmail(data.email)
+    }
+  }
+
+  async function handleResendVerification() {
+    setResending(true)
+    setResendMsg(null)
+    try {
+      const { detail } = await auth.resendVerificationForEmail(pendingEmail)
+      setResendMsg(detail)
+    } catch (err: unknown) {
+      setResendMsg(getErrorMessage(err, "Could not resend the verification email"))
+    } finally {
+      setResending(false)
     }
   }
 
@@ -104,6 +137,28 @@ function LoginForm() {
           {errors.root && (
             <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-3">
               <p className="text-center text-sm text-red-600">{errors.root.message}</p>
+            </div>
+          )}
+
+          {needsVerification && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3">
+              <p className="text-center text-sm text-amber-700">
+                Your email isn&apos;t verified yet. Check your inbox for the original
+                link, or have a new one sent below.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2 w-full"
+                onClick={handleResendVerification}
+                disabled={resending}
+              >
+                {resending ? "Sending..." : "Resend verification email"}
+              </Button>
+              {resendMsg && (
+                <p className="mt-2 text-center text-xs text-stone-600">{resendMsg}</p>
+              )}
             </div>
           )}
 

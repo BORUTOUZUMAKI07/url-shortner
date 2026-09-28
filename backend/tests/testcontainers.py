@@ -15,7 +15,10 @@ _redis = None
 # Every env var start_containers() touches. Snapshotted before the work begins
 # so a failed start can put them back rather than leaving the process pointed at
 # containers that are no longer running.
-_MANAGED_ENV = ("DATABASE_URL", "MONGODB_URI", "REDIS_URL", "ENVIRONMENT", "_USE_TESTCONTAINERS")
+_MANAGED_ENV = (
+    "DATABASE_URL", "MONGODB_URI", "REDIS_URL", "ENVIRONMENT", "_USE_TESTCONTAINERS",
+    "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN",
+)
 
 
 def start_containers() -> None:
@@ -85,6 +88,19 @@ def start_containers() -> None:
         redis_container = RedisContainer("redis:7")
         redis_container.start()
         os.environ["REDIS_URL"] = f"redis://localhost:{redis_container.get_exposed_port(6379)}"
+
+        # Never let the test process reach the real production Upstash cache.
+        # `_build_redis_client` prefers the Upstash REST client whenever BOTH
+        # credentials are set — and `backend/.env` ships them — so without this
+        # every route test evaluated rate limits / idempotency markers against
+        # the production cache: one run's consumed `verify_email_resend` budget
+        # (5 per 5 min) 429'd the next run's identical tests, and the write
+        # itself leaked test state into production. Blank the vars ("" has
+        # pydantic-settings env precedence over the .env copies) so the Settings
+        # rebuild below reads falsy values and the first `import redis` builds
+        # the plain-Redis adapter against the container above.
+        os.environ["UPSTASH_REDIS_REST_URL"] = ""
+        os.environ["UPSTASH_REDIS_REST_TOKEN"] = ""
 
         os.environ["_USE_TESTCONTAINERS"] = "1"
 

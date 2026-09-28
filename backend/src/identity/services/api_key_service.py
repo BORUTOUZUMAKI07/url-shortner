@@ -44,15 +44,27 @@ class APIKeyService:
         old_key = await self.repo.get(id)
         if not old_key or old_key.user_id != user_id:
             raise NotFoundError("API key not found.")
-        await self.repo.revoke(id, user_id)
+        # Everything fallible happens BEFORE the old key is revoked. The
+        # previous order was revoke-then-create: if the new key's hash or row
+        # failed to materialise (a DB blip, a crash between the two), the old
+        # key was already dead and the user had no working key at all until
+        # they generated one manually.
+        #
+        # The Argon2 hash is CPU-bound (~100-300ms) and is deliberately done
+        # first, before any DB write, so a rotation can never destroy the old
+        # key and then fail to build the replacement. The only remaining
+        # window is the reverse one: both keys valid for a moment if revoke
+        # fails after create, which locks nobody out.
         raw_key = self._generate_raw_key()
+        key_hash = await hash_password_async(raw_key)
         new_key = await self.repo.create(
             user_id=user_id,
             name=old_key.name,
             prefix=raw_key[:8],
-            key_hash=await hash_password_async(raw_key),
+            key_hash=key_hash,
             expires_at=old_key.expires_at,
         )
+        await self.repo.revoke(id, user_id)
         return new_key, raw_key
 
     async def get_quota(self, id: int, user_id: int):

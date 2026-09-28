@@ -146,6 +146,30 @@ class URLRepository(BaseRepository[URL]):
         )
         return list(result.all())  # type: ignore[arg-type]
 
+    async def get_urls_by_ids(self, url_ids: list[int], workspace_id: int) -> list[URL]:
+        """Fetch a workspace's URLs by id, scoped to the workspace, in SQL.
+
+        The QR generator used to load *every* URL in the workspace and filter in
+        Python — an N-row SELECT to keep 3 rows, where the size of N is set by
+        how many URLs the workspace happens to have.
+        """
+        if not url_ids:
+            return []
+        result = await self.db.execute(
+            select(URL)
+            .where(
+                and_(
+                    URL.id.in_(url_ids),
+                    URL.workspace_id == workspace_id,
+                    URL.status != URLStatus.deleted,
+                    _IS_NOT_EXPIRED,
+                )
+            )
+            .order_by(URL.created_at.desc())
+            .options(selectinload(URL.tags))
+        )
+        return list(result.scalars().all())  # type: ignore[return-value]
+
     async def get_url_id_by_short_code(self, short_code: str) -> int | None:
         result = await self.db.execute(select(URL.id).where(URL.short_code == short_code))
         return result.scalar_one_or_none()

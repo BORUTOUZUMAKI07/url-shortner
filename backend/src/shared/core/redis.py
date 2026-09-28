@@ -40,6 +40,23 @@ class RedisAdapter:
     async def setex(self, key: str, ttl: int, value: str):
         return await self._client.set(key, value, ex=ttl)
 
+    async def setnx(self, key: str, ttl: int, value: str) -> bool:
+        """Atomic claim: set only if the key is absent.
+
+        Returns True when this caller won the claim, False when the key already
+        existed. Use this for anything that must run exactly once (idempotency
+        markers, single-consumer locks).
+
+        A plain get() + setex() is two round trips with a window between them
+        in which a second caller reads "absent" and both proceed. With NX the
+        get and the set are one atomic decision — exactly one caller wins.
+        """
+        if self._is_upstash:
+            result = await self._client.execute(["SET", key, value, "NX", "EX", str(ttl)])
+            return result is not None
+        result = await self._client.set(key, value, nx=True, ex=ttl)
+        return bool(result)
+
     async def getdel(self, key: str):
         """Atomically read and delete in ONE round trip. Returns the value or None.
 
@@ -242,6 +259,21 @@ async def delete_url_cache(short_code: str) -> None:
         await redis_client.delete(f"url:{short_code}")
     except Exception as e:
         logger.debug("Cache delete failed for %s: %s", short_code, e)
+
+
+async def delete_url_caches(short_codes: list[str]) -> None:
+    """Evict a batch of URL cache entries in ONE round trip.
+
+    The bulk endpoints used to call delete_url_cache() in a loop — one Upstash
+    HTTPS request (~100-200ms) per URL in the batch, serial. A 50-URL bulk
+    delete paid ~10s of pure round-trip latency on top of the DB work.
+    """
+    if not short_codes:
+        return
+    try:
+        await redis_client.delete_many(*(f"url:{code}" for code in short_codes))
+    except Exception as e:
+        logger.debug("Cache delete failed for %s: %s", short_codes, e)
 
 
 async def check_redis_health() -> bool:

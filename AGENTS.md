@@ -1,5 +1,68 @@
 # Critical Fixes
 
+## Audit Batch 3 — Idempotency, Cache Eviction, Rotation Ordering, Verification Lockout
+
+Four lowered-value audit items plus readiness work for the `REQUIRE_EMAIL_VERIFICATION` flag. The recurring theme this batch: **a control implemented as two dependent steps** (check-then-set, evict-in-a-loop, revoke-then-create, pre-check-then-INSERT) whose failure mode is a silent duplicate, a silent latency tax, a silent lockout, or a 500 where a 409 belongs.
+
+### Webhooks — click dispatch idempotency was check-then-set (two consumers, two deliveries)
+
+**Files:** `backend/src/webhooks/workers/webhook_click_consumer.py`, `backend/src/shared/core/redis.py` (`setnx`)
+
+`deliver_click_webhooks` did `get()` → deliver → `setex()`. Between the read and the write, a concurrent consumer — or a Kafka redelivery before the offset commit lands, with `auto_offset_reset=earliest` — also read "absent", and **both batches POSTed the same event to the endpoint**.
+
+Replaced with a two-state marker on **one** key, both via new `RedisAdapter.setnx` (atomic: the get and the set are one decision, exactly one caller wins):
+
+1. **claim:** `setnx(key, PROCESS_LOCK_SECONDS=90, "1")` before any DB work — a short lock held while delivering; a second consumer sees the key and skips.
+2. **success:** after `commit`, `setex(key, DONE_TTL_SECONDS=7d, "1")` extends the same key into the long completion marker, so replays within a week are suppressed.
+3. **failure:** `delete(key)` releases the claim so a redelivery retries; the lock TTL is the backstop for a hard kill that skips the line.
+
+Two keys, or claim-forever, would each lose one guarantee: `process`-only would let a redelivery re-deliver minutes later; a long TTL set at claim time stays set through a crash mid-delivery and permanently skips the event.
+
+Tests: `tests/test_core/test_webhook_click_idempotency.py` pins the interleaving (`setnx` before `db_enter`, `setex` after `db_commit`, no `get`, delete on failure, no idempotency key for events without an id); `tests/test_core/test_redis_setnx.py` covers the adapter on both the Upstash and plain-Redis branches, and the new `delete_url_caches` batch.
+
+### Bulk ops — cache eviction was N round trips; QR generation loaded every row to keep three
+
+**Files:** `backend/src/links/services/bulk_service.py`, `backend/src/links/repositories/url_repository.py` (`get_urls_by_ids`), `backend/src/shared/core/redis.py` (`delete_url_caches`)
+
+The four bulk mutators (update / disable / reactivate / delete) evicted the redirect cache with a per-URL `delete_url_cache` loop — one Upstash HTTPS request (~100-200ms) per URL, **serial**. A 50-URL bulk delete paid ~10s of pure round-trip latency on top of the DB work. `delete_url_caches(short_codes)` is now one `delete_many` round trip. It is best-effort (`try/except`: a stale cache entry is refreshed by the next hit, but a redirect that fails because Redis threw is worse) and an empty batch is a no-op.
+
+`generate_qr_zip` loaded *every* URL in the workspace and filtered in Python — an N-row SELECT to keep 3 rows, where N is whatever the workspace happens to have. New `URLRepository.get_urls_by_ids(url_ids, workspace_id)` filters in SQL (scoped to the workspace, `status != deleted`, unexpired, tags loaded).
+
+Tests: `test_redis_setnx.py` (`test_delete_url_caches_evicts_batch_in_one_round_trip`, empty no-op, Redis-failure tolerance).
+
+### API keys — rotation revoked the old key before the replacement existed
+
+**File:** `backend/src/identity/services/api_key_service.py`
+
+`rotate` revoked the old key, *then* generated and hashed the new one. Any failure in that second half — a DB blip on `create`, a crash between the two statements — left the user with **zero working keys** until they generated one manually. The Argon2 hash is CPU-bound (~100-300ms) and was computed inside the `create` call, *after* the revoke.
+
+Order is now: generate raw → hash (before any DB write, so a rotation can never destroy the old key and then fail to build the replacement) → `create` new row → `revoke` old. The only remaining window is both-valid for a moment if `revoke` fails after `create` — which locks nobody out. Tests: `tests/test_core/test_api_key_rotation.py` pins `["get", "create", "revoke"]` and asserts the old key survives a failed create (`"revoke" not in calls`).
+
+### Signup — the unique-email race was a 500; the OAuth loser failed the user
+
+**File:** `backend/src/identity/services/auth_service.py`
+
+`register` pre-checks `email_exists` and then INSERTs. Two requests with the same address can both pass the check before either INSERT commits; the unique constraint lets one win and the loser's `IntegrityError` escaped as a **500** — for a condition the pre-check only exists to detect. The loser now rolls back (the transaction is invalid from the failed INSERT on) and raises `EmailAlreadyExists` → 409. Tests: `tests/test_core/test_register_integrity_race.py` (repo stub whose `create` raises; asserts `EmailAlreadyExists` and that `rollback` ran).
+
+Same race in `oauth_callback`: two first-time sign-ins with the same provider subject both pass the `get_by_oauth_sub` lookup and both CREATE. The loser now rolls back, re-fetches the **winner** (by provider subject, never by email), and skips `create_default` via a new `created_here` flag — the winner already created the default workspace on their own INSERT. If the winner vanished (both rolled back), it fails cleanly with `OAuthFailed` instead of a 500. Tests: `tests/test_core/test_oauth_callback_race.py` (drives `_run_oauth_callback` with stub repos; asserts adopt-by-subject, no duplicate default workspace, and a returned session).
+
+### Verification lockout — refresh bypassed the gate, and lockout had no recovery
+
+**Files:** `backend/src/identity/services/auth_service.py`, `backend/src/identity/routes/auth.py`, `backend/src/identity/schemas/user.py`, `frontend/src/app/login/page.tsx`, `frontend/src/lib/api.ts`
+
+`login` already enforced `REQUIRE_EMAIL_VERIFICATION`; `refresh` did **not** — anyone who logged in before the flag was enabled kept minting fresh access tokens via refresh, so the policy would have been a lie for every pre-existing session. `refresh` now raises the same `UnauthorizedError("Email address is not verified")` → 401 (which is what sends the frontend to the login page's resend path).
+
+The gate makes an unverified user a **stranger** to the only system that could help them: the login refusal also bars `/auth/resend-verification`. And the signup mail's token expires after 24h — so a user locked out days later had no path back at all. New unauthenticated `POST /auth/verify-email/resend` (`resend_verification_for_email`), modeled on `forgot_password`:
+
+- unknown address → generic 200, no mail, audit row (anti-enumeration);
+- verified address → generic 200, no mail;
+- unverified + SMTP unconfigured → **503** (a server fault retrying cannot fix; the detail tells the user to contact an administrator);
+- unverified + SMTP configured → one mail with a fresh 24h token.
+
+Rate-limited 5/5 min, keyed on the shared client IP. The login page renders an inline resend card when the failure message contains "not verified", with sent / 503 feedback. Tests: `tests/test_core/test_email_verification_resend.py` (service outcomes + the refresh gate trio: unverified×flag-on raises, verified×flag-on works, unverified×flag-off works), `tests/test_routes/test_auth_routes.py` (503 when SMTP off, generic 200 for unknown, sends-once when configured).
+
+**Note (stale-note correction):** an earlier section claimed the profile page's "Email not verified" card had **no resend endpoint** — that was wrong. `POST /auth/resend-verification` (authenticated) and the profile page's "Resend" button were already wired and still are; what was genuinely missing was the **unauthenticated** recovery for locked-out users, which this batch adds. The original warning still stands and now matters twice: SMTP misconfiguration hides as "Would send email to…" log lines — configure SMTP *before* flipping `REQUIRE_EMAIL_VERIFICATION`, and when mail is unavailable both resend endpoints now report 503 instead of silently promising a mail.
+
 ## Audit Batch 2 — Revocation That Un-Fired, Silent PKCE Loss, Cross-Tenant Cancel
 
 Three background audits, every finding verified against source before fixing. The
@@ -431,7 +494,7 @@ An invite proves that *somebody else* knows an address, not that the person acce
 
 Removed. `is_verified` is now written in exactly two places, both of which involve the actual owner of the inbox: `AuthService.verify_email` (clicked the emailed link) and `AuthService.oauth_callback` (provider reported a verified claim). `ProfileService.change_email` correctly resets it to `False`. Tests: `tests/test_core/test_invite_not_verification.py`.
 
-**Note:** the profile page renders an "Email not verified — check your inbox" card, but there is **no resend endpoint** (`POST /auth/verify-email` only consumes a token). If SMTP is misconfigured the email is *silently* dropped — `EmailService._send` logs "Would send email to…" and returns — so the user is stuck with a permanent card and no recovery. Set up SMTP *before* ever flipping `REQUIRE_EMAIL_VERIFICATION`.
+**Note:** the profile page renders an "Email not verified — check your inbox" card with a working "Resend" button wired to `POST /auth/resend-verification` (authenticated). The *unauthenticated* recovery — for users the login gate locks out *before* they can reach that endpoint — is `POST /auth/verify-email/resend` (see Audit Batch 3). If SMTP is misconfigured the email is *silently* dropped — `EmailService._send` logs "Would send email to…" and returns — so get the 503 surfaced by both resend endpoints rather than a permanent card that promises a mail which never arrives. Set up SMTP *before* ever flipping `REQUIRE_EMAIL_VERIFICATION`.
 
 ### Email — Forgot Password Spinner Never Stopped (SMTP hang, no timeout)
 
@@ -505,6 +568,20 @@ The auth store was only populated by per-page `auth.me().then(setUser)` effects;
 **Fix:** set ALL of `DATABASE_URL`, `MONGODB_URI`, `REDIS_URL` (and `_USE_TESTCONTAINERS`) first, then rebuild `config.settings = Settings()` as the last step of `start_containers()`.
 
 Related noise: `reset_pooled_engine` in `tests/test_workers.py` disposes the shared app engine whose asyncpg connections live on earlier function-scoped loops → asyncpg logs benign `RuntimeError: Event loop is closed` / "attached to a different loop" (GitHub surfaced these as 10× error annotations). The fixture suppresses the `sqlalchemy.pool` logger during dispose.
+
+## Testcontainers — Route Tests Hit Production Upstash (rate-limit state leaked)
+
+**File:** `backend/tests/testcontainers.py` function `start_containers`
+
+A sibling of the `Settings()` bug above: the redis *container* was started and `REDIS_URL` set, but `_build_redis_client()` **prefers the Upstash REST client whenever BOTH `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are set — and `backend/.env` ships them**. `REDIS_URL` pointing at the container was not enough. Every testcontainers route test therefore evaluated rate limits, idempotency markers, and session state against the **real production Upstash cache**.
+
+It was invisible for two reasons. `upstash_redis.asyncio.Redis` is *also* named `Redis`, so a `type(client).__name__` check read "plain Redis" — you must check `RedisAdapter._is_upstash`, not the class name. And the existing route tests' rate-limit budgets are generous (login 10 burst / refresh 60), so a few runs to the shared production bucket never tripped them.
+
+What surfaced it: `verify_email_resend` has a **5-per-5-min** budget (it is an unauthenticated mail cannon). After a few runs, the production bucket `rl:auth:verify_email_resend:127.0.0.1` sat at `tokens: 0.94` with a ~1-day TTL — and every subsequent test run 429'd, deterministically, on its *first* call, even in complete isolation.
+
+**Fix:** `start_containers()` now blanks `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (empty string has pydantic-settings env precedence over the `.env` copies) *before* the `Settings()` rebuild. Since `pytest_sessionstart` runs before any test module imports `src.shared.core.redis`, the first `import` builds the plain-Redis adapter against the container — no singleton rebinding needed. The two vars joined `_MANAGED_ENV` so a failed start still restores them. Route tests now pass repeatedly in one session and across sessions.
+
+**Note:** the `"testclient"` host never appears — the ASGI test transport presents `127.0.0.1`, so rate-limit keys for route tests are `rl:*:127.0.0.1:...`. When debugging a test-created key, look there, not for the hostname.
 
 ## Redis — Plain-Redis Fallback (docker-compose / local)
 

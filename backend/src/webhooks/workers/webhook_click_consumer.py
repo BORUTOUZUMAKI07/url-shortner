@@ -56,6 +56,24 @@ async def consume_url_clicked_webhooks():
     )
 
 
+# Idempotency for click-webhook dispatch. The marker goes through two states on
+# ONE key:
+#
+#   1. PROCESS_LOCK_SECONDS after the claim — a short lock held while the batch
+#      is being delivered. A concurrent consumer (or a Kafka redelivery before
+#      the offset commit lands) sees the key and skips.
+#   2. DONE_TTL_SECONDS after success — setex() extends the same key into the
+#      long completion marker, so replays within a week are suppressed.
+#
+# Two keys, or claim-forever, would each lose one of the two guarantees:
+# a long claim made at the start stays set through a crash mid-delivery, and a
+# redelivery would permanently skip the event; a bare "done" marker written
+# after the work still has the check-then-act race at acquisition time. The
+# short lock covers acquisition, the extension covers replay.
+PROCESS_LOCK_SECONDS = 90
+DONE_TTL_SECONDS = 7 * 24 * 3600
+
+
 async def deliver_click_webhooks(event_data: dict, logger):
     workspace_id = event_data.get("workspace_id")
     if not workspace_id:
@@ -65,16 +83,20 @@ async def deliver_click_webhooks(event_data: dict, logger):
     if event_id:
         idempotency_key = f"idempotency:webhook_click:{event_id}"
         try:
-            already_processed = await redis_client.get(idempotency_key)
+            # Atomic claim — the get and the set are one decision. See
+            # RedisAdapter.setnx: get()+setex() let two consumers both read
+            # "absent" and both deliver.
+            claimed = await redis_client.setnx(idempotency_key, PROCESS_LOCK_SECONDS, "1")
         except Exception:
-            already_processed = None
-            logger.warning("Redis unavailable for idempotency check on event_id %s", event_id)
-        if already_processed:
+            claimed = None
+            logger.warning("Redis unavailable for idempotency claim on event_id %s", event_id)
+        if claimed is False:
             logger.info("Skipping duplicate webhook dispatch for event_id %s", event_id)
             return
     else:
         logger.debug("Missing event_id in click event (short_code=%s), skipping idempotency",
                        event_data.get("short_code"))
+        idempotency_key = None
 
     click_payload = {
         "event": "url.clicked",
@@ -92,38 +114,54 @@ async def deliver_click_webhooks(event_data: dict, logger):
         "clicked_at": event_data.get("clicked_at"),
     }
 
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(Webhook).where(
-                Webhook.workspace_id == workspace_id,
-                Webhook.is_active == True,
-                Webhook.subscriptions.any(WebhookSubscription.event_type == "url.clicked"),
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(Webhook).where(
+                    Webhook.workspace_id == workspace_id,
+                    Webhook.is_active == True,
+                    Webhook.subscriptions.any(WebhookSubscription.event_type == "url.clicked"),
+                )
             )
-        )
-        webhooks = list(result.scalars().all())
+            webhooks = list(result.scalars().all())
 
-        for wh in webhooks:
-            success, code, error = await deliver_single_webhook(
-                wh.id, wh.url, wh.secret, click_payload, "url.clicked",
-            )
-            db.add(WebhookEvent(
-                webhook_id=wh.id,
-                event_type="url.clicked",
-                payload=json.dumps(click_payload),
-                status="delivered" if success else "failed",
-                response_code=code,
-                error=error,
-            ))
-            if success:
-                logger.info("Delivered url.clicked webhook %s -> %s (status %s)", wh.id, wh.url, code)
-            else:
-                logger.warning("Failed to deliver url.clicked webhook %s -> %s: %s", wh.id, wh.url, error)
+            for wh in webhooks:
+                success, code, error = await deliver_single_webhook(
+                    wh.id, wh.url, wh.secret, click_payload, "url.clicked",
+                )
+                db.add(WebhookEvent(
+                    webhook_id=wh.id,
+                    event_type="url.clicked",
+                    payload=json.dumps(click_payload),
+                    status="delivered" if success else "failed",
+                    response_code=code,
+                    error=error,
+                ))
+                if success:
+                    logger.info("Delivered url.clicked webhook %s -> %s (status %s)", wh.id, wh.url, code)
+                else:
+                    logger.warning("Failed to deliver url.clicked webhook %s -> %s: %s", wh.id, wh.url, error)
 
-        await db.commit()
+            await db.commit()
+    except Exception:
+        # Anything below the claim — a delivery failure, a dead DB connection,
+        # a cancelled task — releases the lock, so a Kafka redelivery after
+        # `auto_offset_reset=earliest` reprocessing retries the event instead of
+        # permanently skipping it. The lock TTL is the backstop for a hard kill
+        # that skips this line.
+        if idempotency_key is not None:
+            try:
+                await redis_client.delete(idempotency_key)
+            except Exception:
+                logger.warning("Redis unavailable while releasing idempotency lock for event_id %s", event_id)
+        raise
 
-    if event_id:
+    if idempotency_key is not None:
         try:
-            await redis_client.setex(idempotency_key, 86400 * 7, "1")
+            # Extend the short processing lock into the long completion marker.
+            # Only success gets here, so the key now means "delivered", not
+            # "in flight".
+            await redis_client.setex(idempotency_key, DONE_TTL_SECONDS, "1")
         except Exception:
             logger.warning("Redis unavailable while marking webhook idempotency for event_id %s", event_id)
 

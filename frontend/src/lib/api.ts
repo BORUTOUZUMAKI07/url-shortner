@@ -203,6 +203,8 @@ export const auth = {
   resetPassword: (token: string, new_password: string) => apiFetch<{ detail: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify({ token, new_password }) }),
   verifyEmail: (token: string) => apiFetch<{ detail: string }>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
   resendVerification: () => apiFetch<{ detail: string }>("/auth/resend-verification", { method: "POST" }),
+  resendVerificationForEmail: (email: string) =>
+    apiFetch<{ detail: string }>("/auth/verify-email/resend", { method: "POST", body: JSON.stringify({ email }) }),
   providers: () => apiFetch<{ providers: string[] }>("/auth/providers"),
   exchangeOauth: (code: string) =>
     apiFetch<TokenWithUser>("/auth/oauth/exchange", { method: "POST", body: JSON.stringify({ code }) }),

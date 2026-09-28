@@ -13,7 +13,7 @@ from src.links.repositories.tag_repository import TagRepository
 from src.links.repositories.url_repository import URLRepository
 from src.links.services.url_service import RESERVED_ALIASES
 from src.shared.core.config import settings
-from src.shared.core.redis import delete_url_cache
+from src.shared.core.redis import delete_url_caches
 from src.shared.core.security import hash_password_async
 from src.shared.errors import BadRequestError, FolderNotInWorkspace, NotFoundError, RoleTooLow, WorkspaceNotFound
 from src.workspaces.models.workspace_member import MemberRole
@@ -146,18 +146,18 @@ class BulkService:
             raise BadRequestError("No update fields provided.")
         rows = await self.url_repo.get_short_codes_by_ids(url_ids, workspace_id)
         await self.url_repo.bulk_update(url_ids, workspace_id, **kwargs)
-        # Evict the redirect cache for every touched URL (an update can change
-        # the destination/status and the cached copy would keep serving stale).
-        for row in rows:
-            await delete_url_cache(row[1])
+        # Evict the redirect cache for every touched URL in one round trip (an
+        # update can change the destination/status and the cached copy would
+        # keep serving stale). The per-URL loop was N Upstash HTTPS requests,
+        # serial, ~100-200ms each.
+        await delete_url_caches([row[1] for row in rows])
 
     async def disable(self, workspace_id: int, user_id: int, url_ids: list[int]):
         await self._verify_workspace(workspace_id, user_id)
         await self._verify_write_role(workspace_id, user_id)
         rows = await self.url_repo.get_short_codes_by_ids(url_ids, workspace_id)
         await self.url_repo.bulk_update(url_ids, workspace_id, status=URLStatus.disabled)
-        for row in rows:
-            await delete_url_cache(row[1])
+        await delete_url_caches([row[1] for row in rows])
         return len(rows)
 
     async def reactivate(self, workspace_id: int, user_id: int, url_ids: list[int]):
@@ -166,8 +166,7 @@ class BulkService:
         rows = await self.url_repo.get_short_codes_by_ids(url_ids, workspace_id)
         await self.url_repo.reactivate(url_ids, workspace_id)
         # A cached copy would still show status "disabled" and keep 403-ing.
-        for row in rows:
-            await delete_url_cache(row[1])
+        await delete_url_caches([row[1] for row in rows])
         return len(rows)
 
     async def delete(self, workspace_id: int, user_id: int, url_ids: list[int]):
@@ -175,8 +174,7 @@ class BulkService:
         await self._verify_write_role(workspace_id, user_id)
         rows = await self.url_repo.get_short_codes_by_ids(url_ids, workspace_id)
         await self.url_repo.bulk_update(url_ids, workspace_id, status=URLStatus.deleted)
-        for row in rows:
-            await delete_url_cache(row[1])
+        await delete_url_caches([row[1] for row in rows])
         return len(rows)
 
     async def export(self, workspace_id: int, user_id: int, fmt: str):
@@ -203,9 +201,13 @@ class BulkService:
 
     async def generate_qr_zip(self, workspace_id: int, user_id: int, url_ids: list[int] | None):
         await self._verify_workspace(workspace_id, user_id)
-        urls = await self.url_repo.get_all_workspace_urls(workspace_id)
         if url_ids:
-            urls = [u for u in urls if u.id in url_ids]
+            # Filter in SQL, not after loading every URL in the workspace. The
+            # old code SELECTed all rows and dropped the ones not requested —
+            # an N-row fetch to keep 3, where N is whatever the workspace has.
+            urls = await self.url_repo.get_urls_by_ids(url_ids, workspace_id)
+        else:
+            urls = await self.url_repo.get_all_workspace_urls(workspace_id)
         if not urls:
             raise NotFoundError("No URLs found for QR generation.")
         zip_buffer = io.BytesIO()

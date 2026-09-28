@@ -60,6 +60,17 @@ class TestAuthRoutes:
         assert resp.status_code == status.HTTP_200_OK
         assert "sent" in resp.json()["detail"].lower()
 
+    async def test_forgot_password_unknown_email_is_generic_200(self, client):
+        """The unknown-address audit row is written without an actor — the
+        real AuditService.log requires `actor_id` even as None, so omitting it
+        crashed a public endpoint with a 500. An existence oracle via error
+        handling is just as bad as one via the response body."""
+        resp = await client.post("/api/v1/auth/forgot-password", json={
+            "email": "no-such-address@example.com",
+        })
+        assert resp.status_code == status.HTTP_200_OK
+        assert "sent" in resp.json()["detail"].lower()
+
     async def test_refresh_invalid_token(self, client):
         resp = await client.post("/api/v1/auth/refresh", json={
             "refresh_token": "invalid-token",
@@ -129,3 +140,45 @@ class TestAuthRoutes:
         resp = await client.post("/api/v1/auth/oauth/exchange", json={"code": "bogus-code"})
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
         assert "not configured" not in resp.json().get("detail", "").lower()
+
+    async def test_verify_email_resend_unknown_address_generic_200(self, client):
+        """Same anti-enumeration contract as forgot-password: an unknown
+        address answers identically and no mail is attempted."""
+        resp = await client.post("/api/v1/auth/verify-email/resend", json={
+            "email": "no-such-address@example.com",
+        })
+        assert resp.status_code == status.HTTP_200_OK
+        assert "unverified" in resp.json()["detail"].lower()
+
+    async def test_verify_email_resend_503_when_smtp_unconfigured(self, client):
+        """The signup mail's 24h token is the only recovery for a locked-out
+        user; the unauthenticated resend is their way back in. When the server
+        cannot send mail at all, the honest answer is 503 — not the default
+        "check your inbox" that promises a mail which can never arrive."""
+        await client.post("/api/v1/auth/register", json={
+            "email": "pending-verify@example.com",
+            "password": "StrongPass1!",
+        })
+        # conftest's mock_external_services forces is_configured -> False.
+        resp = await client.post("/api/v1/auth/verify-email/resend", json={
+            "email": "pending-verify@example.com",
+        })
+        assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "not configured" in resp.json()["detail"].lower()
+
+    async def test_verify_email_resend_sends_once_when_smtp_configured(self, client):
+        from unittest.mock import AsyncMock, patch
+
+        await client.post("/api/v1/auth/register", json={
+            "email": "pending-verify-2@example.com",
+            "password": "StrongPass1!",
+        })
+        send = AsyncMock()
+        with patch("src.identity.services.auth_service.EmailService.is_configured", return_value=True), \
+             patch("src.identity.services.auth_service.EmailService.send_verification_email", send):
+            resp = await client.post("/api/v1/auth/verify-email/resend", json={
+                "email": "pending-verify-2@example.com",
+            })
+        assert resp.status_code == status.HTTP_200_OK
+        emailed_address, _token = send.call_args.args
+        assert emailed_address == "pending-verify-2@example.com"

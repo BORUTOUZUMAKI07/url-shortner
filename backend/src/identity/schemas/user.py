@@ -64,6 +64,10 @@ class VerifyEmailRequest(BaseModel):
     token: str = Field(description="Email verification token")
 
 
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr = Field(description="Address to (re-)send the verification link to")
+
+
 class GoogleOAuthInitRequest(BaseModel):
     redirect_uri: Optional[str] = Field(None, description="Optional override of OAuth redirect URI")
 

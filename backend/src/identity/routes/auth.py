@@ -9,6 +9,7 @@ from src.identity.schemas.user import (
     ForgotPasswordRequest,
     OAuthExchangeRequest,
     RefreshTokenRequest,
+    ResendVerificationRequest,
     ResetPasswordRequest,
     Token,
     TokenWithUser,
@@ -165,6 +166,27 @@ async def resend_verification(
     return {"detail": "If your address is unverified, a new verification link has been sent"}
 
 
+@router.post("/verify-email/resend",
+    summary="Resend the verification link for a locked-out address")
+async def resend_verification_for_email(
+    request: Request,
+    payload: ResendVerificationRequest,
+    svc: AuthService = Depends(get_auth_service),
+):
+    # Unauthenticated by design: the login gate that refuses access to an
+    # unverified user also bars them from the authenticated resend endpoint
+    # above. This is their only way back in once the signup mail (24h token) is
+    # gone. Declared as a static path with no parameterised sibling under
+    # /verify-email, so ordering is not a hazard.
+    await _enforce_auth_rate_limit(request, "verify_email_resend")
+    if not await svc.resend_verification_for_email(payload.email):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Email delivery is not configured on this server. Contact an administrator.",
+        )
+    return {"detail": "If the email address is unverified, a new verification link has been sent"}
+
+
 @router.get("/me", response_model=UserResponse,
     summary="Get current user profile")
 async def get_me(current_user: User = Depends(get_current_user)):
@@ -316,6 +338,7 @@ _AUTH_LIMITS = {
     # Authenticated, but it is still a mail cannon: a shared NAT could otherwise
     # let one caller flood a mailbox.
     "resend_verification": (5, 1.0 / 300.0),  # 5 per 5 min
+    "verify_email_resend": (5, 1.0 / 300.0),  # 5 per 5 min (unauthenticated)
     "refresh": (60, 1.0 / 2.0),           # concurrent 401 storms are normal
     "oauth_exchange": (20, 1.0 / 30.0),
     "oauth_callback": (30, 1.0 / 10.0),

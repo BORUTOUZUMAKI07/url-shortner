@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from jose import JWTError
+from sqlalchemy.exc import IntegrityError
 
 from src.identity.models.user import User
 from src.identity.repositories.user_repository import UserRepository
@@ -157,10 +158,19 @@ class AuthService:
         if await self.user_repo.email_exists(email):
             raise EmailAlreadyExists()
 
-        user = await self.user_repo.create(
-            email=email,
-            password_hash=await hash_password_async(password),
-        )
+        try:
+            user = await self.user_repo.create(
+                email=email,
+                password_hash=await hash_password_async(password),
+            )
+        except IntegrityError:
+            # Lost the unique-email race. Someone registered this address
+            # between our `email_exists` check and our INSERT, so the pre-flight
+            # check was not wrong — it was just racy. The transaction is now
+            # invalid, so roll it back before reporting what the pre-flight
+            # check would have reported.
+            await self.user_repo.rollback()
+            raise EmailAlreadyExists()
         await self.workspace_repo.create_default(user.id)
 
         verification_token = create_email_verification_token(user.email)
@@ -226,6 +236,12 @@ class AuthService:
             raise UserNotFound()
         if not user.is_active:
             raise UnauthorizedError("Account is deactivated")
+        if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
+            # Same gate as login. refresh mints access tokens, so an unverified
+            # user who logged in before the flag was enabled must not keep the
+            # session alive indefinitely through refresh. The 401 this raises is
+            # what sends the frontend to the login page and its resend path.
+            raise UnauthorizedError("Email address is not verified")
 
         new_access = create_access_token(data={"sub": str(user.id)})
 
@@ -357,6 +373,7 @@ class AuthService:
             # Do not disclose whether the address exists, but the attempt is
             # still worth an audit row.
             await self._audit.log(
+                actor_id=None,
                 action="password_reset_requested_unknown_email",
                 resource_type="user",
                 after={"email": email},
@@ -432,6 +449,54 @@ class AuthService:
         """
         if user.is_verified:
             return True  # nothing left to confirm; stay quiet, not an error
+        if not EmailService.is_configured():
+            await self._audit.log(
+                actor_id=user.id,
+                action="verification_resend_unavailable",
+                resource_type="user",
+                resource_id=user.id,
+                after={"reason": "smtp_not_configured"},
+            )
+            return False
+        token = create_email_verification_token(user.email)
+        await EmailService.send_verification_email(user.email, token)
+        await self._audit.log(
+            actor_id=user.id,
+            action="verification_email_resent",
+            resource_type="user",
+            resource_id=user.id,
+        )
+        return True
+
+    async def resend_verification_for_email(self, email: str) -> bool:
+        """Unauthenticated resend for a locked-out address.
+
+        Modeled on `forgot_password`, because the situation is the same shape:
+        the user needs mail to a known address and is not (or cannot be)
+        authenticated.
+
+        The login gate that refuses an unverified user also bars them from the
+        authenticated `resend_verification` endpoint — so without this the only
+        recovery is the single mail sent at signup, whose token expires after
+        24h. A user locked out days later has no path back in at all.
+
+        Same anti-enumeration contract as forgot_password: an unknown address
+        and a verified address answer identically, and the caller cannot learn
+        whether a row exists. Only the SMTP-unconfigured case is surfaced
+        (returning False), because that is a server fault the user cannot fix by
+        retrying — the 503 tells them to contact the administrator.
+        """
+        user = await self.user_repo.get_by_email(email)
+        if not user:
+            await self._audit.log(
+                actor_id=None,
+                action="verification_resend_requested_unknown_email",
+                resource_type="user",
+                after={"email": email},
+            )
+            return True
+        if user.is_verified:
+            return True  # verified users need no mail; stay silent about it
         if not EmailService.is_configured():
             await self._audit.log(
                 actor_id=user.id,
@@ -588,17 +653,34 @@ class AuthService:
                 # when someone is timing how fast sign-in feels. Timed
                 # separately from the INSERT so a slow first login does not get
                 # misread as a slow database.
-                user = await self.user_repo.create(
-                    email=email,
-                    password_hash=await hash_password_async(secrets.token_urlsafe(32)),
-                    **{self._sub_column(provider): subject},
-                    oauth_provider=provider,
-                    oauth_avatar_url=user_info.get("picture"),
-                    is_verified=True,
-                )
+                try:
+                    user = await self.user_repo.create(
+                        email=email,
+                        password_hash=await hash_password_async(secrets.token_urlsafe(32)),
+                        **{self._sub_column(provider): subject},
+                        oauth_provider=provider,
+                        oauth_avatar_url=user_info.get("picture"),
+                        is_verified=True,
+                    )
+                    created_here = True
+                except IntegrityError:
+                    # Two first-time sign-ins with the same provider subject
+                    # raced; the other caller's INSERT won. Our transaction is
+                    # invalid, so roll it back and adopt the winner's row — the
+                    # user has been waiting on the provider's consent screen and
+                    # failing them over an hourglass race is not a real answer.
+                    # `create_default` must not run: the winner already created
+                    # the default workspace on their own insert.
+                    await self.user_repo.rollback()
+                    winner = await self.user_repo.get_by_oauth_sub(provider, subject)
+                    if winner is None:
+                        raise OAuthFailed(provider)
+                    user = winner
+                    created_here = False
                 _lap("argon2_hash_new_user")
-                await self.workspace_repo.create_default(user.id)
-                _lap("db_create_default_workspace")
+                if created_here:
+                    await self.workspace_repo.create_default(user.id)
+                    _lap("db_create_default_workspace")
             else:
                 if not user.is_active:
                     raise UnauthorizedError("Account is deactivated")
