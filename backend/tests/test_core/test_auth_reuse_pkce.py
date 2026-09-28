@@ -77,16 +77,33 @@ class FakeRedis:
         return len(keys)
 
     async def eval(self, script, numkeys, *args):
-        """Model the two scripts auth_service actually runs.
+        """Model the three scripts auth_service actually runs.
 
         A real EVAL runs Lua; this cannot. Returning one canned value for every
-        script is a lie that hides shape changes — the two scripts in
-        auth_service return different types (an int status from the refresh
-        rotation, a [state, verifier] pair from the OAuth state consume), and a
-        call site that unpacks the wrong one would pass here and fail in
-        production. So each known script is modelled against the double's own
-        store, which is what the caller actually depends on.
+        script is a lie that hides shape changes — the scripts in auth_service
+        return different types (an int status from the refresh rotation, a
+        [state, verifier] pair from the OAuth state consume, an int 1 from the
+        OAuth state create) and take different argument shapes. A call site that
+        unpacked the wrong one, or passed keys where it should have passed
+        values, would pass here and fail in production.
+
+        So each known script is matched on its own body and then *modelled*
+        against the double's own store, which is what the caller actually
+        depends on. Dispatch is on script text, not on argument count: two of
+        these scripts are called with the same `numkeys` and the same two keys,
+        and only their bodies differ.
         """
+        body = str(script)
+
+        if "SETEX" in body:
+            # _INIT_OAUTH_STATE_LUA: SETEX KEYS[1] ARGV[2], SETEX KEYS[2]
+            # ARGV[3], with the shared TTL in ARGV[1].
+            ttl, value_a, value_b = str(args[2]), str(args[3]), str(args[4])
+            assert ttl.isdigit(), f"Lua would reject a non-numeric TTL: {ttl!r}"
+            self.data[str(args[0])] = value_a
+            self.data[str(args[1])] = value_b
+            return 1
+
         if numkeys == 2 and any(str(k).startswith("oauth:state:") for k in args):
             # _CONSUME_OAUTH_STATE_LUA: read both, delete both, report a
             # missing key as falsy (Lua cannot put nil in a table).
@@ -97,6 +114,7 @@ class FakeRedis:
                 self.data.pop(state_key, None)
                 self.data.pop(pkce_key, None)
             return (state, verifier)
+
         return self.eval_result
 
 
@@ -232,6 +250,90 @@ class TestOAuthPKCE:
         assert provider.last_challenge == expected
         assert f"oauth:state:{state}" in redis.data
         assert state in url
+
+    async def test_oauth_init_writes_state_and_verifier_in_one_round_trip(self):
+        """A split write can leave a state with no verifier, and PKCE then
+        silently stops existing.
+
+        Two separate SETEX calls meant a transient Redis error between them left
+        `oauth:state:{state}` stored and `oauth:pkce:{state}` absent. The
+        callback resolves a missing verifier to `None` and calls
+        `authenticate(code, code_verifier=None)` — a token exchange with no PKCE
+        at all, after having advertised a code_challenge to the provider.
+
+        Nothing looks wrong: the code is single-use and short-lived, so it
+        surfaces as one sign-in that is slightly more forgeable and nothing
+        else. The single round trip is the fix, so the round trip is what is
+        pinned — not merely that both keys happen to be present, which the
+        split version also satisfied.
+        """
+
+        class CountingRedis(FakeRedis):
+            """Counts every round trip, not just EVAL.
+
+            Counting only `eval` would report "0 round trips" for a version that
+            used two plain SETEX calls, which reads like a measurement rather
+            than the answer it is.
+            """
+
+            def __init__(self):
+                super().__init__()
+                self.ops = []
+
+            async def setex(self, key, ttl, value):
+                self.ops.append(f"SETEX {key}")
+                return await super().setex(key, ttl, value)
+
+            async def eval(self, script, numkeys, *args):
+                kind = "EVAL:init" if "SETEX" in str(script) else f"EVAL:{numkeys}k"
+                self.ops.append(kind)
+                return await super().eval(script, numkeys, *args)
+
+        class FakeProvider:
+            def is_configured(self):
+                return True
+
+            def get_authorization_url(self, state, code_challenge=None):
+                return f"https://provider/auth?state={state}"
+
+        redis = CountingRedis()
+        with patch("src.identity.services.auth_service.redis_client", redis), patch(
+            "src.identity.services.sso.SSOProviderRegistry.get", return_value=FakeProvider()
+        ):
+            _, state = await _svc().oauth_init("google")
+
+        assert redis.ops == ["EVAL:init"], (
+            "oauth_init must write state and PKCE verifier in one atomic round trip; "
+            f"got {redis.ops}"
+        )
+        # Both keys present, from that one call.
+        assert redis.data[f"oauth:state:{state}"] == "1"
+        assert redis.data[f"oauth:pkce:{state}"]
+
+    async def test_oauth_init_leaves_nothing_behind_when_redis_fails(self):
+        """A half-written state is worse than none: it is a valid state with no
+        verifier, which is the exact shape that disables PKCE."""
+        import src.identity.services.auth_service as auth_mod
+
+        class ExplodingRedis(FakeRedis):
+            async def eval(self, script, numkeys, *args):
+                raise ConnectionError("upstream unavailable")
+
+        class FakeProvider:
+            def is_configured(self):
+                return True
+
+            def get_authorization_url(self, state, code_challenge=None):
+                return f"https://provider/auth?state={state}"
+
+        redis = ExplodingRedis()
+        with patch.object(auth_mod, "redis_client", redis), patch(
+            "src.identity.services.sso.SSOProviderRegistry.get", return_value=FakeProvider()
+        ):
+            with pytest.raises(ConnectionError):
+                await _svc().oauth_init("google")
+
+        assert redis.data == {}, "a failed init must not leave a partial state behind"
 
     def test_google_authorization_url_has_pkce_and_forced_consent(self):
         url = GoogleOAuthProvider().get_authorization_url("state", code_challenge="challenge123")

@@ -5,6 +5,8 @@ import json
 import logging
 import secrets
 import time
+from collections.abc import Callable
+from typing import Any
 
 from jose import JWTError
 
@@ -102,6 +104,27 @@ if state or pkce then
     redis.call('DEL', KEYS[1], KEYS[2])
 end
 return {state or false, pkce or false}
+"""
+
+# Writes the state and the PKCE verifier together, so they are either both
+# present or both absent.
+#
+# This is the same reasoning as _CONSUME_OAUTH_STATE_LUA applied at creation
+# time, and the failure it closes is a real one: two separate SETEX calls meant
+# a transient Upstash error between them left a state with no verifier. The
+# callback then resolved `code_verifier = None` and called
+# `authenticate(code, code_verifier=None)` — a token exchange with **no PKCE
+# at all**, silently, after having advertised a code_challenge to the provider.
+# The code is single-use and short-lived, so nothing looks wrong; PKCE simply
+# stops existing for that one sign-in.
+#
+# One script is also one REST round trip instead of two. On Upstash each command
+# is a separate HTTPS request (~100-200ms from Render), and this pair was
+# serial, so it sat directly in front of the redirect to the provider.
+_INIT_OAUTH_STATE_LUA = """
+redis.call('SETEX', KEYS[1], ARGV[1], ARGV[2])
+redis.call('SETEX', KEYS[2], ARGV[1], ARGV[3])
+return 1
 """
 
 
@@ -434,7 +457,6 @@ class AuthService:
         if not oauth or not oauth.is_configured():
             raise OAuthNotConfigured(provider)
         state = secrets.token_urlsafe(32)
-        await redis_client.setex(f"oauth:state:{state}", 600, "1")
         # PKCE (RFC 7636): a per-request code verifier is stored server-side;
         # its S256 challenge rides the authorize URL and the verifier is posted
         # with the token exchange. A stolen authorization code can't be traded
@@ -443,7 +465,19 @@ class AuthService:
         code_challenge = base64.urlsafe_b64encode(
             hashlib.sha256(code_verifier.encode("ascii")).digest()
         ).rstrip(b"=").decode("ascii")
-        await redis_client.setex(f"oauth:pkce:{state}", 600, code_verifier)
+        # Written together, in one round trip. See _INIT_OAUTH_STATE_LUA: two
+        # separate SETEX calls could leave the state without its verifier, and
+        # the callback degrades a missing verifier to `None` — which means no
+        # PKCE, silently.
+        await redis_client.eval(
+            _INIT_OAUTH_STATE_LUA,
+            2,
+            f"oauth:state:{state}",
+            f"oauth:pkce:{state}",
+            "600",
+            "1",
+            code_verifier,
+        )
         auth_url = oauth.get_authorization_url(state, code_challenge=code_challenge)
         return auth_url, state
 
@@ -453,6 +487,47 @@ class AuthService:
         if not oauth or not oauth.is_configured():
             raise OAuthNotConfigured(provider)
 
+        # Per-phase timings. This handler was reported as taking ~2s and the
+        # cause was genuinely unknown — four candidate explanations (a provider
+        # round trip, a cold Neon connection, a Render cold start, or Upstash)
+        # all fit the symptom, and nothing in the logs distinguished them. The
+        # breakdown is logged unconditionally, on success and on failure, so the
+        # next occurrence identifies itself. Without a number the only honest
+        # answer is "unknown", and a guess would be worse than no answer.
+        #
+        # The phases are NOT independent costs. `provider_exchange` blocks on two
+        # HTTPS calls to the provider, and every database phase below can absorb
+        # a cold-start wake — Neon's free tier suspends the compute after ~5 min
+        # idle, so the first query of a quiet period pays for it. The split
+        # exists to tell those apart, and a single `db_*` phase being large
+        # while the others are small is the signature of a cold connection.
+        _phases: dict[str, float] = {}
+        _last = time.perf_counter()
+
+        def _lap(name: str) -> None:
+            nonlocal _last
+            now = time.perf_counter()
+            _phases[name] = (now - _last) * 1000
+            _last = now
+
+        try:
+            return await self._run_oauth_callback(provider, oauth, code, state, _lap)
+        finally:
+            logger.info(
+                "oauth_callback timings provider=%s total=%.0fms %s",
+                provider,
+                sum(_phases.values()),
+                " ".join(f"{k}={v:.0f}ms" for k, v in _phases.items()),
+            )
+
+    async def _run_oauth_callback(
+        self,
+        provider: str,
+        oauth: Any,
+        code: str,
+        state: str,
+        _lap: Callable[[str], None],
+    ) -> Token:
         # One atomic round trip: read both single-use keys and delete them. The
         # state and the PKCE verifier are consumed together, so a failure below
         # cannot leave a replayable state behind.
@@ -462,6 +537,7 @@ class AuthService:
             f"oauth:state:{state}",
             f"oauth:pkce:{state}",
         )
+        _lap("redis_state_pkce")
         if not state_value:
             raise CSRFValidationFailed()
         # Lua reports a missing key as false; normalise to None so the provider
@@ -470,6 +546,7 @@ class AuthService:
             code_verifier = None
 
         user_info = await oauth.authenticate(code, code_verifier=code_verifier)
+        _lap("provider_exchange")
         if not user_info:
             raise OAuthFailed(provider)
 
@@ -491,8 +568,10 @@ class AuthService:
             # Email is only consulted to *find a pre-existing account to link*,
             # and only once the address is known-verified.
             user = await self.user_repo.get_by_oauth_sub(provider, subject)
+            _lap("db_lookup_by_sub")
             if user is None and await self.user_repo.email_exists(email):
                 candidate = await self.user_repo.get_by_email(email)
+                _lap("db_lookup_by_email")
                 # Refuse to merge into an account already bound to a different
                 # provider subject: that is either a provider account-takeover
                 # or a genuine user confusion, and silently re-binding would
@@ -502,6 +581,13 @@ class AuthService:
                 user = candidate
 
             if not user:
+                # Argon2 is deliberately CPU-bound (~100-300ms). It runs in a
+                # thread via `hash_password_async` so it cannot block the loop,
+                # but it is still real wall-clock on the request — and it only
+                # happens on a user's *first* OAuth sign-in, which is exactly
+                # when someone is timing how fast sign-in feels. Timed
+                # separately from the INSERT so a slow first login does not get
+                # misread as a slow database.
                 user = await self.user_repo.create(
                     email=email,
                     password_hash=await hash_password_async(secrets.token_urlsafe(32)),
@@ -510,7 +596,9 @@ class AuthService:
                     oauth_avatar_url=user_info.get("picture"),
                     is_verified=True,
                 )
+                _lap("argon2_hash_new_user")
                 await self.workspace_repo.create_default(user.id)
+                _lap("db_create_default_workspace")
             else:
                 if not user.is_active:
                     raise UnauthorizedError("Account is deactivated")
@@ -527,6 +615,7 @@ class AuthService:
                     update_fields["is_verified"] = True
                 if update_fields:
                     await self.user_repo.update(user.id, **update_fields)
+                    _lap("db_update_user")
 
             await self._audit.log(
                 actor_id=user.id,
@@ -534,9 +623,12 @@ class AuthService:
                 resource_type="user",
                 resource_id=user.id,
             )
+            _lap("db_audit_log")
             access_token = create_access_token(data={"sub": str(user.id)})
             refresh_token = create_refresh_token(data={"sub": str(user.id)})
+            _lap("mint_tokens")
             await self._store_refresh_session(refresh_token, user.id)
+            _lap("redis_store_session")
             return Token(access_token=access_token, token_type="bearer", refresh_token=refresh_token)
         except OAuthFailed:
             raise
