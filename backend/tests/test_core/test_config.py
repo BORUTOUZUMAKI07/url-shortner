@@ -186,9 +186,16 @@ class TestSettingsEdgeCases:
         s = _settings()
         assert s.SCHEMA_REGISTRY_URL is None
 
-    def test_environment_default_is_production(self):
+    def test_environment_default_is_production(self, monkeypatch):
         # Asserted through the raw class: production mode is the default, and
         # that is exactly why it also hard-fails without a SECRET_KEY.
+        #
+        # `_env_file=None` only stops pydantic reading .env — it does NOT stop it
+        # reading os.environ, and the testcontainers harness exports
+        # ENVIRONMENT=test into this very process. Without the delenv, the
+        # ambient value wins over the class default and this asserts the harness
+        # instead of the default.
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
         s = Settings(SECRET_KEY="x" * 64, _env_file=None)
         assert s.ENVIRONMENT == "production"
 
