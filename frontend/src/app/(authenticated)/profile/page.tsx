@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { auth, getErrorMessage, profileApi } from "@/lib/api"
 import { useAuthStore } from "@/store/auth"
-import { User, Mail, Shield, Crown, CalendarDays, CheckCircle, XCircle, ExternalLink, Lock, Camera, Loader2, AlertCircle, Check } from "lucide-react"
+import { User, Mail, Crown, CalendarDays, CheckCircle, XCircle, ExternalLink, Lock, Camera, Loader2, AlertCircle, Check } from "lucide-react"
 
 const passwordSchema = z.object({
   pwCurrent: z.string().min(1, "Current password is required"),
@@ -46,6 +46,24 @@ export default function ProfilePage() {
   // Avatar
   const [avatarLoading, setAvatarLoading] = useState(false)
   const [avatarError, setAvatarError] = useState("")
+
+  // Resend verification
+  const [resending, setResending] = useState(false)
+  const [verifyMsg, setVerifyMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null)
+
+  async function handleResendVerification() {
+    setResending(true); setVerifyMsg(null)
+    try {
+      await auth.resendVerification()
+      setVerifyMsg({ kind: "ok", text: "New link sent — check your inbox." })
+    } catch (e: unknown) {
+      // The server returns 503 with a specific message when SMTP is not
+      // configured, so surface that verbatim rather than a generic failure.
+      setVerifyMsg({ kind: "err", text: getErrorMessage(e, "Could not send the verification email") })
+    } finally {
+      setResending(false)
+    }
+  }
 
   useQuery({
     queryKey: ["authMe"],
@@ -110,7 +128,6 @@ export default function ProfilePage() {
   const details = [
     { label: "Email", value: user.email, icon: Mail },
     { label: "User ID", value: `#${user.id}`, icon: User },
-    { label: "Role", value: user.role, icon: Shield, badge: true },
     { label: "Plan", value: user.plan, icon: Crown, badge: true, badgeColor: user.plan === "free" ? "secondary" as const : "success" as const },
     { label: "Joined", value: new Date(user.created_at).toLocaleDateString(), icon: CalendarDays },
     { label: "Verified", value: user.is_verified ? "Yes" : "No", icon: user.is_verified ? CheckCircle : XCircle, badge: true, badgeColor: user.is_verified ? "success" as const : "warning" as const },
@@ -228,12 +245,32 @@ export default function ProfilePage() {
         <div className="grid gap-4 sm:grid-cols-2">
           {!user.is_verified && (
             <Card>
-              <CardContent className="flex items-center gap-4 pt-6">
-                <XCircle className="size-6 text-amber-600" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium">Email not verified</p>
-                  <p className="text-xs text-muted-foreground">Check your inbox for the verification link.</p>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-4">
+                  <XCircle className="size-6 shrink-0 text-amber-600" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Email not verified</p>
+                    <p className="text-xs text-muted-foreground">Check your inbox for the verification link.</p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResendVerification}
+                    disabled={resending}
+                  >
+                    {resending ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Mail className="mr-1 size-4" />}
+                    Resend
+                  </Button>
                 </div>
+                {verifyMsg && (
+                  <p
+                    role="status"
+                    className={`mt-3 flex items-center gap-1.5 text-xs ${verifyMsg.kind === "ok" ? "text-green-600" : "text-red-600"}`}
+                  >
+                    {verifyMsg.kind === "ok" ? <Check className="size-3.5" /> : <AlertCircle className="size-3.5" />}
+                    {verifyMsg.text}
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}

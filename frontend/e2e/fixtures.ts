@@ -5,7 +5,7 @@ export const TEST_USER = {
   email: "test@example.com",
   password: "password123",
   is_verified: true,
-  role: "admin",
+  is_active: true,
   plan: "free",
   is_superadmin: false,
   avatar_url: null,

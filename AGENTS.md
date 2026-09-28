@@ -1,5 +1,160 @@
 # Critical Fixes
 
+## Security Audit Batch — OAuth Takeover, Rate-Limit IP, Admin Bootstrap, Dead Config
+
+A full audit pass. Each entry lists the file(s), what was actually wrong, and why the fix is the fix. New tests pin every one of these.
+
+### OAuth — GitHub sign-in was an account-takeover primitive
+
+**Files:** `backend/src/identity/services/sso/github_oauth.py`, `backend/src/identity/services/auth_service.py`, `backend/src/identity/models/user.py`
+
+`github_oauth.get_user_info` returned `verified_email = (email is not None)` — *"GitHub gave us an address, therefore it is verified"*. GitHub lets an account **hold** an address it has not verified, and `auth_service.oauth_callback` then resolved the caller **by email**. So: add the victim's address to your own GitHub account, sign in, and you get a session for the victim's account. Full takeover, from a public sign-up.
+
+Fixed in two halves, because either alone is insufficient:
+- **The provider reports the truth.** `get_user_info` now *always* fetches `/user/emails`, keeps only entries with GitHub's own `verified` flag, and prefers the verified primary. The `/user` endpoint's `email` field is **not** proof — it is only populated for public addresses and is still unverified.
+- **Identity is the provider subject, never the email.** New `users.github_id` column (+ unique index) and `UserRepository.get_by_oauth_sub()`. The callback resolves the caller by subject first; email is only consulted to *find a pre-existing account to link*, and only once the address is known-verified. A **missing** `verified_email` claim counts as unverified (`is not True`), not as permissive.
+- Also refuse to merge into an account already bound to a *different* provider, and reject deactivated users at the callback.
+
+`is_verified` is set from a genuinely verified claim only. Tests: `tests/test_core/test_oauth_trust.py`.
+
+**Note:** `REQUIRE_EMAIL_VERIFICATION` (default `False`) gates login on `is_verified`. It is off because `is_verified` is currently advisory and turning it on locks out every account registered before the check existed. **Product decision, flagged for the user.**
+
+### Rate Limiting — every visitor shared one bucket (XFF ignored)
+
+**Files:** `backend/src/shared/core/client_ip.py` (new), `shared/middleware/rate_limit.py`, `shared/middleware/audit.py`, `links/routes/redirect.py`, `webhooks/routes/webhook_receiver.py`
+
+All four consumers read `request.client.host` directly. Uvicorn is deliberately **not** started with `--proxy-headers`, so behind Render that is the **proxy's** IP: one abusive client throttled the entire platform, and every audit row was stamped with the proxy address.
+
+`--proxy-headers` was considered and **rejected** — it changes the semantics globally and would conflict confusingly with `TRUST_PROXY`, so the same header would be trusted in one place and not another. Instead: one shared resolver, used at every call site (each previously had its own partial copy).
+
+`get_client_ip(request)`: when `TRUST_PROXY` is on, take the **rightmost** `X-Forwarded-For` entry (the one the trusted edge appended, hence the only one the edge vouched for) with a fallback to the socket peer. **Leftmost is client-controlled** — trusting it lets anyone spoof an address to escape limits or to frame someone else. When off, the header is ignored entirely. Tests: `tests/test_core/test_client_ip.py`.
+
+**Note:** `TRUST_PROXY` is load-bearing and stays. Removing it would be the fix for the wrong bug.
+
+### Admin — anyone could become superadmin; the last admin could delete themselves
+
+**Files:** `backend/src/admin/routes/admin.py`, `admin/services/admin_service.py`, `identity/models/user.py`, `shared/core/config.py`
+
+- `POST /admin/seed` was reachable by **any authenticated user** — on a fresh database the first account to register owns the platform. Now requires `X-Admin-Bootstrap-Token` matched with `hmac.compare_digest` against `ADMIN_BOOTSTRAP_TOKEN`. **Empty (the default) disables the endpoint with a 404** — better than a check that fails open.
+- New `users.is_active` (indexed) suspends an account without deleting it. `get_current_user` rejects inactive users on **both** the JWT and API-key branches; `login` / `refresh` / `oauth_callback` check it too. `PATCH /admin/users/{id}/toggle-active`.
+- `toggle_superadmin` / `toggle_active` / `delete_user` now take `acting_user_id` and share one guard: you cannot demote/deactivate/delete **yourself**, and you cannot remove the **last active superadmin** (counted in the DB, same transaction as the write). `delete_user` also revokes the user's refresh family.
+- Tests: `tests/test_core/test_admin_guards.py` (service level, no DB) + route tests in `tests/test_routes/test_admin_routes.py`.
+
+### Config — `SECRET_KEY` could be blank in production; CI ran as production
+
+**Files:** `backend/src/shared/core/config.py`, `.github/workflows/ci.yml`, `nightly.yml`, `backend/tests/testcontainers.py`, `backend/tests/e2e_env.py`, `backend/.env.example`
+
+`SECRET_KEY` was allowed to be empty. Every JWT and every webhook HMAC would be signed with a publicly known key. `validate_secret_key` now **hard-fails** when `ENVIRONMENT == "production"` and only warns otherwise (so tests and local dev keep working).
+
+Enabling that immediately broke CI — and the reason was itself a finding: **`ENVIRONMENT` was never set in CI, so every test run booted as `production`** (the config default). CI, the nightly workflow, `testcontainers.py`, and `e2e_env.py` now set `ENVIRONMENT=test` explicitly.
+
+**Note:** when a guard you just added fires in CI, ask *why it was asleep* before relaxing it.
+
+### Config — refresh cookie outlived the refresh JWT by 23 days
+
+**Files:** `backend/src/shared/core/config.py`, `identity/routes/auth.py`
+
+The cookie TTL was hard-coded (`7*24*3600`) while the token expiry was a separate setting (`30 * 24 * 60 * 60`). The browser kept a cookie the server would reject for three weeks. Both are now config-driven (`REFRESH_TOKEN_EXPIRE_DAYS=7`, `REFRESH_COOKIE_MAX_AGE`) with `validate_cookie_ttls` forbidding the cookie outliving the token.
+
+**Note:** the **access** cookie intentionally outlives the access token (`ACCESS_COOKIE_MAX_AGE=604800` vs `ACCESS_TOKEN_EXPIRE_MINUTES=60`) — that is what makes silent refresh work. Do **not** "align" the two.
+
+### Auth endpoints had no rate limiting
+
+**File:** `backend/src/identity/routes/auth.py`
+
+`login`, `refresh`, `forgot-password`, `reset-password`, `verify-email`, `oauth/exchange`, `oauth/{provider}` and `oauth/callback` now all go through `_enforce_auth_rate_limit(request, action)` with a per-action budget in `_AUTH_LIMITS` (e.g. login 10 burst / 1 per 10 s refill, forgot-password 5/10 min). Keyed on the shared client IP, so this inherits the XFF fix.
+
+### `users.role` — a global permission column with zero readers
+
+**Files:** `backend/src/identity/models/user.py`, `alembic/versions/c8d9e0f1a2b3_…py`, `frontend/src/lib/api.ts`, `frontend/src/store/auth.ts`, `frontend/src/app/(authenticated)/{profile,admin}/page.tsx`
+
+Real authorization runs off `workspace_members.role`. `users.role` had **no readers** in the backend, yet the profile page displayed it as a "Role" row — a fake answer to a question the UI shouldn't have been asking. Column, `RoleEnum`, migration, and the two frontend render sites are gone.
+
+Deleted as dead surface in the same pass: `shared/core/rbac.py`, `shared/middleware/rbac.py` (+ their 2 test files), and the `shared/core/event_dispatcher.py` shim (`conftest.py` now imports from `shared.events.dispatcher`).
+
+`frontend/src/store/auth.ts` declared a **second, hand-copied** `User` interface that had already drifted; it now re-exports the API type, so there is one definition.
+
+**Note:** migration `fa956e5f83aa` was left in place on purpose — deleting an applied revision breaks the alembic chain for any DB already at it.
+
+### Auth — password/email changes didn't kill sessions or unlink providers
+
+**Files:** `backend/src/identity/services/profile_service.py`, `auth_service.py`, `identity/services/session_revocation.py` (new)
+
+- `change_password` and `reset_password` now revoke the **whole refresh family**, including the current session (security-correct, but a UX change: the user is signed out immediately).
+- `change_email` clears `google_id` / `github_id` / `oauth_provider` — the provider's verified proof was for the *old* address, so keeping the link would let the old address sign back in.
+- `login` / `refresh` / `logout` / `forgot_password` / `reset_password` / `verify_email` / `oauth_callback` / `change_password` now all write audit rows (login success **and** failure, and reuse detection).
+- `revoke_refresh_family` / `is_family_revoked` moved into `identity/services/session_revocation.py` because `ProfileService` and `AdminService` need them too. `is_family_revoked` is **async** and fails **open** on a Redis error (fail-closed would turn a cache blip into a platform-wide logout).
+
+**Note:** tests patching the Redis double must patch **both** `src.identity.services.auth_service.redis_client` and `src.identity.services.session_revocation.redis_client` — `tests/test_core/test_auth_reuse_pkce.py` has a `fake_redis()` helper that does this.
+
+### Security — token claims could be overwritten by caller data
+
+**File:** `backend/src/shared/core/security.py`
+
+`create_access_token` / `create_refresh_token` shared one `_encode()` with a `_RESERVED_CLAIMS` guard, so a caller passing `{"exp": …}` or `{"type": …}` in `data` can no longer forge those claims. Refresh expiry is config-driven.
+
+### Auth — `access_token` had no `jti`
+
+Deliberately **not** added. An access-token denylist with no consumer is the same dead surface being removed in this batch; refresh reuse detection already covers the replayable credential.
+
+### Auth endpoints return the user, so the client stops round-tripping
+
+**Files:** `backend/src/identity/routes/auth.py`, `frontend/src/lib/api.ts`, `frontend/src/app/login/page.tsx`
+
+`oauth_exchange` returns `TokenWithUser` (adds `user: UserResponse`) alongside the tokens. The login chain is now `exchangeOauth(code) → setUser(user) → redirect` — the extra `/auth/me` hop is gone (a request whose failure would strand the user *after* the one-time code is consumed).
+
+### Favorites — no workspace access check on add
+
+**File:** `backend/src/links/services/favorite_service.py`
+
+`add` accepted any `url_id` and created the row, so you could favourite a URL in a workspace you have no access to. It now takes a (required) `WorkspaceRepository` and checks access first, returning `URLNotFound` (not "forbidden") so the endpoint is not an existence oracle for other tenants' URLs.
+
+**Note:** `WorkspaceRepository.verify_access` **returns** `Workspace | None` — it does not raise. A bare `await repo.verify_access(...)` compiles, passes lint and typecheck, and silently checks nothing. The result must be tested. `workspace_repo` is a required constructor arg (not `| None = None`) so the guard cannot be quietly omitted by a future caller, and a `None` default would have made the check fail *open*. Tests: `tests/test_core/test_favorite_access.py`.
+
+### Workspaces — accepting an invite silently verified your email
+
+**File:** `backend/src/workspaces/services/workspace_service.py` function `accept_invite`
+
+The method ended with:
+
+```python
+if not user.is_verified:
+    await self.user_repo.update(user.id, is_verified=True)
+```
+
+An invite proves that *somebody else* knows an address, not that the person accepting owns the inbox. This was a **free bypass of email verification** — accept any invite and the flag flips, which would have quietly defeated `REQUIRE_EMAIL_VERIFICATION` the moment it was ever enabled. Same confused reasoning as the GitHub bug above: a third party's word was treated as proof of ownership.
+
+Removed. `is_verified` is now written in exactly two places, both of which involve the actual owner of the inbox: `AuthService.verify_email` (clicked the emailed link) and `AuthService.oauth_callback` (provider reported a verified claim). `ProfileService.change_email` correctly resets it to `False`. Tests: `tests/test_core/test_invite_not_verification.py`.
+
+**Note:** the profile page renders an "Email not verified — check your inbox" card, but there is **no resend endpoint** (`POST /auth/verify-email` only consumes a token). If SMTP is misconfigured the email is *silently* dropped — `EmailService._send` logs "Would send email to…" and returns — so the user is stuck with a permanent card and no recovery. Set up SMTP *before* ever flipping `REQUIRE_EMAIL_VERIFICATION`.
+
+### Email — Forgot Password Spinner Never Stopped (SMTP hang, no timeout)
+
+**File:** `backend/src/identity/services/email_service.py`, `backend/render.yaml`
+
+Symptom: forgot-password button stuck on "Sending..." forever, no mail, no error. Not a UI bug — the HTTP request genuinely never completed.
+
+`smtplib.SMTP(cls.SMTP_HOST, cls.SMTP_PORT)` was constructed with **no `timeout`**. An unreachable or stalling SMTP server blocks the worker thread indefinitely; `asyncio.to_thread` cannot cancel it, so the coroutine never resumes and the response never goes out. Fixed with `timeout=SMTP_TIMEOUT_SECONDS` on the constructor (covers DNS + TCP + the SMTP greeting) **and** `asyncio.wait_for(..., timeout=...)` as an outer ceiling, plus `SMTP_TIMEOUT_SECONDS: float = 10.0`.
+
+Two things made this invisible before:
+
+- **The exception handler caught everything** and only logged, so even a *fast* failure returned "a reset link has been sent" with a dead inbox. SMTP could be entirely broken with no symptom anywhere but a log nobody reads. Failures are still swallowed — a caller must not learn whether an address exists — but the timeout means they now arrive at a known time.
+- **`render.yaml` listed no SMTP vars at all.** Mail worked only because they had been added by hand in the Render dashboard; a service created fresh from the file would have had none. Added, plus `ADMIN_BOOTSTRAP_TOKEN` and `REQUIRE_EMAIL_VERIFICATION`.
+
+Also `normalize_smtp_password()` strips whitespace from the password. Gmail displays app passwords in 4-char groups (`abcd efgh ijkl mnop`); pasted with those spaces, `server.login()` fails 535 — silently, given the catch-all above. Applied in `is_configured()` as well, so a whitespace-only value reads as unconfigured rather than as a valid-looking one.
+
+**Note:** change-password "working" proves nothing about SMTP — that path never sends mail, it only returns tokens. The only real proof is a mail actually arriving.
+
+Tests: `tests/test_core/test_email_delivery.py`. The stall test releases via `threading.Event`, not `sleep` — `to_thread` cannot cancel, so a sleeping thread would keep the executor busy and `asyncio.run` would block on it at teardown (passing, but 30s slow).
+
+### Docker Compose — `redis` had no healthcheck while everything gated on it
+
+**File:** `docker/docker-compose.yml`
+
+`backend` and the workers use `depends_on: redis: condition: service_healthy`, but `redis` declared no `healthcheck` — so compose waited forever and the stack never started. Added `redis-cli ping` (postgres and mongodb already had one).
+
+---
+
 ## Auth — Logout Reload Loop + OAuth Sign-In Failing/Slow
 
 **Symptom:** Logout made the dashboard reload forever; Google sign-in could hang/fail silently after "continue" and felt slow (forced Google consent screen every time).

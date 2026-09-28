@@ -7,16 +7,51 @@ class TestAdminRoutes:
         db.add(test_user)
         await db.commit()
 
-    async def test_seed_superadmin(self, client):
+    async def test_seed_requires_bootstrap_token(self, client, db, test_user, monkeypatch):
+        """Anyone authenticated could promote themselves on a fresh database."""
+        monkeypatch.setattr(
+            "src.admin.routes.admin.settings.ADMIN_BOOTSTRAP_TOKEN", "expected-secret"
+        )
         resp = await client.post("/api/v1/admin/seed")
-        if resp.status_code == status.HTTP_400_BAD_REQUEST:
-            return
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_seed_with_wrong_token_rejected(self, client, db, test_user, monkeypatch):
+        monkeypatch.setattr(
+            "src.admin.routes.admin.settings.ADMIN_BOOTSTRAP_TOKEN", "expected-secret"
+        )
+        resp = await client.post(
+            "/api/v1/admin/seed", headers={"X-Admin-Bootstrap-Token": "nope"}
+        )
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_seed_disabled_when_token_unset(self, client, db, test_user, monkeypatch):
+        """No configured token means the endpoint does not exist at all, rather
+        than being open to every authenticated caller."""
+        monkeypatch.setattr("src.admin.routes.admin.settings.ADMIN_BOOTSTRAP_TOKEN", "")
+        resp = await client.post(
+            "/api/v1/admin/seed", headers={"X-Admin-Bootstrap-Token": "anything"}
+        )
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_seed_superadmin(self, client, db, test_user, monkeypatch):
+        monkeypatch.setattr(
+            "src.admin.routes.admin.settings.ADMIN_BOOTSTRAP_TOKEN", "expected-secret"
+        )
+        resp = await client.post(
+            "/api/v1/admin/seed", headers={"X-Admin-Bootstrap-Token": "expected-secret"}
+        )
         assert resp.status_code == status.HTTP_200_OK
         assert "superadmin" in resp.json()["detail"]
 
-    async def test_seed_already_exists(self, client):
-        resp = await client.post("/api/v1/admin/seed")
-        assert resp.status_code in (status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST)
+    async def test_seed_already_exists(self, client, db, test_user, monkeypatch):
+        monkeypatch.setattr(
+            "src.admin.routes.admin.settings.ADMIN_BOOTSTRAP_TOKEN", "expected-secret"
+        )
+        await self._make_superadmin(db, test_user)
+        resp = await client.post(
+            "/api/v1/admin/seed", headers={"X-Admin-Bootstrap-Token": "expected-secret"}
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     async def test_list_users(self, client, db, test_user):
         await self._make_superadmin(db, test_user)
@@ -46,16 +81,48 @@ class TestAdminRoutes:
 
     async def test_toggle_superadmin(self, client, db, test_user):
         await self._make_superadmin(db, test_user)
+        # Promote a *second* user first so removing the first is not the
+        # "last superadmin" case (which is now refused).
+        await client.post("/api/v1/auth/register", json={
+            "email": "target@example.com", "password": "StrongPass1!"
+        })
         list_resp = await client.get("/api/v1/admin/users")
-        user_id = list_resp.json()["users"][0]["id"]
-        resp = await client.patch(f"/api/v1/admin/users/{user_id}/toggle-superadmin")
+        target = [u for u in list_resp.json()["users"] if u["email"] == "target@example.com"][0]
+        resp = await client.patch(f"/api/v1/admin/users/{target['id']}/toggle-superadmin")
         assert resp.status_code == status.HTTP_200_OK
-        assert "superadmin=False" in resp.json()["detail"]
+        assert "superadmin=True" in resp.json()["detail"]
 
     async def test_toggle_superadmin_not_found(self, client, db, test_user):
         await self._make_superadmin(db, test_user)
         resp = await client.patch("/api/v1/admin/users/999999/toggle-superadmin")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_cannot_demote_self(self, client, db, test_user):
+        """Removing your own admin access by accident is unrecoverable through
+        the UI - another admin has to do it."""
+        await self._make_superadmin(db, test_user)
+        list_resp = await client.get("/api/v1/admin/users")
+        user_id = list_resp.json()["users"][0]["id"]
+        resp = await client.patch(f"/api/v1/admin/users/{user_id}/toggle-superadmin")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert "your own" in resp.json()["detail"]
+
+    async def test_toggle_active_deactivates_user(self, client, db, test_user):
+        await self._make_superadmin(db, test_user)
+        await client.post("/api/v1/auth/register", json={
+            "email": "deactivate-me@example.com", "password": "StrongPass1!"
+        })
+        list_resp = await client.get("/api/v1/admin/users")
+        target = [u for u in list_resp.json()["users"]
+                  if u["email"] == "deactivate-me@example.com"][0]
+        assert target["is_active"] is True
+        resp = await client.patch(f"/api/v1/admin/users/{target['id']}/toggle-active")
+        assert resp.status_code == status.HTTP_200_OK
+        assert "active=False" in resp.json()["detail"]
+
+    async def test_toggle_active_forbidden(self, client):
+        resp = await client.patch("/api/v1/admin/users/1/toggle-active")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
 
     async def test_delete_user(self, client, db, test_user):
         await self._make_superadmin(db, test_user)
@@ -68,6 +135,13 @@ class TestAdminRoutes:
         resp = await client.delete(f"/api/v1/admin/users/{target[0]['id']}")
         assert resp.status_code == status.HTTP_200_OK
         assert "deleted" in resp.json()["detail"].lower()
+
+    async def test_cannot_delete_self(self, client, db, test_user):
+        await self._make_superadmin(db, test_user)
+        list_resp = await client.get("/api/v1/admin/users")
+        user_id = list_resp.json()["users"][0]["id"]
+        resp = await client.delete(f"/api/v1/admin/users/{user_id}")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     async def test_delete_user_not_found(self, client, db, test_user):
         await self._make_superadmin(db, test_user)

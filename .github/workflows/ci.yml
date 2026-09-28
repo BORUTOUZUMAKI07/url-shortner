@@ -8,6 +8,10 @@ env:
   PYTHON_VERSION: "3.13"
   NODE_VERSION: "22"
   REGISTRY: ghcr.io
+  # CI is not production. Without this the settings default ("production")
+  # applies, which refuses to boot on a placeholder SECRET_KEY and would mark
+  # auth cookies Secure — breaking every plain-HTTP E2E request.
+  ENVIRONMENT: "test"
 
 jobs:
   backend-lint:

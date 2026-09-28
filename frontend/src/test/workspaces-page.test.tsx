@@ -3,7 +3,7 @@ import { render, screen } from "@/test/test-utils"
 import WorkspacesPage from "@/app/(authenticated)/workspaces/page"
 
 const { mockStore, mockStoreHook } = vi.hoisted(() => {
-  const mockStore = { user: { id: 1, email: "test@test.com", role: "admin" }, setUser: vi.fn() }
+  const mockStore = { user: { id: 1, email: "test@test.com", plan: "free" }, setUser: vi.fn() }
   const mockStoreHook = (selector?: (s: any) => any) => selector ? selector(mockStore) : mockStore
   mockStoreHook.getState = () => mockStore
   return { mockStore, mockStoreHook }
@@ -20,7 +20,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 describe("WorkspacesPage", () => {
   beforeEach(() => {
-    mockStore.user = { id: 1, email: "test@test.com", role: "admin" }
+    mockStore.user = { id: 1, email: "test@test.com", plan: "free" }
   })
 
   it("renders the page title", () => {

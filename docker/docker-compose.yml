@@ -35,6 +35,15 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    # backend and the workers gate on `condition: service_healthy`, so without
+    # this healthcheck compose waits forever and the whole stack never starts.
+    # (postgres and mongodb already declare one.)
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   # ── Event Bus ────────────────────────────────────────────
   kafka:

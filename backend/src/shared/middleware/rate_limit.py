@@ -2,6 +2,7 @@ from fastapi import HTTPException, Request, status
 from jose import JWTError
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from src.shared.core.client_ip import get_client_ip
 from src.shared.core.config import settings
 from src.shared.core.redis import check_rate_limit
 from src.shared.core.user_plan import DatabaseUserPlanResolver, UserPlanResolver
@@ -25,7 +26,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path in ("/health", "/metrics", "/favicon.ico"):
             return await call_next(request)
 
-        client_ip = request.client.host if request.client else "unknown"
+        # TRUST_PROXY-aware: behind Render, request.client.host is the proxy, so
+        # keying on it collapsed every visitor into a single rate-limit bucket.
+        client_ip = get_client_ip(request)
         ip_key = f"rl:ip:{client_ip}:{request.url.path}"
         limited = await check_rate_limit(ip_key, settings.RATE_LIMIT_IP_CAPACITY, settings.RATE_LIMIT_IP_REFILL)
         if limited:

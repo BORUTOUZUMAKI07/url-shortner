@@ -315,6 +315,8 @@ Every story follows **Situation → Task → Action → Result**. These are your
 
 **Result:** 24 failures → 0. CI green. Lesson: **authorization belongs at the operation boundary where the transaction lives, not in a side session.**
 
+**Later:** the `require_role` helper this story left behind turned out to have zero production callers (the services call `verify_role` on their own session), so it and its tests were deleted too — see Story 29.
+
 ---
 
 ## STORY 11 — Workspace owner could be locked out by a viewer membership row
@@ -540,6 +542,70 @@ Every story follows **Situation → Task → Action → Result**. These are your
 
 ---
 
+## STORY 26 — GitHub sign-in was an account-takeover primitive
+
+**Situation:** A security review flagged the OAuth callback. The provider helper returned `verified_email = (email is not None)` — i.e. *"GitHub gave us an address, therefore it is verified"* — and `oauth_callback` then looked the user up **by that email**.
+
+**Task:** Establish whether this was actually exploitable, and fix it.
+
+**Action:**
+- GitHub allows an account to *hold* an address it has not verified. Add the victim's address to your own GitHub account, sign in, and `email_exists("victim@example.com")` was true — the callback issued a session for the victim's account. Full takeover, reachable from a public sign-up.
+- Fix, in two halves, because either alone is insufficient:
+  1. **The provider reports the truth.** `get_user_info` now always fetches `/user/emails`, keeps only entries carrying GitHub's own `verified` flag, and prefers the verified primary. The `/user` endpoint's `email` field is *not* proof — it is only populated for public addresses and is still unverified.
+  2. **Identity is the provider subject, never the email.** Added `users.github_id`, and `get_by_oauth_sub()` resolves the caller first. Email is only consulted to *find a pre-existing account to link*, and only once the address is known-verified. A missing `verified_email` claim counts as unverified (`is not True`), not as permissive.
+- Also refuse to merge into an account already bound to a *different* provider, and reject deactivated users at the callback.
+
+**Result:** Account takeover closed. The lesson worth repeating in an interview: **email is a routing hint, not an identity.** OAuth hands you a stable per-provider subject — bind to that, and treat everything the profile endpoint volunteers as untrusted input.
+
+---
+
+## STORY 27 — Every visitor shared one rate-limit bucket
+
+**Situation:** Rate limiting, audit context, and the redirect handler all read `request.client.host`. Uvicorn was deliberately *not* started with `--proxy-headers`, so behind Render that address is the **proxy's** IP.
+
+**Task:** Fix the client-IP resolution without breaking the anti-spoofing guarantee.
+
+**Action:**
+- The tempting fix is `--proxy-headers`. Rejected: it changes the semantics globally and would interact confusingly with the `TRUST_PROXY` flag, so the same header would be trusted in one place and not another.
+- Instead: one shared resolver, `shared/core/client_ip.py`, used by **all four** call sites (rate limiter, audit middleware, redirect, webhook receiver) — previously each had its own partial copy.
+- When `TRUST_PROXY` is on it takes the **rightmost** `X-Forwarded-For` entry (the one the trusted edge appended, hence the only one the edge vouched for) and falls back to the socket peer. Leftmost is client-controlled: trusting it would let anyone spoof an address to escape limits, or to frame someone else.
+- When off, the header is ignored entirely and the peer is used.
+
+**Result:** Per-client limits and correct audit attribution. Lesson: **one resolver, one trust decision.** "Just read the header" is how a per-client control silently becomes a per-proxy control.
+
+---
+
+## STORY 28 — Anyone could become superadmin, and the last admin could delete themselves
+
+**Situation:** Two admin weaknesses found in review: `POST /admin/seed` was reachable by *any* authenticated user, and `toggle-superadmin` / `delete_user` had no guards at all.
+
+**Task:** Close the bootstrap hole and make admin self-destruction impossible.
+
+**Action:**
+- `/admin/seed` now requires an `X-Admin-Bootstrap-Token` matched with `hmac.compare_digest` against `ADMIN_BOOTSTRAP_TOKEN`. **Empty (the default) disables the endpoint with a 404** — better than a check that fails open. Without it, the first account to register on a fresh database owns the platform.
+- Added `users.is_active` (indexed) so an account can be suspended without being deleted. `get_current_user` rejects inactive users on **both** the JWT and API-key branches, and login / refresh / OAuth check it too.
+- Added `PATCH /admin/users/{id}/toggle-active`, and made `toggle_superadmin` / `toggle_active` / `delete_user` share one guard: you cannot demote, deactivate, or delete **yourself**, and you cannot remove the **last active superadmin** (counted in the DB, in the same transaction as the write).
+
+**Result:** Bootstrap is a deliberate operator action, and no single API call can lock the platform out. Lesson: **administrative actions need their own authorization, not just "is authenticated".**
+
+---
+
+## STORY 29 — Configuration that lied, and a permission column nobody read
+
+**Situation:** A review pass over "dead surface" turned up a cluster of related rot.
+
+**Task:** Decide what was load-bearing and what was a liability.
+
+**Action:**
+- **`SECRET_KEY` was allowed to be blank in production.** Every JWT and every webhook HMAC would be signed with a publicly known key. Added a pydantic validator that *hard-fails* when `ENVIRONMENT == "production"` and only warns otherwise, so tests and local dev keep working.
+- Turning that on immediately broke CI, and the reason was itself a finding: **`ENVIRONMENT` was never set in CI, so every test run booted as `production`** (the config default). CI and the nightly workflow now set `ENVIRONMENT=test` explicitly.
+- The refresh cookie outlived the refresh JWT by 23 days: the cookie TTL was hard-coded while the token expiry was separate. Both are now config-driven (`REFRESH_TOKEN_EXPIRE_DAYS`, `REFRESH_COOKIE_MAX_AGE`), with a validator forbidding the cookie outliving the token. The *access* cookie deliberately outlives the access token — that is what makes silent refresh work — so it is not aligned.
+- `users.role` was a global permission column with **zero readers**; real authorization runs off `workspace_members.role`. Removed the column, its enum, the `core/rbac.py` helper, the `middleware/rbac.py` shim, the dead `core/event_dispatcher.py` alias, and their tests. The frontend had a second, hand-copied `User` interface that had already drifted — it now re-exports the API type.
+
+**Result:** Production cannot boot with a blank signing key, CI runs in the environment it believes it does, and a misleading column that displayed a fake "Role" in the profile UI is gone. Lesson: **a column with no readers is a lie your UI tells your users.** And when a guard you just added fires in CI, ask *why it was asleep* before you relax it.
+
+---
+
 # PART 5 — One-sentence answers (cheat sheet)
 
 - **What is this project?** An enterprise URL shortener with auth, workspaces, analytics, webhooks, and an API, built on FastAPI + Next.js + PostgreSQL + MongoDB + Redis + Kafka.
@@ -561,6 +627,10 @@ Every story follows **Situation → Task → Action → Result**. These are your
 - **Why is geolocation async?** It used to run on every redirect; now the analytics worker resolves it off the hot path and only for public IPs (Story 23).
 - **How do workers shut down cleanly?** Shared `wait_for_shutdown` helpers with shielded timeouts; Kafka drains in-flight sends before `producer.stop()` (Story 24).
 - **Why new indexes?** `api_keys.prefix`, `urls.workspace_id`, `urls.expires_at`, `webhook_events.status` were scanned on every auth/listing/expiry/retry query (Story 25).
+- **How do you stop an OAuth account takeover?** Identity is the provider *subject*, never the email; GitHub's real `verified` flag gates linking, and a missing claim counts as unverified (Story 26).
+- **How do you trust a client IP behind a proxy?** One shared resolver takes the **rightmost** `X-Forwarded-For` entry, and only when `TRUST_PROXY` is on — leftmost is attacker-controlled (Story 27).
+- **How do you protect admin actions?** A bootstrap token (endpoint disabled entirely when unset), no self-demote/self-delete, and a last-active-superadmin check inside the same transaction (Story 28).
+- **What happens if `SECRET_KEY` is blank?** The app refuses to boot when `ENVIRONMENT=production`; and CI now sets `ENVIRONMENT=test` explicitly, because it had been silently defaulting to production (Story 29).
 
 ---
 
@@ -575,6 +645,9 @@ Every story follows **Situation → Task → Action → Result**. These are your
 7. **"How would you scale this?"** → Separate the analytics workers into their own service (Story 15), add more Kafka partitions/consumer groups, cache more aggressively, move to a paid Render/cloud tier, add a CDN for redirects.
 8. **"What would you do next?"** → Uptime pinger for the free-tier sleep, Redis write-through on redirects, webhook idempotency keys, feature branches + PRs.
 9. **"Tell me about a security fix you made."** → Story 12 (HttpOnly cookies), Story 20 (OAuth handoff), or the metadata-worker SSRF guard (AGENTS.md).
+10. **"How do you prevent account takeover via social login?"** → Story 26. This is the strongest security answer here — it is a real exploit, not a hardening pass.
+11. **"How do you make sure rate limiting can't be bypassed, and can't misfire?"** → Story 27 (rightmost-XFF behind a single trust decision).
+12. **"What happens when a guard you added breaks CI?"** → Story 29 — CI had been silently booting as `production`; fix the environment, don't disable the guard.
 
 ---
 
@@ -593,29 +666,28 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 ### `shared/` — cross-cutting everything uses
 | File | What it does |
 |---|---|
-| `core/config.py` | `Settings` (pydantic-settings) — all environment variables, with defaults. Rebuilt once at startup (this caused the testcontainers bug in Story 1). |
+| `core/config.py` | `Settings` (pydantic-settings) — all environment variables, with defaults. Rebuilt once at startup (this caused the testcontainers bug in Story 1). Validators refuse to boot in production with a blank `SECRET_KEY`, and forbid the refresh cookie outliving the refresh token (Story 29). |
 | `core/database.py` | SQLAlchemy async **engine**, `AsyncSessionLocal` factory, `init_db()`, health check. |
 | `core/base.py` | Declarative `Base` with a metadata **naming convention** (no shared model fields). |
 | `core/base_repository.py` | Generic CRUD (`get`, `get_by`, `get_many`, `create`, `update`, `delete`) every repository inherits, plus unit-of-work ops (`commit`, `rollback`, `flush`) and admin queries (`count`, `list_all`). |
-| `core/security.py` | Password hashing (argon2), JWT create/decode for access + refresh tokens. |
+| `core/security.py` | Password hashing (argon2; `hash_password_async` moves the ~200 ms Argon2 cost to a thread), JWT create/decode for access + refresh tokens. Both share one `_encode()` that refuses to let caller data overwrite reserved claims; the refresh expiry is config-driven. |
 | `core/redis.py` | `RedisAdapter` and `_build_redis_client()` — chooses Upstash or plain Redis (Story 3). |
 | `core/mongodb.py` | Async Mongo init via Motor + Beanie (no health check here). |
 | `core/click_event.py` | MongoDB `ClickEvent` model only (`URLAnalyticsSummary` lives in `analytics/models/analytics.py`). |
 | `core/deps.py` | FastAPI dependencies: `get_db` (session per request), `get_current_user`, plus service factories. The API-key branch of `get_current_user` calls `verify_api_key_quota` on every request (Story 21). |
-| `core/rbac.py` | `check_role` — core role-hierarchy helper. |
+| `core/client_ip.py` | The single X-Forwarded-For resolver used by rate limiting, audit, redirects, and the webhook receiver — rightmost entry when `TRUST_PROXY` is on, socket peer otherwise (Story 27). |
 | `core/api_key_auth.py` | API-key auth + quota helpers (`authenticate_api_key`, `verify_api_key_quota`) — standalone, not a FastAPI dependency. |
 | `core/geo_service.py` | IP → location resolution (ipinfo.io), Redis-cached. `_is_public_ip()` rejects private/loopback/link-local/reserved IPs and unwraps IPv4-mapped IPv6 — resolved **async in the analytics worker**, off the redirect hot path (Story 23). |
 | `core/user_plan.py` | `UserPlanResolver` abstraction + `DatabaseUserPlanResolver` (opens a session at call time, caches the user's plan for 60s). |
 | `core/base62.py` | Base62 encoding used for short codes. |
 | `core/metrics.py`, `core/tracing.py` | OpenTelemetry metrics + tracing init/instrumentation (OTel API, not the Prometheus client). |
-| `core/event_dispatcher.py`, `events/dispatcher.py`, `events/schemas.py` | Event publishing plumbing (`EventDispatcher`) + Avro schema serialize/deserialize/register. The `.avsc` files live in `backend/schemas/avro` and are force-included into the wheel (`pyproject.toml`) + copied in the Dockerfile, so serialization works in the installed image. |
+| `events/dispatcher.py`, `events/schemas.py` | Event publishing plumbing (`EventDispatcher`) + Avro schema serialize/deserialize/register. The `.avsc` files live in `backend/schemas/avro` and are force-included into the wheel (`pyproject.toml`) + copied in the Dockerfile, so serialization works in the installed image. |
 | `events/kafka.py` | Kafka **producer** helpers only (`init_kafka`, `publish_event`, `publish_raw` with the one-shot fallback from Story 7); consumers live in `workers/kafka_consumer_pool.py`. |
 | `errors/*.py` | Error classes (`AppError` base, auth/common/url/workspace) → HTTP status codes. |
 | `logging.py` | `setup_logging()` — console + file handler with graceful fallback (Story 4). |
-| `middleware/audit.py` | `AuditContextMiddleware` — attaches audit context to requests. |
+| `middleware/audit.py` | `AuditContextMiddleware` — attaches audit context (and the resolved client IP, Story 27) to requests. |
 | `middleware/metrics.py` | `MetricsMiddleware` — request metrics. |
-| `middleware/rate_limit.py` | `RateLimitMiddleware` — Redis-based rate limiting; the user-plan lookup goes through an injected `UserPlanResolver` (sessions opened at call time, Story 2 fix). |
-| `middleware/rbac.py` | Only `require_role` helper now (middleware class removed, Story 10). |
+| `middleware/rate_limit.py` | `RateLimitMiddleware` — Redis-based rate limiting keyed on the shared client-IP resolver (Story 27); the user-plan lookup goes through an injected `UserPlanResolver` (sessions opened at call time, Story 2 fix). |
 | `middleware/tracing.py` | `TracingMiddleware` — OTel request tracing (Story 9). |
 | `workers/_sni_patch.py` | SNI monkey-patch for Python 3.13 Windows Kafka TLS — patches `wrap_socket` AND `wrap_bio` (Story 6). |
 | `workers/kafka_consumer_pool.py` | Kafka consumer pool with connection backoff. |
@@ -624,14 +696,15 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 ### `identity/` — auth & users
 | File | What it does |
 |---|---|
-| `models/user.py`, `models/api_key.py` | User and ApiKey tables. |
+| `models/user.py`, `models/api_key.py` | User and ApiKey tables. `users` carries `is_active` (suspension), `is_verified`, and the provider subjects `google_id` / `github_id`. There is **no** global `role` column — authorization is per-workspace, via `workspace_members.role`; the dead column and its enum were removed (Stories 28, 29). |
 | `repositories/user_repository.py`, `api_key_repository.py` | User/API-key DB queries. |
-| `services/auth_service.py` | Register, login, refresh, logout, forgot/reset password, email verification, OAuth init/callback (`create_oauth_handoff` / `exchange_oauth_handoff` swap the provider token for a 120s Redis handoff code — Story 20); returns JWT pairs (HttpOnly cookies are set in `routes/auth.py`, Story 12). |
+| `services/auth_service.py` | Register, login, refresh, logout, forgot/reset password, email verification, OAuth init/callback (`create_oauth_handoff` / `exchange_oauth_handoff` swap the provider token for a 120s Redis handoff code — Story 20); returns JWT pairs (HttpOnly cookies are set in `routes/auth.py`, Story 12). `login`, `refresh` and `oauth_callback` all reject deactivated users, and `oauth_callback` binds identity by provider subject and requires a genuinely verified email (Story 26). |
 | `services/api_key_service.py` | Create/list/revoke/rotate API keys + daily-quota lookups. |
 | `services/email_service.py` | Verification, password-reset, and workspace-invite emails. |
-| `services/sso/google_oauth.py`, `github_oauth.py` | OAuth2 login flows. |
-| `services/profile_service.py` | Change password/email, upload avatar (verifies the current password via `UserRepository`). |
-| `routes/auth.py`, `routes/profile.py`, `routes/api_keys.py` | HTTP endpoints under `/api/v1/auth`, `/profile`, `/api-keys` (profile handlers call `ProfileService`). |
+| `services/sso/google_oauth.py`, `github_oauth.py` | OAuth2 login flows. The GitHub provider reads `/user/emails` and reports GitHub's own `verified` flag — a held-but-unverified address must never authenticate (Story 26). Both use PKCE S256. |
+| `services/session_revocation.py` | `revoke_refresh_family` / `is_family_revoked` — the one place a user's refresh tokens get killed (password change, deactivation, detected reuse, logout). Shared by `AuthService`, `ProfileService` and `AdminService`. |
+| `services/profile_service.py` | Change password/email, upload avatar (verifies the current password via `UserRepository`). Changing the password revokes the whole refresh family; changing the email unlinks the OAuth provider, because the provider's verified proof was for the *old* address. |
+| `routes/auth.py`, `routes/profile.py`, `routes/api_keys.py` | HTTP endpoints under `/api/v1/auth`, `/profile`, `/api-keys` (profile handlers call `ProfileService`). Every auth path carries its own per-IP rate limit, and cookie max-ages come from config (Story 29). |
 | `schemas/*.py` | Request/response validation models. |
 
 ### `links/` — the URL core
@@ -642,7 +715,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `services/url_service.py` | Create/update/delete URLs; `_verify_write_role(editor+)`; cache invalidation; publishes events. Session-free — the `URLRepository` owns the transaction (`create_url`/`commit`/`rollback`/`next_short_code`). |
 | `services/redirect_service.py` | Resolves a short code → redirect; records the click; publishes `url-clicked`. Geo is resolved async in the analytics worker (Story 23); one-time links consume via atomic conditional UPDATE + rowcount → `URLNotFound` (Story 19). |
 | `services/bulk_service.py` | Bulk create/update/disable/reactivate/delete/export + QR zip (with role checks). Session-free — row inserts go through `url_repo.add_nested()` (SAVEPOINT per row); final commit via `url_repo.commit()`. |
-| `services/folder_service.py`, `tag_service.py`, `favorite_service.py`, `utm_service.py` | Domain logic for folders/tags/favorites; `utm_service` is just a query-string parser (utm_source/medium/campaign) that enriches click events. |
+| `services/folder_service.py`, `tag_service.py`, `favorite_service.py`, `utm_service.py` | Domain logic for folders/tags/favorites (`favorite_service.add` verifies workspace access, so you cannot favourite a URL in someone else's workspace); `utm_service` is just a query-string parser (utm_source/medium/campaign) that enriches click events. |
 | `routes/urls.py`, `redirect.py`, `bulk.py`, `folders.py`, `tags.py`, `favorites.py` | HTTP endpoints (`redirect.py` is the public `/{short_code}` 302, mounted at app root). `GET /urls` also accepts an `ids` query param so the favorites page can bulk-load its URL list in one request (no N+1). |
 | `workers/expiry_worker.py`, `workers/cleanup_worker.py` | Background jobs: expire links (disable + evict cache); purge soft-deleted URLs and their click/analytics data. |
 
@@ -680,8 +753,8 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 ### `admin/`
 | File | What it does |
 |---|---|
-| `services/admin_service.py` | Cross-aggregate admin queries (users/workspaces/URLs counts + listings, superadmin seed/toggle) — depends only on repositories, no session. |
-| `routes/admin.py` | Admin endpoints: seed superadmin, user management (list/toggle-superadmin/delete), workspace + URL listing, platform stats (handlers call `AdminService`). |
+| `services/admin_service.py` | Cross-aggregate admin queries (users/workspaces/URLs counts + listings, superadmin seed/toggle/activate) — depends only on repositories, no session. Owns the shared no-self / no-last-active-superadmin guard (Story 28). |
+| `routes/admin.py` | Admin endpoints: seed superadmin (gated on `X-Admin-Bootstrap-Token`, 404 while unset), user management (list/toggle-superadmin/toggle-active/delete), workspace + URL listing, platform stats (handlers call `AdminService`). Returns response models, never raw ORM rows — those carried `password_hash`. |
 
 ## Frontend — `frontend/src/`
 
@@ -694,7 +767,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `lib/providers.tsx` | React Query provider wrapper. |
 | `lib/schemas.ts` | Zod validation schemas shared by forms. |
 | `lib/utils.ts` | `cn()` helper (clsx + tailwind-merge). |
-| `store/auth.ts` | Zustand auth store (user, isLoading, setUser, logout). |
+| `store/auth.ts` | Zustand auth store (user, isLoading, setUser, logout). Re-exports the API's `User` type rather than redeclaring it — the hand-copied duplicate had already drifted (Story 29). |
 | `queries/index.ts` | TanStack Query hooks for a subset of resources — auth, urls, workspaces, folders, tags, api-keys, favorites, webhooks, audit-logs (18 hooks). |
 | `hooks/useDashboard.ts` | Dashboard data aggregation hook. "Active" stat uses a separate `status=active&limit=1` query's `total` (the 50-item list undercounts); API-key quota aggregated across the user's active keys against the plan limit. |
 | `components/layout/sidebar.tsx` | App navigation sidebar. |

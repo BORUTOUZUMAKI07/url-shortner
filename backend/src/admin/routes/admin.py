@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import hmac
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 
 from src.admin.services.admin_service import AdminService
 from src.identity.models.user import User
 from src.identity.schemas.user import UserResponse
 from src.links.schemas.url import URLResponse
+from src.shared.core.config import settings
 from src.shared.core.deps import PaginationParams, get_admin_service, get_current_user
 from src.workspaces.schemas.workspace import WorkspaceResponse
 
@@ -44,9 +47,32 @@ async def require_superadmin(current_user: User = Depends(get_current_user)) -> 
     return current_user
 
 
+def _require_bootstrap_token(x_admin_bootstrap_token: str = Header("")) -> None:
+    """Gate the one-shot superadmin bootstrap.
+
+    Previously this endpoint only required *any* authenticated user, so on a
+    fresh database the first person to register could promote themselves and
+    own the platform. It now needs a secret that only the operator holds
+    (``ADMIN_BOOTSTRAP_TOKEN``). When that is unset the endpoint is disabled
+    outright rather than left open.
+    """
+    expected = settings.ADMIN_BOOTSTRAP_TOKEN
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Admin bootstrap is disabled (ADMIN_BOOTSTRAP_TOKEN is not configured)",
+        )
+    if not hmac.compare_digest(x_admin_bootstrap_token or "", expected):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid admin bootstrap token",
+        )
+
+
 @router.post("/seed", summary="Make yourself superadmin (only if none exists)")
 async def seed_superadmin(
     current_user: User = Depends(get_current_user),
+    _token: None = Depends(_require_bootstrap_token),
     service: AdminService = Depends(get_admin_service),
 ):
     email = await service.seed_superadmin(current_user)
@@ -75,20 +101,30 @@ async def get_user(
 @router.patch("/users/{user_id}/toggle-superadmin", summary="Toggle superadmin status")
 async def toggle_superadmin(
     user_id: int,
-    _admin: User = Depends(require_superadmin),
+    current_admin: User = Depends(require_superadmin),
     service: AdminService = Depends(get_admin_service),
 ):
-    user = await service.toggle_superadmin(user_id)
+    user = await service.toggle_superadmin(user_id, acting_user_id=current_admin.id)
     return {"detail": f"User {user.email} superadmin={user.is_superadmin}"}
+
+
+@router.patch("/users/{user_id}/toggle-active", summary="Activate or deactivate a user")
+async def toggle_active(
+    user_id: int,
+    current_admin: User = Depends(require_superadmin),
+    service: AdminService = Depends(get_admin_service),
+):
+    user = await service.toggle_active(user_id, acting_user_id=current_admin.id)
+    return {"detail": f"User {user.email} active={user.is_active}"}
 
 
 @router.delete("/users/{user_id}", summary="Delete a user and all their data")
 async def delete_user(
     user_id: int,
-    _admin: User = Depends(require_superadmin),
+    current_admin: User = Depends(require_superadmin),
     service: AdminService = Depends(get_admin_service),
 ):
-    email = await service.delete_user(user_id)
+    email = await service.delete_user(user_id, acting_user_id=current_admin.id)
     return {"detail": f"User {email} deleted"}
 
 

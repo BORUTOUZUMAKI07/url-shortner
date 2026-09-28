@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import time
+from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 
 import pytest
@@ -11,13 +12,15 @@ from src.identity.services.auth_service import AuthService
 from src.identity.services.sso.github_oauth import GitHubOAuthProvider
 from src.identity.services.sso.google_oauth import GoogleOAuthProvider
 from src.shared.core.security import create_refresh_token
-from src.shared.errors import TokenRevoked
+from src.shared.errors import TokenRevoked, UnauthorizedError
 
 SECRET = "test-secret-key-for-testing"
 
 
 class FakeUser:
     id = 1
+    is_active = True
+    is_verified = True
     # Tests run with the fast sha256_crypt pwd_context (tests/conftest.py
     # `fast_password_hashing`), so the fake's hash must use that scheme too.
     password_hash = sha256_crypt.using(rounds=1000).hash("testpass123")
@@ -32,6 +35,12 @@ class FakeUserRepo:
 
     async def get_by_email(self, email):
         return self.user
+
+    async def get_by_oauth_sub(self, provider, subject):
+        return None
+
+    async def email_exists(self, email):
+        return self.user is not None
 
     async def create(self, **kwargs):
         return None
@@ -51,6 +60,9 @@ class FakeRedis:
     async def get(self, key):
         return self.data.get(key)
 
+    async def mget(self, *keys):
+        return tuple(self.data.get(k) for k in keys)
+
     async def setex(self, key, ttl, value):
         self.data[key] = value
         return True
@@ -59,8 +71,27 @@ class FakeRedis:
         self.data.pop(key, None)
         return 1
 
+    async def delete_many(self, *keys):
+        for k in keys:
+            self.data.pop(k, None)
+        return len(keys)
+
     async def eval(self, script, numkeys, *args):
         return self.eval_result
+
+
+@contextmanager
+def fake_redis(redis: FakeRedis):
+    """Point both redis consumers at the same double.
+
+    Refresh-family revocation lives in its own module (shared by AuthService and
+    ProfileService), so it holds its own `redis_client` reference. Both must be
+    patched or the revocation assertions would silently read a real Redis.
+    """
+    with ExitStack() as stack:
+        stack.enter_context(patch("src.identity.services.auth_service.redis_client", redis))
+        stack.enter_context(patch("src.identity.services.session_revocation.redis_client", redis))
+        yield redis
 
 
 def _svc(user=None) -> AuthService:
@@ -75,7 +106,7 @@ class TestRefreshReuseDetection:
         svc = _svc(FakeUser())
         old = create_refresh_token({"sub": "1"})
         old_sid = jwt.decode(old, SECRET, algorithms=["HS256"])["sid"]
-        with patch("src.identity.services.auth_service.redis_client", redis):
+        with fake_redis(redis):
             result = await svc.refresh(old)
         new = jwt.decode(result.refresh_token, SECRET, algorithms=["HS256"])
         assert new["sid"] == old_sid
@@ -92,7 +123,7 @@ class TestRefreshReuseDetection:
         sid = jwt.decode(token, SECRET, algorithms=["HS256"])["sid"]
         redis.data[f"refresh:session:{sid}"] = "{}"
         redis.eval_result = 0  # Lua says: presented jti matches neither current nor grace prev
-        with patch("src.identity.services.auth_service.redis_client", redis):
+        with fake_redis(redis):
             with pytest.raises(TokenRevoked):
                 await svc.refresh(token)
         assert redis.data.get("refresh:revoked:1") == "1"
@@ -104,7 +135,7 @@ class TestRefreshReuseDetection:
         svc = _svc(FakeUser())
         token = create_refresh_token({"sub": "1"})
         redis.eval_result = -1  # no session record for this sid
-        with patch("src.identity.services.auth_service.redis_client", redis):
+        with fake_redis(redis):
             with pytest.raises(TokenRevoked):
                 await svc.refresh(token)
         assert "refresh:revoked:1" not in redis.data
@@ -120,7 +151,7 @@ class TestRefreshReuseDetection:
             SECRET,
             algorithm="HS256",
         )
-        with patch("src.identity.services.auth_service.redis_client", redis):
+        with fake_redis(redis):
             result = await svc.refresh(legacy)
         new = jwt.decode(result.refresh_token, SECRET, algorithms=["HS256"])
         assert new["sid"] and new["jti"]
@@ -131,10 +162,23 @@ class TestRefreshReuseDetection:
     async def test_login_stores_refresh_session(self):
         redis = FakeRedis()
         svc = _svc(FakeUser())
-        with patch("src.identity.services.auth_service.redis_client", redis):
+        with fake_redis(redis):
             token = await svc.login("test@example.com", "testpass123")
         sid = jwt.decode(token.refresh_token, SECRET, algorithms=["HS256"])["sid"]
         assert f"refresh:session:{sid}" in redis.data
+
+    @patch("src.shared.core.security.settings.SECRET_KEY", SECRET)
+    @patch("src.shared.core.security.settings.ALGORITHM", "HS256")
+    async def test_deactivated_user_cannot_refresh(self):
+        class Inactive(FakeUser):
+            is_active = False
+
+        redis = FakeRedis()
+        svc = _svc(Inactive())
+        token = create_refresh_token({"sub": "1"})
+        with fake_redis(redis):
+            with pytest.raises(UnauthorizedError):
+                await svc.refresh(token)
 
 
 class TestOAuthPKCE:

@@ -36,4 +36,7 @@ def build_e2e_env() -> dict[str, str]:
     # Sign JWTs/webhook secrets with a deterministic test key, never the .env one.
     env["SECRET_KEY"] = E2E_SECRET
     env["WEBHOOK_SECRET_KEY"] = E2E_SECRET
+    # Never "production": that mode refuses to boot on a placeholder key, and
+    # would also mark cookies Secure, which plain-HTTP E2E clients drop.
+    env["ENVIRONMENT"] = "test"
     return env

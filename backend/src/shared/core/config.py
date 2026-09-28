@@ -1,4 +1,5 @@
 import tempfile
+import warnings
 from typing import Optional
 
 from pydantic import field_validator, model_validator
@@ -94,6 +95,54 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def validate_secret_key(self):
+        """Refuse to boot a production instance that would sign tokens (and
+        webhook HMACs) with an empty or trivially short key.
+
+        ``SECRET_KEY`` defaults to ``""`` and ``webhook_secret_fallback`` copies
+        it into ``WEBHOOK_SECRET_KEY``, so a deploy that forgot the env var used
+        to come up healthy and sign every JWT with a publicly known key — a
+        complete authentication bypass. Non-production keeps the blank default
+        so local/test runs stay zero-config, but it logs loudly.
+        """
+        if not self.SECRET_KEY:
+            if self.ENVIRONMENT == "production":
+                raise ValueError(
+                    "SECRET_KEY is required when ENVIRONMENT=production. "
+                    "Generate one with: openssl rand -hex 32"
+                )
+            warnings.warn(
+                "SECRET_KEY is empty - tokens are signed with a publicly known key. "
+                "This is only acceptable for local development.",
+                stacklevel=2,
+            )
+        elif len(self.SECRET_KEY) < 32 and self.ENVIRONMENT == "production":
+            raise ValueError(
+                "SECRET_KEY must be at least 32 characters in production "
+                f"(got {len(self.SECRET_KEY)}). Generate one with: openssl rand -hex 32"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_cookie_ttls(self):
+        """The refresh cookie must not outlive the refresh JWT it carries.
+
+        The cookie is what a stale browser keeps replaying; if it lives longer
+        than the token, every request after expiry presents a dead credential
+        instead of simply being absent. The access cookie is deliberately longer
+        than the access JWT - that is how silent refresh works (the expired
+        access token triggers a 401, the client swaps it using the refresh
+        cookie), so only the refresh pair is constrained here.
+        """
+        if self.REFRESH_COOKIE_MAX_AGE > self.REFRESH_TOKEN_EXPIRE_DAYS * 86400:
+            raise ValueError(
+                f"REFRESH_COOKIE_MAX_AGE ({self.REFRESH_COOKIE_MAX_AGE}s) must not exceed "
+                f"REFRESH_TOKEN_EXPIRE_DAYS ({self.REFRESH_TOKEN_EXPIRE_DAYS}d) - a cookie that "
+                "outlives its token replays a dead credential for the difference."
+            )
+        return self
+
+    @model_validator(mode="after")
     def write_ca_cert(self):
         ca_content = self.KAFKA_SSL_CA
         if ca_content and not self.KAFKA_SSL_CA_PATH:
@@ -125,6 +174,29 @@ class Settings(BaseSettings):
     SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    # Refresh token lifetime. Also drives the refresh session record TTL in
+    # Redis, the reuse-detection grace window budget, and the refresh cookie.
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # Auth cookie lifetimes (seconds). ACCESS_COOKIE_MAX_AGE intentionally
+    # exceeds ACCESS_TOKEN_EXPIRE_MINUTES: the browser keeps presenting the
+    # expired access token, the API answers 401, and the client refreshes.
+    # REFRESH_COOKIE_MAX_AGE is validated against REFRESH_TOKEN_EXPIRE_DAYS.
+    ACCESS_COOKIE_MAX_AGE: int = 604800  # 7 days
+    REFRESH_COOKIE_MAX_AGE: int = 604800  # 7 days, matches REFRESH_TOKEN_EXPIRE_DAYS
+
+    # --- Admin bootstrap ---
+    # POST /admin/seed promotes the caller to superadmin. It must NOT be open to
+    # any authenticated user: on a fresh database the first person to register
+    # would otherwise own the platform. Requires this shared secret, which only
+    # the operator has. Empty (the default) disables the endpoint entirely.
+    ADMIN_BOOTSTRAP_TOKEN: str = ""
+
+    # --- Email verification gate ---
+    # OFF by default: is_verified is currently advisory only and turning the
+    # gate on would lock out every account that registered before the check
+    # existed. Flip to True once existing accounts have been verified.
+    REQUIRE_EMAIL_VERIFICATION: bool = False
 
     # --- Webhook encryption (separate from JWT SECRET_KEY) ---
     WEBHOOK_SECRET_KEY: str = ""

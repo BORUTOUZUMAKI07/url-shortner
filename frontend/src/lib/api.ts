@@ -95,9 +95,12 @@ export async function apiFetchBlob(path: string, options: RequestInit = {}): Pro
   return res.blob()
 }
 export interface User {
-  id: number; email: string; is_verified: boolean; role: string; plan: string; is_superadmin: boolean; avatar_url: string | null; created_at: string
+  id: number; email: string; is_verified: boolean; is_active: boolean; plan: string; is_superadmin: boolean; avatar_url: string | null; created_at: string
 }
 export interface Token { access_token: string; refresh_token?: string; token_type: string }
+/** The OAuth handoff exchange mints the session *and* returns the user, so the
+ *  client never has to spend a second round trip on /auth/me. */
+export interface TokenWithUser extends Token { user: User }
 export interface URLItem {
   id: number; short_code: string; original_url: string; workspace_id: number
   folder_id: number | null; custom_alias: string | null; domain: string | null
@@ -146,9 +149,10 @@ export const auth = {
   forgotPassword: (email: string) => apiFetch<{ detail: string }>("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) }),
   resetPassword: (token: string, new_password: string) => apiFetch<{ detail: string }>("/auth/reset-password", { method: "POST", body: JSON.stringify({ token, new_password }) }),
   verifyEmail: (token: string) => apiFetch<{ detail: string }>("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) }),
+  resendVerification: () => apiFetch<{ detail: string }>("/auth/resend-verification", { method: "POST" }),
   providers: () => apiFetch<{ providers: string[] }>("/auth/providers"),
   exchangeOauth: (code: string) =>
-    apiFetch<Token>("/auth/oauth/exchange", { method: "POST", body: JSON.stringify({ code }) }),
+    apiFetch<TokenWithUser>("/auth/oauth/exchange", { method: "POST", body: JSON.stringify({ code }) }),
   oauth: async (provider: string) => {
     const res = await fetch(`${API_BASE}/auth/oauth/${provider}`, { method: "POST", credentials: "include" })
     if (!res.ok) throw new Error("Failed to initiate OAuth")

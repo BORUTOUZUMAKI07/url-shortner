@@ -210,6 +210,6 @@ async def mock_mongodb():
 
 @pytest_asyncio.fixture
 async def mock_event_dispatcher():
-    from src.shared.core.event_dispatcher import EventDispatcher
+    from src.shared.events.dispatcher import EventDispatcher
     mock = AsyncMock(spec=EventDispatcher)
     return mock

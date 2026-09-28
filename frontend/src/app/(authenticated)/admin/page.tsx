@@ -129,7 +129,7 @@ export default function AdminPage() {
                       {u.is_superadmin && <Badge className="bg-amber-600 text-white text-xs">Superadmin</Badge>}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      ID: {u.id} · Plan: {u.plan} · Role: {u.role} · {u.is_verified ? "Verified" : "Unverified"}
+                      ID: {u.id} · Plan: {u.plan} · {u.is_verified ? "Verified" : "Unverified"}
                     </p>
                   </div>
                   <div className="flex items-center gap-1">

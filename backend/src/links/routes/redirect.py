@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.links.services.redirect_service import RedirectService
 from src.shared import get_logger
+from src.shared.core.client_ip import get_client_ip
 from src.shared.core.config import settings
 from src.shared.core.deps import get_redirect_service
 from src.shared.core.redis import check_rate_limit
@@ -84,23 +85,6 @@ def _validate_short_code(short_code: str) -> None:
         raise URLNotFound()
 
 
-def _client_ip(request: Request) -> str:
-    """Resolve the client IP.
-
-    The leftmost XFF entry is client-controlled; the rightmost entry is appended
-    by the trusted reverse proxy (Render) and reflects the real client. XFF is
-    only trusted when ``settings.TRUST_PROXY`` is set — otherwise a client could
-    spoof it and poison rate-limiting / geo lookups.
-    """
-    if settings.TRUST_PROXY:
-        xff = request.headers.get("X-Forwarded-For")
-        if xff:
-            parts = [p.strip() for p in xff.split(",") if p.strip()]
-            if parts:
-                return parts[-1]
-    return request.client.host if request.client else "unknown"
-
-
 def _check_same_origin(request: Request) -> None:
     """Reject requests whose ``Referer`` does not match the backend origin."""
     from urllib.parse import urlparse
@@ -153,7 +137,7 @@ async def redirect_to_url(
     referer: Optional[str] = Header(None),
     svc: RedirectService = Depends(get_redirect_service),
 ):
-    ip = _client_ip(request)
+    ip = get_client_ip(request)
 
     return await _resolve_and_redirect(short_code, ip, user_agent, referer, None, svc)
 
@@ -171,7 +155,7 @@ async def redirect_with_password(
     svc: RedirectService = Depends(get_redirect_service),
 ):
     _check_same_origin(request)
-    ip = _client_ip(request)
+    ip = get_client_ip(request)
 
     rate_key = f"pw_attempt:{ip}:{short_code}"
     limited = await check_rate_limit(rate_key, capacity=10, refill_rate_per_sec=1.0 / 6.0)

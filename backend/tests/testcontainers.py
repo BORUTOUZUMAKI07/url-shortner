@@ -29,6 +29,10 @@ def start_containers() -> None:
         .replace("postgresql://", "postgresql+asyncpg://")
     )
     os.environ["DATABASE_URL"] = async_url
+    # These runs are definitionally not production. ENVIRONMENT defaults to
+    # "production", which is exactly the mode that refuses to boot without a
+    # real SECRET_KEY — so say so explicitly instead of inheriting the default.
+    os.environ.setdefault("ENVIRONMENT", "test")
 
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],

@@ -25,8 +25,9 @@ describe("auth API against a real backend", () => {
     const email = uniqueEmail()
     await auth.register(email, PASSWORD)
     const token = await auth.login(email, PASSWORD)
+    expect(token.refresh_token).toBeTruthy()
 
-    const refreshed = await auth.refresh(token.refresh_token)
+    const refreshed = await auth.refresh(token.refresh_token as string)
     expect(refreshed.access_token).toBeTruthy()
     expect(refreshed.refresh_token).not.toBe(token.refresh_token)
 

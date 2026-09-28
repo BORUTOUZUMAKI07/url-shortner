@@ -17,7 +17,7 @@ describe("useAuthStore", () => {
       id: 1,
       email: "test@test.com",
       is_verified: true,
-      role: "admin",
+      is_active: true,
       plan: "premium",
       is_superadmin: false,
       avatar_url: null,
@@ -50,7 +50,7 @@ describe("useAuthStore", () => {
   })
 
   it("logout clears user even when user was set", () => {
-    useAuthStore.setState({ user: { id: 1, email: "test@test.com", is_verified: true, role: "admin", plan: "free", is_superadmin: false, avatar_url: null, created_at: "2024-01-01" }, isLoading: false })
+    useAuthStore.setState({ user: { id: 1, email: "test@test.com", is_verified: true, is_active: true, plan: "free", is_superadmin: false, avatar_url: null, created_at: "2024-01-01" }, isLoading: false })
     useAuthStore.getState().logout()
     expect(useAuthStore.getState().user).toBeNull()
   })

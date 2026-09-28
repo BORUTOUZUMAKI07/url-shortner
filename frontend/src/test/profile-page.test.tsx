@@ -3,7 +3,7 @@ import { render, screen } from "@/test/test-utils"
 import ProfilePage from "@/app/(authenticated)/profile/page"
 
 const { mockUser, mockStore, mockStoreHook, authMeResolvedObj } = vi.hoisted(() => {
-  const mockUser = { id: 1, email: "test@test.com", is_verified: true, role: "admin", plan: "free", is_superadmin: false, avatar_url: null, created_at: "2024-01-01" }
+  const mockUser = { id: 1, email: "test@test.com", is_verified: true, is_active: true, plan: "free", is_superadmin: false, avatar_url: null, created_at: "2024-01-01" }
   const mockStore = { user: mockUser, setUser: vi.fn() }
   const mockStoreHook = (selector?: (s: any) => any) => selector ? selector(mockStore) : mockStore
   mockStoreHook.getState = () => mockStore
@@ -43,9 +43,12 @@ describe("ProfilePage", () => {
 
   it("renders user details", async () => {
     render(<ProfilePage />)
-    expect(await screen.findByText("admin")).toBeDefined()
     expect(await screen.findByText("free")).toBeDefined()
     expect(await screen.findByText("Yes")).toBeDefined()
+    // The global-role row was removed: users.role had no readers and workspace
+    // authorisation actually runs off workspace_members.role, so displaying it
+    // here as "Role" was misleading.
+    expect(screen.queryByText("Role")).toBeNull()
   })
 
   it("renders upgrade plan card", async () => {

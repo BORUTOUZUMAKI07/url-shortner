@@ -7,17 +7,33 @@ from src.shared import get_logger
 from src.shared.core.config import settings
 
 
+def normalize_smtp_password(raw: str) -> str:
+    """Strip the display grouping Gmail puts in app passwords.
+
+    Gmail shows a 16-character app password as "abcd efgh ijkl mnop". Those
+    spaces are cosmetic; a value pasted with them intact makes server.login()
+    fail with 535 - which the old code caught and logged, so the address was
+    told a reset link was on its way when nothing had been sent.
+    """
+    return raw.replace(" ", "")
+
+
 class EmailService:
     SMTP_HOST: str = settings.SMTP_HOST
     SMTP_PORT: int = settings.SMTP_PORT
     SMTP_USER: str = settings.SMTP_USER
-    SMTP_PASSWORD: str = settings.SMTP_PASSWORD
+    SMTP_PASSWORD: str = normalize_smtp_password(settings.SMTP_PASSWORD)
     FROM_EMAIL: str = settings.FROM_EMAIL
     FROM_NAME: str = settings.FROM_NAME
+    SMTP_TIMEOUT_SECONDS: float = 10.0
 
     @classmethod
     def is_configured(cls) -> bool:
-        return bool(cls.SMTP_HOST and cls.SMTP_USER and cls.SMTP_PASSWORD)
+        return bool(
+            cls.SMTP_HOST
+            and cls.SMTP_USER
+            and normalize_smtp_password(cls.SMTP_PASSWORD)
+        )
 
     @classmethod
     async def send_verification_email(cls, email: str, token: str) -> None:
@@ -63,7 +79,19 @@ class EmailService:
         if not cls.is_configured():
             logger.info(f"[EMAIL] Would send email to {to_email}: {subject}")
             return
-        await asyncio.to_thread(cls._send_sync, to_email, subject, html, logger)
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(cls._send_sync, to_email, subject, html, logger),
+                timeout=cls.SMTP_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            # Without this, smtplib.SMTP() blocks forever on an unreachable or
+            # stalling server, the request never completes, and the UI sits on
+            # "Sending..." indefinitely. A hard ceiling is the whole fix.
+            logger.error(
+                f"[EMAIL] Timed out after {cls.SMTP_TIMEOUT_SECONDS}s sending "
+                f"to {to_email} via {cls.SMTP_HOST}:{cls.SMTP_PORT}"
+            )
 
     @classmethod
     def _send_sync(cls, to_email: str, subject: str, html: str, logger) -> None:
@@ -73,10 +101,18 @@ class EmailService:
             msg["To"] = to_email
             msg["Subject"] = subject
             msg.attach(MIMEText(html, "html"))
-            with smtplib.SMTP(cls.SMTP_HOST, cls.SMTP_PORT) as server:
+            # timeout on the constructor covers DNS + TCP + the SMTP greeting.
+            # Without it a blackholed connection hangs the worker thread forever.
+            with smtplib.SMTP(cls.SMTP_HOST, cls.SMTP_PORT, timeout=cls.SMTP_TIMEOUT_SECONDS) as server:
+                server.ehlo()
                 server.starttls()
+                server.ehlo()
                 server.login(cls.SMTP_USER, cls.SMTP_PASSWORD)
                 server.sendmail(cls.FROM_EMAIL, [to_email], msg.as_string())
             logger.info(f"Email sent to {to_email}: {subject}")
         except Exception as e:
-            logger.error(f"Failed to send email to {to_email}: {e}")
+            # Swallowed, as before - callers treat a failed mail as "sent" so we
+            # never disclose whether an address exists. But the timeout means the
+            # failure now arrives at a known time and is logged, instead of the
+            # request hanging open forever.
+            logger.error(f"Failed to send email to {to_email}: {type(e).__name__}: {e}")

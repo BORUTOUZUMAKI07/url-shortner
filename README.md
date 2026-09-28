@@ -124,7 +124,7 @@ All routes live under `/api/v1/` — the only exception is the redirect at `GET 
 | **Webhooks** | `POST/GET /webhooks/workspace/{ws_id}`, `POST /webhook-receiver` |
 | **API Keys** | `POST/GET /api-keys`, `DELETE /api-keys/{id}`, `POST /api-keys/{id}/rotate` |
 | **Bulk** | `POST /urls/bulk/create`, `GET /urls/bulk/export`, `GET /urls/bulk/qr` |
-| **Admin** | `POST /admin/seed`, `GET /admin/users`, `GET /admin/stats`, `PATCH /admin/users/{id}/toggle-superadmin` |
+| **Admin** | `POST /admin/seed` (bootstrap-token gated), `GET /admin/users`, `GET /admin/stats`, `PATCH /admin/users/{id}/toggle-superadmin`, `PATCH /admin/users/{id}/toggle-active` |
 | **Other** | `GET/POST /folders`, `GET/POST /tags`, `GET/POST /favorites`, `GET /audit-logs/...`, `POST /billing/upgrade` |
 
 Redirect: `GET /{short_code}` — 302 redirect with support for password protection, A/B testing, and device-specific URLs.
@@ -179,11 +179,20 @@ uv run python run_worker_aggregation.py
 ```
 
 ### 5. Enable the admin panel
+Set `ADMIN_BOOTSTRAP_TOKEN` in `backend/.env` first (any random 32+ char string;
+`openssl rand -hex 32`). The endpoint is **disabled with a 404** while that is
+empty, so that a fresh database can't be claimed by the first account to register.
 ```bash
 curl -X POST http://localhost:8000/api/v1/admin/seed \
-  -H "Authorization: Bearer <your-access-token>"
+  -H "Authorization: Bearer <your-access-token>" \
+  -H "X-Admin-Bootstrap-Token: <ADMIN_BOOTSTRAP_TOKEN>"
 ```
-After bootstrapping, the first superadmin can access the Admin section in the sidebar.
+The first superadmin can then access the Admin section in the sidebar. Once
+bootstrapped, a superadmin can promote others from the panel - the endpoint
+refuses to run a second time.
+
+Note: an admin cannot demote or deactivate *themselves*, and cannot remove the
+last remaining superadmin. Both would lock the platform out permanently.
 
 ---
 

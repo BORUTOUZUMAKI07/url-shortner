@@ -113,7 +113,7 @@ class TestJWTFunctions:
         assert payload["type"] == "verify"
 
     def test_create_password_reset_token(self, *_):
-        token = create_password_reset_token("user@example.com")
+        token = create_password_reset_token("user@example.com", "$argon2id$v=19$m=1,t=1,p=1$c2FsdA$aGFzaA")
         payload = jwt.decode(token, "test-secret-key-for-testing", algorithms=["HS256"])
         assert payload["sub"] == "user@example.com"
         assert payload["type"] == "reset"

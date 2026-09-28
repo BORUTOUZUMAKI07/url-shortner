@@ -2,12 +2,13 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.shared.core.audit_context import AuditContextData, audit_ctx_var
+from src.shared.core.client_ip import get_client_ip
 
 
 class AuditContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         ctx = AuditContextData(
-            ip_address=request.client.host if request.client else None,
+            ip_address=get_client_ip(request),
             user_agent=request.headers.get("user-agent"),
         )
         token = audit_ctx_var.set(ctx)

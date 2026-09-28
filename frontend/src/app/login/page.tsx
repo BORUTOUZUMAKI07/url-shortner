@@ -54,11 +54,11 @@ function LoginForm() {
       processedRef.current = true
       // The backend never places the refresh token in the URL — it passes a
       // short-lived one-time handoff code. Exchanging it sets the session
-      // cookies server-side, so we only need /auth/me afterwards (no extra
-      // refresh hop that could fail after the one-time code is consumed).
+      // cookies server-side and returns the user alongside the tokens, so no
+      // extra /auth/me hop is needed (an extra request whose failure would
+      // strand the user after the one-time code is already consumed).
       auth.exchangeOauth(handoffCode)
-        .then(() => auth.me())
-        .then(setUser)
+        .then(({ user }) => setUser(user))
         .then(redirectAfterLogin)
         .catch(() => setError("root", { message: "OAuth login failed. Please try again." }))
       return

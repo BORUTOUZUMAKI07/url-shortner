@@ -7,6 +7,8 @@ on:
 
 env:
   PYTHON_VERSION: "3.13"
+  # Not production — see the note in ci.yml.
+  ENVIRONMENT: "test"
 
 jobs:
   nightly-tests:

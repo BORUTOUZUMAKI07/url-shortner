@@ -1,15 +1,11 @@
 import { create } from "zustand"
 
-export interface User {
-  id: number
-  email: string
-  is_verified: boolean
-  role: string
-  plan: string
-  is_superadmin: boolean
-  avatar_url: string | null
-  created_at: string
-}
+// Re-exported rather than redeclared: this used to be a second, hand-copied
+// copy of the API's User interface, so the two silently drifted (the store
+// still required `role` after the API stopped sending it, breaking every
+// setUser call site at the type level).
+export type { User } from "@/lib/api"
+import type { User } from "@/lib/api"
 
 interface AuthState {
   user: User | null

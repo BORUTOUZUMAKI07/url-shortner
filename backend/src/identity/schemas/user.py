@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from src.identity.models.user import PlanEnum, RoleEnum
+from src.identity.models.user import PlanEnum
 
 
 class UserCreate(BaseModel):
@@ -24,7 +24,7 @@ class UserResponse(BaseModel):
     id: int
     email: EmailStr
     is_verified: bool
-    role: RoleEnum
+    is_active: bool
     plan: PlanEnum
     is_superadmin: bool
     avatar_url: str | None = None

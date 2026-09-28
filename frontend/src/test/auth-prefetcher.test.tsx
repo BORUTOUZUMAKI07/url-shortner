@@ -8,7 +8,7 @@ const mockUser = {
   id: 1,
   email: "test@example.com",
   is_verified: true,
-  role: "admin",
+  is_active: true,
   plan: "free",
   is_superadmin: false,
   avatar_url: null,

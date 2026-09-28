@@ -95,6 +95,8 @@ async def get_current_user(
         user = await UserRepository(db).get(key_record.user_id)
         if not user:
             raise UserNotFound()
+        if not user.is_active:
+            raise UnauthorizedError("Account is deactivated")
         # Enforce the daily per-key quota (previously defined but never wired in).
         await verify_api_key_quota(key_record.id, user.plan)
         return user
@@ -117,6 +119,11 @@ async def get_current_user(
     user = await UserRepository(db).get(int(user_id))
     if not user:
         raise UserNotFound()
+    # The row is already loaded on every request, so honouring a deactivation
+    # costs nothing and takes effect immediately instead of after the access
+    # token's remaining lifetime.
+    if not user.is_active:
+        raise UnauthorizedError("Account is deactivated")
     return user
 
 
@@ -127,8 +134,11 @@ async def get_audit_service(db: AsyncSession = Depends(get_db)) -> AuditService:
     )
 
 
-async def get_profile_service(db: AsyncSession = Depends(get_db)) -> ProfileService:
-    return ProfileService(repo=UserRepository(db))
+async def get_profile_service(
+    db: AsyncSession = Depends(get_db),
+    audit: AuditService = Depends(get_audit_service),
+) -> ProfileService:
+    return ProfileService(repo=UserRepository(db), audit=audit)
 
 
 async def get_billing_service(db: AsyncSession = Depends(get_db)) -> BillingService:
@@ -181,10 +191,14 @@ async def get_workspace_service(
     )
 
 
-async def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
+async def get_auth_service(
+    db: AsyncSession = Depends(get_db),
+    audit: AuditService = Depends(get_audit_service),
+) -> AuthService:
     return AuthService(
         user_repo=UserRepository(db),
         workspace_repo=WorkspaceRepository(db),
+        audit=audit,
     )
 
 
@@ -206,6 +220,7 @@ async def get_favorite_service(db: AsyncSession = Depends(get_db)) -> FavoriteSe
     return FavoriteService(
         repo=FavoriteRepository(db),
         url_repo=URLRepository(db),
+        workspace_repo=WorkspaceRepository(db),
     )
 
 

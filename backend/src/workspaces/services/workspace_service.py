@@ -120,8 +120,12 @@ class WorkspaceService:
             raise AlreadyMember()
         await self.member_repo.add_member(invite.workspace_id, user_id, MemberRole(invite.role))
         await self.invite_repo.accept(token)
-        if not user.is_verified:
-            await self.user_repo.update(user.id, is_verified=True)
+        # NOTE: this used to also do `update(user.id, is_verified=True)`. That was
+        # wrong: an invite proves that somebody knows the address, not that the
+        # address belongs to the person accepting. It was a free bypass of email
+        # verification - accept any invite and the flag flips. `is_verified` is
+        # only ever set by clicking the emailed link, or by an OAuth provider
+        # reporting a verified claim.
         await self.audit.log(
             actor_id=user_id, action="accept_invite", resource_type="workspace_member",
             resource_id=user_id, after={"workspace_id": invite.workspace_id, "role": invite.role},

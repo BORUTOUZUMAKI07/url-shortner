@@ -3,6 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, Query, Request
 
 from src.identity.models.user import User
+from src.shared.core.client_ip import get_client_ip
 from src.shared.core.deps import get_current_user, get_webhook_receiver_service
 from src.webhooks.schemas.webhook_receiver import WebhookReceivedEventResponse
 from src.webhooks.services.webhook_receiver_service import WebhookReceiverService
@@ -19,7 +20,7 @@ async def receive_webhook(
 ):
     body = await request.body()
     headers = dict(request.headers)
-    source_ip = request.client.host if request.client else None
+    source_ip = get_client_ip(request)
     return await svc.receive(body, request.headers.get("content-type", ""), headers, source_ip)
 
 

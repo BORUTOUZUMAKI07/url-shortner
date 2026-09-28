@@ -54,3 +54,26 @@ services:
         sync: false
       - key: GITHUB_OAUTH_REDIRECT_URI
         sync: false
+      # Was missing entirely: email worked only because these had been added by
+      # hand in the dashboard. A service created fresh from this file would have
+      # had no mail at all, and nothing would have said so - EmailService logs
+      # "Would send email to..." and returns.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: FROM_NAME
+        value: LinkForge
+      # Security-audit batch. Both default to off, so leaving them unset is safe;
+      # set ADMIN_BOOTSTRAP_TOKEN or /admin/seed stays 404 and there is no way to
+      # create the first superadmin on a fresh database.
+      - key: ADMIN_BOOTSTRAP_TOKEN
+        sync: false
+      - key: REQUIRE_EMAIL_VERIFICATION
+        value: "false"
