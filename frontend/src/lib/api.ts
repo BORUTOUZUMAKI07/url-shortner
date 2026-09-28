@@ -1,5 +1,11 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
 
+/** The backend's `limit` ceiling (`deps.py`: `Query(20, ge=1, le=100)`).
+ *  Used as the default for list endpoints so a caller that omits `limit` gets
+ *  everything a flat, unpaginated table can show — not the server's silent
+ *  default of 20. */
+const MAX_LIST_LIMIT = 100
+
 let refreshPromise: Promise<boolean> | null = null
 
 // Single-flight: concurrent 401s (e.g. a burst of parallel dashboard queries
@@ -25,10 +31,24 @@ function tryRefresh(): Promise<boolean> {
   return refreshPromise
 }
 
+/** The httpOnly auth cookies CANNOT be cleared from JavaScript.
+ *
+ * This used to write `document.cookie = "access_token=; max-age=0"` and the same
+ * for `refresh_token`. That is a silent no-op: the backend sets both with
+ * `httponly=True`, so the browser never exposes them to script and script cannot
+ * delete them. The function looked like a safety net and was not one.
+ *
+ * Real clearing happens server-side, in three places:
+ *   - `POST /auth/logout` deletes both cookies;
+ *   - `POST /auth/refresh` deletes both when the token is rejected, so a dead
+ *     refresh cookie stops being replayed for the rest of its max_age;
+ *   - `proxy.ts` deletes the access token when it is expired or unparseable.
+ *
+ * The redirect below is what actually recovers the UX.
+ */
 function clearTokens() {
-  if (typeof document === "undefined") return
-  document.cookie = "access_token=; path=/; max-age=0"
-  document.cookie = "refresh_token=; path=/; max-age=0"
+  // Intentionally empty — see above. Kept as the single call site so the
+  // explanation lives next to the call rather than being rediscovered.
 }
 
 async function handleUnauthorized() {
@@ -42,6 +62,33 @@ async function handleUnauthorized() {
   return false
 }
 
+/** Endpoints where a 401 is a legitimate ANSWER, not a dead session.
+ *
+ * Each of these can return 401 for a reason that a token refresh cannot fix,
+ * and running recovery on them actively makes things worse:
+ *
+ *  - `/auth/oauth/exchange`: the one-time handoff code expired or was already
+ *    redeemed. Recovery redirected to /login?expired=1, throwing away the code,
+ *    the `redirect` deep link, and the page's own "OAuth login failed" message —
+ *    which could never render, because the document was already navigating. The
+ *    user got a blank sign-in form and no explanation. The code is consumed
+ *    server-side, so it cannot be retried either; it has to be reported.
+ *  - `/profile/*`: a wrong `current_password`. The backend used to answer 401
+ *    here, so the client refreshed, retried with the same wrong password, and
+ *    reported "Session expired" instead of naming the bad field. (The backend
+ *    now answers 400, so this is belt-and-braces, but the client must not
+ *    depend on one endpoint's status code staying a certain value.)
+ */
+const NON_SESSION_401 = ["/auth/login", "/auth/register", "/auth/refresh", "/auth/oauth/exchange", "/profile/"]
+
+/** Pull the server's own message out of an error response. */
+async function errorFromResponse(res: Response, fallback: string): Promise<Error> {
+  const body = await res.json().catch(() => null)
+  const detail = body?.detail
+  const msg = typeof detail === "string" ? detail : detail ? JSON.stringify(detail) : ""
+  return new Error(msg || fallback)
+}
+
 async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const isFormData = options.body instanceof FormData
   const headers: Record<string, string> = {
@@ -49,19 +96,19 @@ async function rawFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     ...(options.headers as Record<string, string>),
   }
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" })
-  if (res.status === 401 && !path.startsWith("/auth/login") && !path.startsWith("/auth/register") && !path.startsWith("/auth/refresh")) {
+  if (res.status === 401 && !NON_SESSION_401.some((p) => path.startsWith(p))) {
     const recovered = await handleUnauthorized()
     if (recovered) {
       const retry = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" })
       if (retry.ok) return retry.status === 204 ? (undefined as T) : retry.json()
+      // The retry failed for some other reason (403/404/409/422/500). Throwing
+      // the fixed "Session expired" string here threw away the server's actual
+      // explanation, so a genuine failure was reported as a login problem.
+      if (retry.status !== 401) throw await errorFromResponse(retry, "Request failed")
     }
     throw new Error("Session expired. Please login again.")
   }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }))
-    const msg = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || body)
-    throw new Error(msg || "Request failed")
-  }
+  if (!res.ok) throw await errorFromResponse(res, res.statusText || "Request failed")
   if (res.status === 204) return undefined as T
   return res.json()
 }
@@ -79,25 +126,31 @@ export async function apiFetchBlob(path: string, options: RequestInit = {}): Pro
     ...(options.headers as Record<string, string>),
   }
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" })
-  if (res.status === 401) {
+  if (res.status === 401 && !NON_SESSION_401.some((p) => path.startsWith(p))) {
     const recovered = await handleUnauthorized()
     if (recovered) {
       const retry = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" })
       if (retry.ok) return retry.blob()
+      if (retry.status !== 401) throw await errorFromResponse(retry, "Download failed")
     }
     throw new Error("Session expired. Please login again.")
   }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }))
-    const msg = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || body)
-    throw new Error(msg || "Request failed")
-  }
+  if (!res.ok) throw await errorFromResponse(res, res.statusText || "Download failed")
   return res.blob()
 }
 export interface User {
   id: number; email: string; is_verified: boolean; is_active: boolean; plan: string; is_superadmin: boolean; avatar_url: string | null; created_at: string
 }
 export interface Token { access_token: string; refresh_token?: string; token_type: string }
+/** Bulk create reports per-row failures alongside the success count.
+ *  `errors` is one entry per rejected row (bad URL, duplicate alias, folder not
+ *  in the workspace, ...) — omitting it reported a partial import as a clean
+ *  success. See `bulk_service.create`. */
+export interface BulkCreateResult {
+  created: number
+  errors?: string[]
+  short_codes?: string[]
+}
 /** The OAuth handoff exchange mints the session *and* returns the user, so the
  *  client never has to spend a second round trip on /auth/me. */
 export interface TokenWithUser extends Token { user: User }
@@ -120,7 +173,7 @@ export interface ApiKey {
 export interface ApiKeyCreateResponse extends ApiKey { key: string }
 export interface Webhook { id: number; url: string; events: string[]; is_active: boolean; created_at: string }
 export interface ReceivedWebhookEvent { id: number; webhook_id: number | null; workspace_id: number; event_type: string; payload: string; headers: string | null; signature: string | null; signature_valid: boolean; source_ip: string | null; created_at: string }
-export interface AnalyticsSummary { short_code: string; total_clicks: number; unique_clicks: number; last_clicked_at: string | null }
+export interface AnalyticsSummary { short_code: string; days: number; total_clicks: number; unique_clicks: number; last_clicked_at: string | null }
 export interface AnalyticsTimeseries { short_code: string; days: number; data: { date: string; clicks: number }[] }
 export interface DeviceBreakdown { name: string; count: number }
 export interface GeoBreakdown { country: string; city: string; count: number }
@@ -176,7 +229,16 @@ export const urls = {
     if (params?.status) q.set("status", params.status)
     if (params?.ids) q.set("ids", params.ids)
     if (params?.skip) q.set("skip", String(params.skip))
-    if (params?.limit) q.set("limit", String(params.limit))
+    // Default to the server's maximum rather than letting it apply its own.
+    //
+    // The API's default `limit` is 20, and `if (params?.limit)` meant an
+    // omitted limit sent nothing at all — so the server's 20 applied silently.
+    // Every list view in the app renders one flat table with no pagination, so
+    // a page asking for "this workspace's URLs" was getting the newest 20 and
+    // presenting them as the whole set: the bulk Manage tab could not select
+    // older links at all, and the favorites page resolved only the first 20 of
+    // its fetched favorites and dropped the rest.
+    q.set("limit", String(params?.limit ?? MAX_LIST_LIMIT))
     return apiFetch<{items: URLItem[], total: number}>(`/urls?${q}`)
   },
   get: (id: number) => apiFetch<URLItem>(`/urls/${id}`),
@@ -306,12 +368,12 @@ export const bulkApi = {
     const blob = new Blob([csvHeader + "\n" + csvRows], { type: "text/csv" })
     const form = new FormData()
     form.append("file", blob, "urls.csv")
-    return apiFetch<{ created: number }>(`/urls/bulk/create?workspace_id=${workspace_id}`, { method: "POST", body: form, headers: {} })
+    return apiFetch<BulkCreateResult>(`/urls/bulk/create?workspace_id=${workspace_id}`, { method: "POST", body: form, headers: {} })
   },
   disable: (workspace_id: number, ids: number[]) =>
-    apiFetch<{ updated: number }>(`/urls/bulk/disable?workspace_id=${workspace_id}&url_ids=${ids.join(",")}`, { method: "POST" }),
+    apiFetch<{ disabled: number }>(`/urls/bulk/disable?workspace_id=${workspace_id}&url_ids=${ids.join(",")}`, { method: "POST" }),
   reactivate: (workspace_id: number, ids: number[]) =>
-    apiFetch<{ updated: number }>(`/urls/bulk/reactivate?workspace_id=${workspace_id}&url_ids=${ids.join(",")}`, { method: "POST" }),
+    apiFetch<{ reactivated: number }>(`/urls/bulk/reactivate?workspace_id=${workspace_id}&url_ids=${ids.join(",")}`, { method: "POST" }),
   delete: (workspace_id: number, ids: number[]) =>
     apiFetch<{ deleted: number }>(`/urls/bulk/delete?workspace_id=${workspace_id}&url_ids=${ids.join(",")}`, { method: "POST" }),
   export: (workspace_id: number) =>
@@ -362,7 +424,10 @@ export const webhookReceiverApi = {
   list: (workspace_id: number, skip?: number, limit?: number) => {
     const q = new URLSearchParams()
     if (skip) q.set("skip", String(skip))
-    if (limit) q.set("limit", String(limit))
+    // The receiver view labels this "N events received", which reads as a
+    // total. At the server's default of 50 a receiver that had taken 500
+    // deliveries reported 50 with no truncation indicated.
+    q.set("limit", String(limit ?? MAX_LIST_LIMIT))
     return apiFetch<ReceivedWebhookEvent[]>(`/webhook-receiver/events/${workspace_id}${q.toString() ? `?${q}` : ""}`)
   },
 }
@@ -371,7 +436,10 @@ export const auditApi = {
   list: (workspace_id: number, skip?: number, limit?: number) => {
     const q = new URLSearchParams()
     if (skip) q.set("skip", String(skip))
-    if (limit) q.set("limit", String(limit))
+    // Default to the ceiling rather than the server's 20: the audit log view is
+    // a flat table with no paging control, so it rendered a plausible 20 rows
+    // and gave no hint that older entries existed.
+    q.set("limit", String(limit ?? MAX_LIST_LIMIT))
     return apiFetch<AuditLog[]>(`/audit-logs/workspace/${workspace_id}${q.toString() ? `?${q}` : ""}`)
   },
   resource: (resource_type: string, resource_id: number, skip?: number, limit?: number) => {

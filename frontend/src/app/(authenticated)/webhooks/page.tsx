@@ -30,14 +30,17 @@ export default function WebhooksPage() {
         setUser(user)
         return user
       } catch (err) {
-        router.push("/login")
+        router.push("/login?expired=1")
         throw err
       }
     },
     retry: false
   })
 
-  const { data: workspaces = [] } = useQuery({
+  // See folders/page.tsx: wsId is derived from this query, so a failure leaves
+  // the webhooks query disabled — not loading, and unable to be in an error
+  // state. Without surfacing this, an outage rendered as "No webhooks yet".
+  const { data: workspaces = [], isError: wsError, refetch: refetchWs } = useQuery({
     queryKey: ["workspaces"],
     queryFn: workspacesApi.list,
     enabled: !authLoading
@@ -45,7 +48,10 @@ export default function WebhooksPage() {
 
   const wsId = workspaces?.[0]?.id
 
-  const { data: hooks = [], isError: hooksError, refetch: refetchHooks } = useQuery({
+  // isPending, not isLoading — see folders/page.tsx. Without it the page
+  // rendered "No webhooks yet" before the data arrived, and again after every
+  // workspace refetch.
+  const { data: hooks = [], isError: hooksError, isPending: hooksPending, refetch: refetchHooks } = useQuery({
     queryKey: ["webhooks", wsId],
     queryFn: () => webhooksApi.list(wsId!),
     enabled: !!wsId,
@@ -135,14 +141,23 @@ export default function WebhooksPage() {
         </Card>
       )}
 
-      {hooksError ? (
+      {wsError ? (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
+          <WebhookIcon className="mx-auto mb-3 size-10 text-red-600" />
+          <p className="text-lg font-medium">Failed to load workspaces</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Webhooks could not be listed because the workspace lookup failed.
+          </p>
+          <Button variant="outline" className="mt-4" onClick={() => refetchWs()}>Try again</Button>
+        </div>
+      ) : hooksError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
           <WebhookIcon className="mx-auto mb-3 size-10 text-red-600" />
           <p className="text-lg font-medium">Failed to load webhooks</p>
           <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your webhooks.</p>
           <Button variant="outline" className="mt-4" onClick={() => refetchHooks()}>Try again</Button>
         </div>
-      ) : hooks.length === 0 ? (
+      ) : hooksPending ? null : hooks.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
           <WebhookIcon className="mx-auto mb-3 size-10 text-muted-foreground" />
           <p className="text-lg font-medium">No webhooks yet</p>

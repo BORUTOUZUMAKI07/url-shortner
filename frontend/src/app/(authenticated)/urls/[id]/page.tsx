@@ -49,7 +49,7 @@ export default function URLDetailPage() {
         setUser(user)
         return user
       } catch (err) {
-        router.push("/login")
+        router.push("/login?expired=1")
         throw err
       }
     },
@@ -101,6 +101,12 @@ export default function URLDetailPage() {
     mutationFn: (data: UrlUpdateInput) => urls.update(urlId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["url", urlId] })
+      // The list views cache under ["urls", …] and render `original_url` and
+      // the tag names from those rows. Invalidating only the detail entry left
+      // the list showing the pre-edit values until the 30s global staleTime
+      // elapsed, so saving a new destination appeared not to take effect until
+      // a later visit to the list.
+      queryClient.invalidateQueries({ queryKey: ["urls"] })
       setPassword("")
     },
     onError: (err: unknown) => {

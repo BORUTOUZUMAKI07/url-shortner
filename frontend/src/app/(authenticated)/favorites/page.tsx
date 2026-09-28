@@ -22,14 +22,16 @@ export default function FavoritesPage() {
         setUser(user)
         return user
       } catch (err) {
-        router.push("/login")
+        router.push("/login?expired=1")
         throw err
       }
     },
     retry: false
   })
 
-  const { data: urlsData = [], isError: urlsError, refetch: refetchFavorites } = useQuery({
+  // isPending, not isLoading — see folders/page.tsx. Without it this page
+  // flashed "No favorites yet" on first paint.
+  const { data: urlsData = [], isError: urlsError, isPending: favPending, refetch: refetchFavorites } = useQuery({
     // Distinct key from the ["favorites"] used by useFavorites (which returns
     // Favorite[]); this one resolves to URLItem[]. Sharing a key made the two
     // shapes swap with the last-mounted page.
@@ -38,7 +40,12 @@ export default function FavoritesPage() {
       const favs = await favoritesApi.list(0, 100)
       if (favs.length === 0) return []
       const ids = favs.map((f) => f.url_id).join(",")
-      const { items } = await urls.list(null, { ids })
+      // The `limit` has to match the favorites fetch. The resolution call sends
+      // no limit of its own, so the server's default of 20 applied and the rest
+      // were dropped by the `filter` below: 21 favorites rendered as 20, with no
+      // error and no sign of truncation. (urls.list now defaults to the
+      // ceiling; this is explicit so the two stay in step if that changes.)
+      const { items } = await urls.list(null, { ids, limit: 100 })
       const byId = new Map(items.map((u) => [u.id, u]))
       return favs
         .map((f) => byId.get(f.url_id))
@@ -80,7 +87,7 @@ export default function FavoritesPage() {
           <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your bookmarks.</p>
           <Button variant="outline" className="mt-4" onClick={() => refetchFavorites()}>Try again</Button>
         </div>
-      ) : urlsData.length === 0 ? (
+      ) : favPending ? null : urlsData.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
           <Heart className="mx-auto mb-3 size-10 text-muted-foreground" />
           <p className="text-lg font-medium">No favorites yet</p>

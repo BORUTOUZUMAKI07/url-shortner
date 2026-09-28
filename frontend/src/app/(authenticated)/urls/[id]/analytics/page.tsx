@@ -43,7 +43,7 @@ export default function AnalyticsPage() {
         setUser(user)
         return user
       } catch (err) {
-        router.push("/login")
+        router.push("/login?expired=1")
         throw err
       }
     },

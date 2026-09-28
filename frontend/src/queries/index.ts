@@ -30,6 +30,14 @@ export function useUrls(workspaceId: number | null, params?: { folder_id?: numbe
   return useQuery({
     queryKey: ["urls", workspaceId, params],
     queryFn: () => urls.list(workspaceId, params),
+    // Hold the previous page's rows while the next one loads.
+    //
+    // `params` is part of the key, so changing a filter makes this a different
+    // query: with no placeholder, `data` is undefined for the new key and the
+    // list rendered its empty state — "No URLs found" plus a "create your first
+    // URL" call to action — for the duration of every request. The search box
+    // is debounced, so that flash happened on each pause in typing.
+    placeholderData: (prev) => prev,
   })
 }
 

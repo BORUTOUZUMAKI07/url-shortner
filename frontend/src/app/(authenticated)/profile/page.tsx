@@ -73,7 +73,7 @@ export default function ProfilePage() {
         setUser(user)
         return user
       } catch (err) {
-        router.push("/login")
+        router.push("/login?expired=1")
         throw err
       }
     },

@@ -31,7 +31,7 @@ export default function BillingPage() {
         setUser(user)
         return user
       } catch (err) {
-        router.push("/login")
+        router.push("/login?expired=1")
         throw err
       }
     },
@@ -44,6 +44,12 @@ export default function BillingPage() {
     onSuccess: (res) => {
       setUser({ ...user!, plan: res.plan })
       setSuccess(res.detail)
+      // Invalidate the canonical ["me"] entry, which is what AuthPrefetcher and
+      // useMe share. ["authMe"] is this file's own private key — nothing else
+      // reads it, so invalidating it left the shared entry untouched. Its 5min
+      // staleTime meant a page mounting within the window repopulated the old
+      // plan from the server and the upgrade appeared to undo itself.
+      queryClient.invalidateQueries({ queryKey: ["me"] })
       queryClient.invalidateQueries({ queryKey: ["authMe"] })
     },
     onError: (e: unknown) => {

@@ -129,8 +129,15 @@ export default function URLsPage() {
         <CardHeader className="border-b border-stone-200/50 pb-3">
           <div className="flex items-center gap-2">
             <CardTitle className="text-sm font-semibold">All URLs</CardTitle>
-            {items.length > 0 && (
-              <span className="text-xs text-stone-500">{items.length} link{items.length !== 1 ? "s" : ""}</span>
+            {(urlsData?.total ?? 0) > 0 && (
+              // The server's `total`, not `items.length`. `items` is one page
+              // (the request asks for 50), so a workspace with 300 URLs
+              // labelled the page "50 links" — and the accurate total was
+              // already in scope, unused. The dashboard reads `total` for the
+              // same reason.
+              <span className="text-xs text-stone-500">
+                {urlsData!.total} link{urlsData!.total !== 1 ? "s" : ""}
+              </span>
             )}
           </div>
         </CardHeader>

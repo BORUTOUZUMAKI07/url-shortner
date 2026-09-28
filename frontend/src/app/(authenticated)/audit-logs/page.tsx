@@ -27,14 +27,19 @@ export default function AuditLogsPage() {
         setUser(user)
         return user
       } catch (err) {
-        router.push("/login")
+        router.push("/login?expired=1")
         throw err
       }
     },
     retry: false
   })
 
-  const { data: workspaces, isLoading: isLoadingWs } = useQuery({
+  // isError is needed because wsId comes from this query. When it fails, the
+  // audit query below is disabled — and a disabled query reports neither
+  // isLoading nor isError, so control fell through to `logs.length === 0` and
+  // rendered "No audit logs yet. Actions in your workspace will appear here."
+  // An outage was displayed as an empty workspace, indistinguishable from truth.
+  const { data: workspaces, isLoading: isLoadingWs, isError: wsError, refetch: refetchWs } = useQuery({
     queryKey: ["workspaces"],
     queryFn: workspacesApi.list,
     enabled: !authLoading
@@ -73,6 +78,15 @@ export default function AuditLogsPage() {
       {isLoadingWs || isLoadingLogs ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : wsError ? (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
+          <ShieldAlert className="mx-auto mb-3 size-10 text-red-600" />
+          <p className="text-lg font-medium">Failed to load workspaces</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Audit logs could not be listed because the workspace lookup failed.
+          </p>
+          <Button variant="outline" className="mt-4" onClick={() => refetchWs()}>Try again</Button>
         </div>
       ) : logsError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">

@@ -27,14 +27,17 @@ export default function TagsPage() {
         setUser(user)
         return user
       } catch (err) {
-        router.push("/login")
+        router.push("/login?expired=1")
         throw err
       }
     },
     retry: false
   })
 
-  const { data: workspaces = [] } = useQuery({
+  // See folders/page.tsx: wsId is derived from this query, so a failure leaves
+  // the tags query disabled — not loading, and unable to be in an error state.
+  // Without surfacing this, an outage rendered as "No tags yet".
+  const { data: workspaces = [], isError: wsError, refetch: refetchWs } = useQuery({
     queryKey: ["workspaces"],
     queryFn: workspacesApi.list,
     enabled: !authLoading
@@ -42,7 +45,10 @@ export default function TagsPage() {
 
   const wsId = selectedWsId || workspaces?.[0]?.id
 
-  const { data: tags = [], isError: tagsError, refetch: refetchTags } = useQuery({
+  // isPending, not isLoading: in v5 isLoading is `isPending && isFetching`, so
+  // it is false while the query is disabled awaiting wsId — which rendered
+  // "No tags yet" before the data had arrived. See folders/page.tsx.
+  const { data: tags = [], isError: tagsError, isPending: tagsPending, refetch: refetchTags } = useQuery({
     queryKey: ["tags", wsId],
     queryFn: () => tagsApi.list(wsId!),
     enabled: !!wsId,
@@ -95,14 +101,23 @@ export default function TagsPage() {
         </CardContent>
       </Card>
 
-      {tagsError ? (
+      {wsError ? (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
+          <TagsIcon className="mx-auto mb-3 size-10 text-red-600" />
+          <p className="text-lg font-medium">Failed to load workspaces</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Tags could not be listed because the workspace lookup failed.
+          </p>
+          <Button variant="outline" className="mt-4" onClick={() => refetchWs()}>Try again</Button>
+        </div>
+      ) : tagsError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
           <TagsIcon className="mx-auto mb-3 size-10 text-red-600" />
           <p className="text-lg font-medium">Failed to load tags</p>
           <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your tags.</p>
           <Button variant="outline" className="mt-4" onClick={() => refetchTags()}>Try again</Button>
         </div>
-      ) : tags.length === 0 ? (
+      ) : tagsPending ? null : tags.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
           <TagsIcon className="mx-auto mb-3 size-10 text-muted-foreground" />
           <p className="text-lg font-medium">No tags yet</p>

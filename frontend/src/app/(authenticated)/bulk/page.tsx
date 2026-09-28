@@ -15,7 +15,13 @@ import { auth, bulkApi, workspacesApi, foldersApi, tagsApi, urls } from "@/lib/a
 import { useAuthStore } from "@/store/auth"
 import { Upload, Download, UploadCloud, ToggleLeft, ToggleRight, Trash2, QrCode, Search } from "lucide-react"
 
-type BulkActionResult = { updated?: number; deleted?: number }
+// The old `BulkActionResult` union here is gone: it modelled the response as
+// `{ updated?, deleted? }`, which is not what the server sends. Disable and
+// reactivate answer `disabled` and `reactivated`, so reading `res.updated ??
+// res.deleted ?? 0` fell through to 0 and reported "Disabled 0 URLs" after a
+// successful bulk disable. The declared types were wrong in exactly the same
+// way as the code that consumed them, which is why TypeScript never flagged it.
+// The count is now read off each endpoint's own return type in api.ts.
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Request failed"
@@ -49,7 +55,7 @@ export default function BulkPage() {
         setUser(user)
         return user
       } catch (err) {
-        router.push("/login")
+        router.push("/login?expired=1")
         throw err
       }
     },
@@ -126,7 +132,12 @@ export default function BulkPage() {
         custom_alias: parts[1] || undefined,
         folder_id: folderId || undefined,
         tags: tagsStr || undefined,
-        expires_at: expiresAt || undefined,
+        // `datetime-local` yields a bare local string like "2026-10-01T09:00",
+        // with no offset. The backend parses that and, finding it naive, labels
+        // it UTC — so a user in UTC+5:30 who set "expires 09:00" got a link that
+        // died at 03:30 local, 5.5 hours early. Convert to a real instant first,
+        // which is what the single-URL edit page already does.
+        expires_at: expiresAt ? new Date(expiresAt).toISOString() : undefined,
         password: password || undefined,
         domain: domain || undefined,
         is_ab_test: isAbTest || undefined,
@@ -137,7 +148,18 @@ export default function BulkPage() {
     })
     try {
       const res = await bulkApi.create(wsId, lines)
-      setResult(`Created ${res.created} URLs successfully!`)
+      // The server reports per-row failures in `errors`; reading only `created`
+      // reported "Created 42 URLs successfully!" for a 50-row paste where 8 were
+      // rejected, and the rejected rows were unrecoverable from the UI.
+      const failed = res.errors ?? []
+      if (failed.length > 0) {
+        setResult(
+          `Created ${res.created} URLs, ${failed.length} rejected. ` +
+            `First errors: ${failed.slice(0, 3).join("; ")}`
+        )
+      } else {
+        setResult(`Created ${res.created} URLs successfully!`)
+      }
       queryClient.invalidateQueries({ queryKey: ["urls", wsId] })
     } catch (err: unknown) {
       setResult(`Error: ${getErrorMessage(err)}`)
@@ -153,11 +175,18 @@ export default function BulkPage() {
     if (!wsId || selectedIds.length === 0) return
     setLoading(true)
     try {
-      let res: BulkActionResult
-      if (action === "disable") res = await bulkApi.disable(wsId, selectedIds)
-      else if (action === "reactivate") res = await bulkApi.reactivate(wsId, selectedIds)
-      else res = await bulkApi.delete(wsId, selectedIds)
-      setResult(`${action === "delete" ? "Deleted" : action === "disable" ? "Disabled" : "Reactivated"} ${res.updated ?? res.deleted ?? 0} URLs`)
+      // Read the key the server actually returns. It used to read
+      // `res.updated ?? res.deleted ?? 0`, but the disable and reactivate
+      // endpoints return `disabled` and `reactivated` — so both of those
+      // branches fell through the `??` chain to 0 and reported "Disabled 0 URLs"
+      // after a successful bulk disable. The declared types were wrong in the
+      // same way, which is why TypeScript never flagged it.
+      const label = action === "delete" ? "Deleted" : action === "disable" ? "Disabled" : "Reactivated"
+      let count: number
+      if (action === "disable") count = (await bulkApi.disable(wsId, selectedIds)).disabled
+      else if (action === "reactivate") count = (await bulkApi.reactivate(wsId, selectedIds)).reactivated
+      else count = (await bulkApi.delete(wsId, selectedIds)).deleted
+      setResult(`${label} ${count} URL${count === 1 ? "" : "s"}`)
       queryClient.invalidateQueries({ queryKey: ["urls", wsId] })
       setSelectedIds([])
     } catch (err: unknown) {

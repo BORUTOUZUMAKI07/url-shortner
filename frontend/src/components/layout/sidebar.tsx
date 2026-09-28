@@ -79,7 +79,20 @@ export function Sidebar() {
     try {
       await auth.logout()
     } catch {
-      // Backend unreachable — still try the local navigation below.
+      // The cookies were NOT cleared. `auth.logout` throws on any non-2xx, not
+      // just an unreachable backend, and /auth/logout sits behind the global
+      // per-IP rate limiter — so a 429 or a 5xx landed here with the access
+      // token still valid.
+      //
+      // The old code swallowed that and navigated to a bare /login, which is
+      // exactly the bounce described above: the URL flickered to /login and the
+      // user landed back on the signed-in dashboard, with no error and no
+      // explanation. `expired=1` is the flag proxy.ts looks for to suppress that
+      // bounce, so the sign-in form is reachable either way.
+      toast.error("Could not reach the server to end your session. Sign-in will be required again.")
+      storeLogout()
+      window.location.href = "/login?expired=1"
+      return
     }
     storeLogout()
     window.location.href = "/login"

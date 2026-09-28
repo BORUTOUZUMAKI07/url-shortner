@@ -32,7 +32,7 @@ export default function AdminPage() {
         setUser(u)
         if (!u.is_superadmin) router.push("/dashboard")
       })
-      .catch(() => router.push("/login"))
+      .catch(() => router.push("/login?expired=1"))
   }, [router, setUser])
 
   useEffect(() => {
@@ -57,13 +57,20 @@ export default function AdminPage() {
 
   async function handleToggleSuperadmin(id: number) {
     await adminApi.toggleSuperadmin(id)
-    adminApi.listUsers(page * limit, limit).then((r) => setUsers(r.users))
+    // Refresh the total too, not just the rows. It drives the pager and the
+    // "Users (N)" tab label; refreshing only the rows left both stale, and a
+    // stale total keeps `Next` enabled over an empty page.
+    adminApi.listUsers(page * limit, limit).then((r) => { setUsers(r.users); setTotalUsers(r.total) })
   }
 
   async function handleDeleteUser(id: number) {
     if (!confirm("Delete this user and all their data?")) return
     await adminApi.deleteUser(id)
-    adminApi.listUsers(page * limit, limit).then((r) => setUsers(r.users))
+    // `setTotalUsers` was missing here while the mount effect and the URL tab
+    // both set it. Deleting the last user on the final page left the count and
+    // the pager describing users that no longer existed, and the next page
+    // fetch returned nothing.
+    adminApi.listUsers(page * limit, limit).then((r) => { setUsers(r.users); setTotalUsers(r.total) })
     adminApi.stats().then(setStats)
   }
 
@@ -152,7 +159,10 @@ export default function AdminPage() {
             <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
               <ChevronLeft className="size-4" /> Prev
             </Button>
-            <span className="text-sm text-muted-foreground">Page {page + 1} of {Math.ceil(totalUsers / limit)}</span>
+            {/* Math.max(1, …) to match the workspace and URL tabs below. `Math.ceil(0
+          / 20)` is 0, so this read "Page 1 of 0" on a freshly seeded database
+          and on the first paint, before the users query has resolved. */}
+      <span className="text-sm text-muted-foreground">Page {page + 1} of {Math.max(1, Math.ceil(totalUsers / limit))}</span>
             <Button variant="outline" size="sm" disabled={(page + 1) * limit >= totalUsers} onClick={() => setPage(page + 1)}>
               Next <ChevronRight className="size-4" />
             </Button>

@@ -26,14 +26,19 @@ export default function FoldersPage() {
         setUser(user)
         return user
       } catch (err) {
-        router.push("/login")
+        router.push("/login?expired=1")
         throw err
       }
     },
     retry: false
   })
 
-  const { data: workspaces = [] } = useQuery({
+  // isError is destructured deliberately. `wsId` comes from this query, so if it
+  // fails the folder query below is *disabled* — and a disabled query is not
+  // loading and cannot be in an error state, so `foldersError` below is
+  // unreachable and the page rendered "No folders yet" for what was actually an
+  // outage. The user could not tell an empty workspace from a broken request.
+  const { data: workspaces = [], isError: wsError, refetch: refetchWs } = useQuery({
     queryKey: ["workspaces"],
     queryFn: workspacesApi.list,
     enabled: !authLoading
@@ -41,7 +46,12 @@ export default function FoldersPage() {
 
   const wsId = workspaces?.[0]?.id
 
-  const { data: folders = [], isError: foldersError, refetch: refetchFolders } = useQuery({
+  // isPending (not isLoading) is the "no data yet" signal here. In v5
+  // `isLoading` is `isPending && isFetching`, which is false for a query
+  // disabled by `enabled: !!wsId` — the state this page sits in while the
+  // workspaces query is still in flight. Without it the page rendered
+  // "No folders yet" on first paint and after every workspace refetch.
+  const { data: folders = [], isError: foldersError, isPending: foldersPending, refetch: refetchFolders } = useQuery({
     queryKey: ["folders", wsId],
     queryFn: () => foldersApi.list(wsId!),
     enabled: !!wsId,
@@ -107,14 +117,23 @@ export default function FoldersPage() {
         </CardContent>
       </Card>
 
-      {foldersError ? (
+      {wsError ? (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
+          <FolderOpen className="mx-auto mb-3 size-10 text-red-600" />
+          <p className="text-lg font-medium">Failed to load workspaces</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Folders could not be listed because the workspace lookup failed.
+          </p>
+          <Button variant="outline" className="mt-4" onClick={() => refetchWs()}>Try again</Button>
+        </div>
+      ) : foldersError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
           <FolderOpen className="mx-auto mb-3 size-10 text-red-600" />
           <p className="text-lg font-medium">Failed to load folders</p>
           <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your folders.</p>
           <Button variant="outline" className="mt-4" onClick={() => refetchFolders()}>Try again</Button>
         </div>
-      ) : folders.length === 0 ? (
+      ) : foldersPending ? null : folders.length === 0 ? (
         <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
           <FolderOpen className="mx-auto mb-3 size-10 text-muted-foreground" />
           <p className="text-lg font-medium">No folders yet</p>
