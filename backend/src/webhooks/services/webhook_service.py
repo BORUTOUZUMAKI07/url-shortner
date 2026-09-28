@@ -48,10 +48,28 @@ _delivery_semaphore = asyncio.Semaphore(10)
 # ---------------------------------------------------------------------------
 # Per-endpoint circuit breaker (#8)
 # ---------------------------------------------------------------------------
-_CONSECUTIVE_FAILURES: dict[int, int] = {}
+_CONSECUTIVE_FAILURES: dict[int, tuple[int, float]] = {}
 _CIRCUIT_OPEN_UNTIL: dict[int, float] = {}
 _MAX_CONSECUTIVE_FAILURES = 5
 _CIRCUIT_OPEN_SECONDS = 300  # 5 minutes
+# A failure older than this is not "consecutive" any more. Without a time bound
+# the counter is only ever cleared by a success or by the circuit opening, so a
+# webhook that fails once or twice and then goes quiet keeps its entry — and its
+# id — for the life of the process. Bounding it in time is also the more honest
+# reading of "consecutive": three failures spread over a day are not a streak.
+_FAILURE_WINDOW_SECONDS = 300  # 5 minutes
+
+# Strong references to in-flight fire-and-forget deliveries, so the event loop
+# cannot garbage-collect a task that has already suspended on its HTTP POST.
+# Without this a delivery can be destroyed mid-flight: the caller awaited
+# nothing, gets its 200, and the event is silently lost. Mirrors _track() in
+# shared/events/kafka.py, for the same reason.
+_pending_deliveries: set[asyncio.Task] = set()
+
+
+def _track(task: asyncio.Task) -> None:
+    _pending_deliveries.add(task)
+    task.add_done_callback(_pending_deliveries.discard)
 
 
 def _is_circuit_open(webhook_id: int) -> bool:
@@ -66,15 +84,24 @@ def _is_circuit_open(webhook_id: int) -> bool:
 
 
 def _record_delivery_success(webhook_id: int) -> None:
-    _CONSECUTIVE_FAILURES.pop(webhook_id, None)
-    _CIRCUIT_OPEN_UNTIL.pop(webhook_id, None)
+    _forget_webhook(webhook_id)
 
 
 def _record_delivery_failure(webhook_id: int) -> None:
-    count = _CONSECUTIVE_FAILURES.get(webhook_id, 0) + 1
-    _CONSECUTIVE_FAILURES[webhook_id] = count
+    now = time.time()
+    count, last_at = _CONSECUTIVE_FAILURES.get(webhook_id, (0, 0.0))
+    if now - last_at > _FAILURE_WINDOW_SECONDS:
+        count = 0  # the streak went stale; start a new one
+    count += 1
+    _CONSECUTIVE_FAILURES[webhook_id] = (count, now)
     if count >= _MAX_CONSECUTIVE_FAILURES:
-        _CIRCUIT_OPEN_UNTIL[webhook_id] = time.time() + _CIRCUIT_OPEN_SECONDS
+        _CIRCUIT_OPEN_UNTIL[webhook_id] = now + _CIRCUIT_OPEN_SECONDS
+
+
+def _forget_webhook(webhook_id: int) -> None:
+    """Drop all breaker state for a webhook that no longer exists."""
+    _CONSECUTIVE_FAILURES.pop(webhook_id, None)
+    _CIRCUIT_OPEN_UNTIL.pop(webhook_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -225,10 +252,20 @@ class WebhookService:
         await self.get(webhook_id, workspace_id, user_id)
         await self._verify_write_role(workspace_id, user_id)
         await self.repo.delete(webhook_id)
+        # The breaker keys are module-level and outlive the row, so a deleted
+        # webhook would otherwise leave its counter behind forever.
+        _forget_webhook(webhook_id)
 
     # #1 — fire-and-forget: returns immediately, delivery runs in background.
     # #5 — background task records delivery status (delivered/failed) per
     #      webhook so the retry worker can pick up failures — identical
     #      semantics to the click consumer and retry worker.
     async def deliver_event(self, workspace_id: int, event_type: str, payload: dict) -> None:
-        asyncio.create_task(_deliver_event_background(workspace_id, event_type, payload))
+        # The Task needs a strong reference for its whole life. The event loop
+        # only holds one through the ready queue, so once the coroutine first
+        # suspends — which here is its outbound HTTP POST, i.e. almost
+        # immediately — a bare create_task() result is collectable and the
+        # delivery can be destroyed without ever finishing. The caller awaits
+        # nothing, so the event just disappears. Same fix, and the same reason,
+        # as _track() in shared/events/kafka.py.
+        _track(asyncio.create_task(_deliver_event_background(workspace_id, event_type, payload)))

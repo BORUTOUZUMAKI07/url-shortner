@@ -11,10 +11,11 @@ from src.shared.core.redis import redis_client
 from src.shared.core.security import decode_token, verify_password_async
 
 # Positive-only cache for JWT blacklist checks — avoids a Redis REST round-trip
-# on every request while a token is known to be revoked. A token that is NOT in
-# the cache is never treated as revoked, so revocation is immediate: the first
-# check after blacklisting hits Redis and returns TokenRevoked. The cache entry
-# is short-lived and the authoritative source is always Redis.
+# on every request while a token is known to be revoked. A cache MISS always
+# consults Redis, so revocation is immediate: the first check after blacklisting
+# hits Redis and returns TokenRevoked. A stale entry is evicted and re-checked
+# against Redis rather than being treated as a hit, so the cache can only ever
+# make a revocation fire sooner, never un-fire it. Redis is the source of truth.
 _blacklist_cache: dict[str, float] = {}
 _BLACKLIST_CACHE_TTL = 60  # seconds
 from src.admin.services.admin_service import AdminService
@@ -104,13 +105,26 @@ async def get_current_user(
     # JWT auth
     now = time.time()
     cached = _blacklist_cache.get(token)
-    if cached is not None and cached > now:
-        raise TokenRevoked()
-    if cached is None:
-        is_blacklisted = await redis_client.get(f"jwt:blacklist:{token}")
-        if is_blacklisted:
-            _blacklist_cache[token] = now + _BLACKLIST_CACHE_TTL
+    if cached is not None:
+        if cached > now:
             raise TokenRevoked()
+        # The entry has aged out, but the token's Redis blacklist entry lives
+        # until its `exp` — up to ACCESS_TOKEN_EXPIRE_MINUTES (60) later.
+        #
+        # This branch used to fall straight through to decode_token(), because
+        # the "consult Redis" arm was guarded on `cached is None` and an expired
+        # entry is not None. The result: a token revoked at logout was accepted
+        # again for every request after the first 60 seconds, for the rest of
+        # its life. Now an aged-out entry is treated as the miss it is, which is
+        # also what the comment above this cache has always claimed.
+        #
+        # Dropping it here is also what stops the dict growing without bound —
+        # it was written once per revoked token and never removed.
+        del _blacklist_cache[token]
+    is_blacklisted = await redis_client.get(f"jwt:blacklist:{token}")
+    if is_blacklisted:
+        _blacklist_cache[token] = now + _BLACKLIST_CACHE_TTL
+        raise TokenRevoked()
     payload = decode_token(token)
     user_id = payload.get("sub")
     token_type = payload.get("type")

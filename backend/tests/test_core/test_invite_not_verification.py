@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from src.shared.errors import AlreadyMember, InviteEmailMismatch, InviteExpired
+from src.shared.errors import AlreadyMember, BadRequestError, InviteEmailMismatch, InviteExpired
 from src.workspaces.models.workspace_invite import InviteStatus
 from src.workspaces.services.workspace_service import WorkspaceService
 
@@ -74,6 +74,9 @@ class _InviteRepo:
     def __init__(self, invite):
         self._invite = invite
         self.accepted: list[int] = []
+        # Tests that need the claim to be refused set this, to model an invite
+        # that stopped being pending between the read and the claim.
+        self.claim_succeeds = True
 
     async def get_by_token(self, token):
         return self._invite
@@ -81,8 +84,13 @@ class _InviteRepo:
     async def get(self, invite_id):
         return self._invite
 
-    async def accept(self, token):
-        self.accepted.append(self._invite.id)
+    async def claim_pending(self, invite_id):
+        """Models the conditional UPDATE: True for the one winner, False for
+        everyone who lost the race (or whose invite was cancelled)."""
+        if not self.claim_succeeds:
+            return False
+        self.accepted.append(invite_id)
+        return True
 
     async def update(self, invite_id, **values):
         return self._invite
@@ -180,3 +188,49 @@ class TestAcceptInvitePreconditionsStillHold:
         svc, *_ = _service(_User("member@example.com"), already_member=True)
         with pytest.raises(AlreadyMember):
             await svc.accept_invite("tok", user_id=5)
+
+
+class TestAcceptInviteClaimIsTheGate:
+    """A cancelled invite must not hand out membership.
+
+    `accept_invite` used to insert the membership and commit, and only then call
+    `invite_repo.accept(token)`, discarding its return value. That return value
+    was the single signal that the invite was no longer pending, so an admin's
+    cancel landing between the status read and that call still granted access —
+    while the invite row stayed `cancelled`.
+
+    The claim is now a conditional UPDATE and it happens first, so a lost race
+    is refused before any membership row is written.
+    """
+
+    async def test_cancelled_invite_grants_nothing(self):
+        svc, _, members, invites, _ = _service(_User("member@example.com"))
+        # The invite was still `pending` when it was read, but the claim loses.
+        invites.claim_succeeds = False
+
+        with pytest.raises(BadRequestError, match="no longer valid"):
+            await svc.accept_invite("tok", user_id=5)
+
+        assert members.added == [], "membership was granted for a dead invite"
+
+    async def test_claim_happens_before_the_member_insert(self):
+        """Ordering is the fix — a commit-first order reintroduces the bug."""
+        svc, _, members, invites, _ = _service(_User("member@example.com"))
+        order: list[str] = []
+
+        original_claim = invites.claim_pending
+        original_add = members.add_member
+
+        async def claim(invite_id):
+            order.append("claim")
+            return await original_claim(invite_id)
+
+        async def add(*a, **kw):
+            order.append("add_member")
+            return await original_add(*a, **kw)
+
+        invites.claim_pending = claim
+        members.add_member = add
+
+        await svc.accept_invite("tok", user_id=5)
+        assert order == ["claim", "add_member"]

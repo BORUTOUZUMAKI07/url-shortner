@@ -1,7 +1,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 
 from src.identity.models.user import User
@@ -64,9 +64,22 @@ async def refresh(
 ):
     await _enforce_auth_rate_limit(request, "refresh")
     refresh_token = payload.refresh_token if payload and payload.refresh_token else request.cookies.get("refresh_token")
-    if not refresh_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
-    token = await svc.refresh(refresh_token)
+    try:
+        if not refresh_token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
+        token = await svc.refresh(refresh_token)
+    except Exception:
+        # A refresh that fails means the refresh cookie is dead: expired,
+        # revoked, replayed, or the user's account deactivated. The cookie was
+        # httpOnly, so nothing client-side can remove it, and JS cannot even see
+        # it. Left in place it is replayed on every subsequent request for the
+        # rest of its max_age (7 days by default) — each replay a wasted round
+        # trip that also consumes the per-IP `refresh` rate-limit budget, so a
+        # stuck client can throttle the user's own next login.
+        #
+        # Raising here would discard the `response` object and its headers, so
+        # the delete has to be sent as the response itself.
+        return _refresh_rejected_response()
     _set_auth_cookies(response, token.access_token, token.refresh_token)
     return token
 
@@ -93,8 +106,7 @@ async def logout(
             await svc.logout(refresh_cookie)
         except Exception:
             pass
-    response.delete_cookie(key="access_token", path="/")
-    response.delete_cookie(key="refresh_token", path="/")
+    _clear_auth_cookies(response)
     return {"detail": "Successfully logged out"}
 
 
@@ -263,6 +275,32 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str 
             httponly=True,
             samesite="lax",
         )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    """Delete both auth cookies on a response.
+
+    The only thing that can clear them: both are httpOnly, so `document.cookie`
+    can neither read nor delete them.
+    """
+    is_prod = settings.ENVIRONMENT == "production"
+    for key in ("access_token", "refresh_token"):
+        response.delete_cookie(key, path="/", secure=is_prod, httponly=True, samesite="lax")
+
+
+def _refresh_rejected_response() -> JSONResponse:
+    """401 for a dead refresh token, carrying the cookie deletion.
+
+    Built by hand rather than raised, because raising an AppError/HTTPException
+    discards the injected `Response` and any headers set on it — which is
+    precisely the header that has to reach the browser.
+    """
+    resp = JSONResponse(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        content={"detail": "Refresh token is no longer valid."},
+    )
+    _clear_auth_cookies(resp)
+    return resp
 
 
 # --- Auth-path rate limits -------------------------------------------------

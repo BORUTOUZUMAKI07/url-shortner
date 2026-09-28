@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.webhooks.services import webhook_service as svc
 from src.webhooks.services.webhook_service import (
     _CIRCUIT_OPEN_SECONDS,
     _CIRCUIT_OPEN_UNTIL,
@@ -53,7 +54,37 @@ class TestCircuitBreaker:
     def test_circuit_failure_count_increments(self):
         _record_delivery_failure(1)
         _record_delivery_failure(1)
-        assert _CONSECUTIVE_FAILURES[1] == 2
+        assert _CONSECUTIVE_FAILURES[1][0] == 2
+
+    def test_stale_failures_do_not_accumulate_into_a_trip(self):
+        """A streak is consecutive in TIME, not just in call count.
+
+        The counter was only ever cleared by a success or by the circuit opening,
+        so a webhook that failed a few times and then went quiet kept its entry —
+        and its id — for the life of the process. Bounding the window also stops
+        four failures spread across a day from tripping the breaker on a fifth
+        failure weeks later.
+        """
+        _record_delivery_failure(1)
+        _record_delivery_failure(1)
+        assert _CONSECUTIVE_FAILURES[1][0] == 2
+
+        # Pretend the last failure was well outside the window.
+        _count, last_at = _CONSECUTIVE_FAILURES[1]
+        _CONSECUTIVE_FAILURES[1] = (_count, last_at - svc._FAILURE_WINDOW_SECONDS - 1)
+
+        _record_delivery_failure(1)
+        assert _CONSECUTIVE_FAILURES[1][0] == 1, "a stale streak should not carry over"
+        assert _is_circuit_open(1) is False
+
+    def test_deleting_a_webhook_clears_its_breaker_state(self):
+        """The breaker dicts are module-level and outlive the row."""
+        _record_delivery_failure(1)
+        _record_delivery_failure(1)
+        assert 1 in _CONSECUTIVE_FAILURES
+        svc._forget_webhook(1)
+        assert 1 not in _CONSECUTIVE_FAILURES
+        assert 1 not in _CIRCUIT_OPEN_UNTIL
 
     def test_different_webhooks_independent(self):
         for _ in range(_MAX_CONSECUTIVE_FAILURES):
@@ -111,7 +142,7 @@ class TestDeliverSingleWebhook:
             assert success is False
             assert code == 500
             assert "500" in error
-            assert _CONSECUTIVE_FAILURES[1] == 1
+            assert _CONSECUTIVE_FAILURES[1][0] == 1
 
     @pytest.mark.asyncio
     async def test_exception_records_failure(self):
@@ -140,7 +171,7 @@ class TestDeliverSingleWebhook:
             assert success is False
             assert code is None
             assert "Unsafe" in error
-            assert _CONSECUTIVE_FAILURES[1] == 1
+            assert _CONSECUTIVE_FAILURES[1][0] == 1
 
     @pytest.mark.asyncio
     async def test_circuit_breaker_skips_delivery(self):

@@ -1,3 +1,5 @@
+from sqlalchemy.exc import IntegrityError
+
 from src.links.models.url import URLStatus
 from src.links.repositories.favorite_repository import FavoriteRepository
 from src.links.repositories.url_repository import URLRepository
@@ -32,7 +34,15 @@ class FavoriteService:
                 raise URLNotFound()
         if await self.repo.is_favorited(user_id, url_id):
             raise ConflictError("URL already favorited.")
-        return await self.repo.create(user_id=user_id, url_id=url_id)
+        try:
+            return await self.repo.create(user_id=user_id, url_id=url_id)
+        except IntegrityError:
+            # uq_favorite_user_url is the real gate; the check above is advisory.
+            # Two clicks on the star (or a retried request) both pass it, and
+            # without this the loser surfaced as an unhandled 500 instead of the
+            # 409 this method already raises for the same condition.
+            await self.repo.rollback()
+            raise ConflictError("URL already favorited.") from None
 
     async def remove(self, url_id: int, user_id: int):
         removed = await self.repo.remove(user_id, url_id)

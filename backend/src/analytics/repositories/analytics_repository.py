@@ -1,7 +1,9 @@
-from sqlalchemy import delete
+from datetime import datetime
+
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
-from src.analytics.models.analytics import URLAnalyticsSummary
+from src.analytics.models.analytics import AggregationWatermark, URLAnalyticsSummary
 from src.shared.core.base_repository import BaseRepository
 
 
@@ -36,6 +38,11 @@ class AnalyticsRepository(BaseRepository[URLAnalyticsSummary]):
         # counts again. Computing true distinct-uniques across all history would
         # require re-aggregating every event, which is too expensive to do on
         # each 60s cycle; unique_clicks is therefore an upper-bound estimate.
+        #
+        # Because this ADDS, a window that is applied but whose watermark does
+        # not advance is applied a second time on the next cycle. This method
+        # therefore does NOT commit: the caller commits the whole window,
+        # together with the watermark row, so the two cannot diverge.
         stmt = insert(URLAnalyticsSummary).values(
             url_id=url_id, total_clicks=total_clicks, unique_clicks=unique_clicks
         )
@@ -47,7 +54,22 @@ class AnalyticsRepository(BaseRepository[URLAnalyticsSummary]):
             },
         )
         await self.db.execute(stmt)
-        await self.db.commit()
+
+    async def get_watermark(self, key: str) -> datetime | None:
+        result = await self.db.execute(
+            select(AggregationWatermark.value).where(AggregationWatermark.key == key)
+        )
+        return result.scalar_one_or_none()
+
+    async def set_watermark(self, key: str, value: datetime) -> None:
+        """Record the cursor. Commits nothing — the caller's commit is what
+        makes this and the rollup it describes atomic."""
+        stmt = insert(AggregationWatermark).values(key=key, value=value)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["key"],
+            set_={"value": value},
+        )
+        await self.db.execute(stmt)
 
     async def delete_by_url_id(self, url_id: int) -> None:
         await self.db.execute(

@@ -1,4 +1,6 @@
 
+from sqlalchemy.exc import IntegrityError
+
 from src.links.repositories.folder_repository import FolderRepository
 from src.shared.errors import ConflictError, NotFoundError, RoleTooLow, WorkspaceNotFound
 from src.workspaces.models.workspace_member import MemberRole
@@ -24,7 +26,15 @@ class FolderService:
         await self._verify_write_role(workspace_id, user_id)
         if await self.repo.name_exists_in_workspace(name, workspace_id):
             raise ConflictError("Folder name already exists in this workspace.")
-        return await self.repo.create(name=name, workspace_id=workspace_id)
+        try:
+            return await self.repo.create(name=name, workspace_id=workspace_id)
+        except IntegrityError:
+            # The check above is advisory — it is a read, and the insert is a
+            # separate committed write. uq_folder_name_workspace is the real
+            # gate, so a concurrent create surfaces here as the same 409 the
+            # check reports, not as a 500.
+            await self.repo.rollback()
+            raise ConflictError("Folder name already exists in this workspace.") from None
 
     async def list(self, workspace_id: int, user_id: int):
         await self._verify_workspace(workspace_id, user_id)

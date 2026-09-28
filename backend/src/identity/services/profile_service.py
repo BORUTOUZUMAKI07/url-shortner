@@ -3,7 +3,7 @@ from src.identity.models.user import User
 from src.identity.repositories.user_repository import UserRepository
 from src.identity.services.session_revocation import revoke_refresh_family
 from src.shared.core.security import hash_password_async, verify_password_async
-from src.shared.errors import EmailAlreadyExists, InvalidCredentials
+from src.shared.errors import EmailAlreadyExists, IncorrectCurrentPassword
 
 
 class _NullAudit:
@@ -24,7 +24,7 @@ class ProfileService:
                 resource_type="user",
                 resource_id=user.id,
             )
-            raise InvalidCredentials()
+            raise IncorrectCurrentPassword()
         await self.repo.update(user.id, password_hash=await hash_password_async(new_password))
         # Sign out everywhere, including this session. A password change is an
         # explicit statement that previous credentials are no longer trusted;
@@ -39,7 +39,7 @@ class ProfileService:
 
     async def change_email(self, user: User, current_password: str, new_email: str) -> None:
         if not await verify_password_async(current_password, user.password_hash):
-            raise InvalidCredentials()
+            raise IncorrectCurrentPassword()
         if await self.repo.email_exists(new_email):
             raise EmailAlreadyExists()
         # Changing the address invalidates every OAuth link: the provider's

@@ -1,6 +1,8 @@
 import secrets
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy.exc import IntegrityError
+
 from src.analytics.services.audit_service import AuditService
 from src.identity.repositories.user_repository import UserRepository
 from src.identity.services.email_service import EmailService
@@ -118,8 +120,27 @@ class WorkspaceService:
             raise InviteEmailMismatch()
         if await self.member_repo.is_member(invite.workspace_id, user_id):
             raise AlreadyMember()
-        await self.member_repo.add_member(invite.workspace_id, user_id, MemberRole(invite.role))
-        await self.invite_repo.accept(token)
+        # Claim the invite BEFORE inserting the membership row, and let that
+        # single commit persist both.
+        #
+        # The previous order was the mirror image and it was wrong in two ways:
+        # the membership was committed first and `accept(token)'s None return
+        # (its signal that the invite was no longer pending) was discarded, so
+        # an invite cancelled mid-accept still granted access; and two
+        # concurrent accepts both passed `is_member` and one died on
+        # uq_workspace_member as an unhandled 500.
+        #
+        # Now the claim is a conditional UPDATE, so exactly one caller can win,
+        # and it is not committed until the member insert succeeds.
+        if not await self.invite_repo.claim_pending(invite.id):
+            raise BadRequestError("Invite is no longer valid.")
+        try:
+            await self.member_repo.add_member(invite.workspace_id, user_id, MemberRole(invite.role))
+        except IntegrityError:
+            # Lost the insert race against a concurrent accept. The rollback
+            # discards our claim too, so the winner's state stays consistent.
+            await self.member_repo.rollback()
+            raise AlreadyMember() from None
         # NOTE: this used to also do `update(user.id, is_verified=True)`. That was
         # wrong: an invite proves that somebody knows the address, not that the
         # address belongs to the person accepting. It was a free bypass of email
@@ -152,6 +173,17 @@ class WorkspaceService:
             member = await self.member_repo.get_member(workspace_id, user_id)
             if not member or member.role != MemberRole.admin:
                 raise ForbiddenError("Only admins can cancel invites.")
+        invite = await self.invite_repo.get(invite_id)
+        # `workspace_id` and `invite_id` are independent path params, so without
+        # this check a workspace admin can cancel an invite in ANY workspace by
+        # passing its id — including ones they cannot see. The sibling methods
+        # (remove_member, update_member_role) both verify the target's parent;
+        # this one skipped it.
+        #
+        # Reported as not-found rather than forbidden so the endpoint does not
+        # become an existence oracle for other tenants' invites.
+        if not invite or invite.workspace_id != workspace_id:
+            raise InviteNotFound()
         await self.invite_repo.cancel(invite_id)
         await self.audit.log(
             actor_id=user_id, action="cancel_invite", resource_type="workspace_invite",

@@ -16,6 +16,9 @@ from src.shared.core.redis import redis_client
 from src.shared.workers.shutdown import install_signal_handlers, wait_for_shutdown
 
 _CUTOFF_KEY = "aggregation:last_cutoff"
+# Row key in the `aggregation_watermarks` table. Postgres is authoritative;
+# _CUTOFF_KEY in Redis is a cache of it.
+_WATERMARK_KEY = "url_clicked_rollup"
 _last_cutoff: datetime | None = None
 
 # Soft-delete → hard-delete housekeeping (formerly the cleanup_worker).
@@ -26,9 +29,24 @@ _last_purge_ts: float = 0.0
 
 
 async def _load_cutoff() -> datetime | None:
+    """Read the watermark from Postgres, which is the source of truth.
+
+    The Redis copy is a cache of that row, so falling back to it only matters
+    for a database that predates the watermark table. Reading one primary-key
+    row once per 60s cycle costs nothing.
+    """
     global _last_cutoff
     if _last_cutoff is not None:
         return _last_cutoff
+    try:
+        async with AsyncSessionLocal() as db:
+            stored = await AnalyticsRepository(db).get_watermark(_WATERMARK_KEY)
+        if stored is not None:
+            _last_cutoff = stored
+            return _last_cutoff
+    except Exception:
+        pass
+    # Fallback: the pre-migration Redis cursor.
     try:
         raw = await redis_client.get(_CUTOFF_KEY)
         if raw:
@@ -80,29 +98,45 @@ async def run_aggregation_rollup(logger):
         await _save_cutoff(datetime.now(timezone.utc) - timedelta(seconds=1))
         return
 
+    window_max = max(item["max_clicked_at"] for item in mongo_results)
+    if window_max.tzinfo is None:
+        window_max = window_max.replace(tzinfo=timezone.utc)
+
     async with AsyncSessionLocal() as db:
         url_repo = URLRepository(db)
         analytics_repo = AnalyticsRepository(db)
-        updated_count = 0
 
+        # One query for the whole window, not one per short code.
+        url_ids = await url_repo.get_url_ids_by_short_codes(
+            [item["short_code"] for item in mongo_results]
+        )
+
+        updated_count = 0
         for item in mongo_results:
-            short_code = item["short_code"]
-            url_id = await url_repo.get_url_id_by_short_code(short_code)
+            url_id = url_ids.get(item["short_code"])
             if not url_id:
                 continue
             await analytics_repo.upsert_rollup(url_id, item["total_clicks"], item["unique_clicks"])
             updated_count += 1
 
+        # The watermark is written in the SAME transaction as the rollups above,
+        # and this is the only commit.
+        #
+        # upsert_rollup ADDS to the counters, so a window that is applied but
+        # whose cursor does not advance is applied a second time next cycle and
+        # the totals inflate permanently, with no way to detect the replay. The
+        # previous code committed per row and saved the watermark afterwards, to
+        # a different store (Redis), so any failure between the first row and
+        # the save left a partially-applied window that would be re-applied in
+        # full. Now either the whole window and its cursor land together, or
+        # neither does and the next cycle simply re-reads the same window.
+        await analytics_repo.set_watermark(_WATERMARK_KEY, window_max)
+        await db.commit()
+
         logger.info("Rolled up %d analytics summaries.", updated_count)
 
-    # Persist the watermark ONLY after the DB writes succeed. The cutoff is the
-    # newest clicked_at among the events that were actually aggregated, so a
-    # crash between aggregation and persistence re-runs the same window instead
-    # of permanently dropping it (the old code saved a wall-clock cutoff BEFORE
-    # writing, so a crash lost that window forever).
-    window_max = max(item["max_clicked_at"] for item in mongo_results)
-    if window_max.tzinfo is None:
-        window_max = window_max.replace(tzinfo=timezone.utc)
+    # Redis is now only a cache of the Postgres watermark, refreshed after the
+    # commit above. It is no longer load-bearing for correctness.
     await _save_cutoff(window_max)
 
 

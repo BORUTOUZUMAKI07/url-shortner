@@ -1,6 +1,7 @@
 from src.shared.errors.auth import (
     CSRFValidationFailed,
     EmailAlreadyExists,
+    IncorrectCurrentPassword,
     InvalidCredentials,
     InvalidResetToken,
     InvalidToken,
@@ -51,7 +52,8 @@ __all__ = [
     "AppError",
     "NotFoundError", "ConflictError", "BadRequestError", "ForbiddenError",
     "UnauthorizedError", "RateLimitError", "InternalError",
-    "EmailAlreadyExists", "InvalidCredentials", "TokenExpired", "TokenRevoked",
+    "EmailAlreadyExists", "InvalidCredentials", "IncorrectCurrentPassword",
+    "TokenExpired", "TokenRevoked",
     "InvalidToken", "OAuthNotConfigured", "OAuthFailed", "CSRFValidationFailed",
     "UserNotFound", "InvalidResetToken", "InvalidVerifyToken",
     "URLNotFound", "AliasReserved", "AliasConflict", "URLDisabled", "URLExpired",

@@ -150,6 +150,20 @@ class URLRepository(BaseRepository[URL]):
         result = await self.db.execute(select(URL.id).where(URL.short_code == short_code))
         return result.scalar_one_or_none()
 
+    async def get_url_ids_by_short_codes(self, short_codes: list[str]) -> dict[str, int]:
+        """Resolve many short codes in one query.
+
+        The rollup worker used to call get_url_id_by_short_code() in a loop —
+        one SELECT per distinct short code in the window, immediately after a
+        Mongo aggregation that had already grouped them for us.
+        """
+        if not short_codes:
+            return {}
+        result = await self.db.execute(
+            select(URL.short_code, URL.id).where(URL.short_code.in_(short_codes))
+        )
+        return {code: url_id for code, url_id in result.all()}
+
     async def next_short_code(self) -> str:
         result = await self.db.execute(text("SELECT nextval('url_short_code_seq')"))
         seq_value = result.scalar()

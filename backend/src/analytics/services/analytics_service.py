@@ -23,16 +23,48 @@ class AnalyticsService:
             raise ForbiddenError("You do not have access to this URL's analytics")
         return url
 
-    async def get_summary(self, short_code: str, user_id: int):
-        url = await self._get_url_and_verify(short_code, user_id)
-        summary = await self.analytics_repo.get_by_url_id(url.id)
-        if not summary:
-            return {"short_code": short_code, "total_clicks": 0, "unique_clicks": 0, "last_clicked_at": None}
+    async def get_summary(self, short_code: str, user_id: int, days: int = 7):
+        """Totals for the same period the rest of the page is scoped to.
+
+        This used to read `url_analytics_summary`, which holds all-time
+        cumulative counters, and it took no `days` at all — the route never
+        declared the parameter, so FastAPI discarded the `?days=` the frontend
+        was already sending. The result was a page where the chart and every
+        breakdown followed the period selector but the two stat cards did not:
+        pick "24 hours" and the line chart shrank while "Total Clicks" stayed
+        exactly where it was.
+
+        Counted from ClickEvent for the same reason every other endpoint here
+        is: that is where the per-event data lives. `url_analytics_summary` only
+        keeps a 60s-rollup total (and a per-window sum of unique counts, which
+        is an upper bound rather than a true distinct count), so it cannot answer
+        a period-scoped question. One $facet keeps total, unique and last-click
+        in a single round trip.
+        """
+        await self._get_url_and_verify(short_code, user_id)
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+        pipeline = [
+            {"$match": {"short_code": short_code, "clicked_at": {"$gte": since}}},
+            {
+                "$facet": {
+                    "total": [{"$count": "clicks"}],
+                    "unique": [{"$group": {"_id": "$ip_address"}}],
+                    "last": [{"$sort": {"clicked_at": -1}}, {"$limit": 1}],
+                }
+            },
+        ]
+        (result,) = await ClickEvent.aggregate(pipeline).to_list()
+
+        total = result["total"][0]["clicks"] if result["total"] else 0
+        last = result["last"][0]["clicked_at"] if result["last"] else None
         return {
             "short_code": short_code,
-            "total_clicks": summary.total_clicks,
-            "unique_clicks": summary.unique_clicks,
-            "last_clicked_at": summary.last_clicked_at,
+            "days": days,
+            "total_clicks": total,
+            # A true distinct count within the window, not the sum of per-window
+            # counts the rollup keeps.
+            "unique_clicks": len(result["unique"]),
+            "last_clicked_at": last,
         }
 
     async def get_timeseries(self, short_code: str, user_id: int, days: int = 7):
