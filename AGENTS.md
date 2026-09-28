@@ -1,5 +1,310 @@
 # Critical Fixes
 
+## Audit Batch 2 — Revocation That Un-Fired, Silent PKCE Loss, Cross-Tenant Cancel
+
+Three background audits, every finding verified against source before fixing. The
+recurring theme is **a control that degrades to absent rather than failing**, so
+nothing logs and nothing breaks visibly.
+
+### Auth — a logged-out token became valid again after 60 seconds
+
+**File:** `backend/src/shared/core/deps.py`
+
+`get_current_user` cached the JWT blacklist in a module-level dict to avoid an
+Upstash round trip per request. The logic was:
+
+```python
+if cached is not None and cached > now: raise TokenRevoked()
+if cached is None:  <consult Redis>       # <-- the bug
+```
+
+The second arm is guarded on `cached is None`, but an entry that has **aged out**
+of the dict is a float in the past — *not* `None`. So: logout blacklists the
+token in Redis and caches it for 60s → requests for 60s are correctly refused →
+request 61 finds a stale float, **neither arm fires**, and the token is decoded
+and accepted. A revoked token was replayable for the rest of its life.
+
+An aged-out entry is now treated as the cache miss it is, which is what the
+comment above the cache has always claimed. This also removes an unbounded leak:
+the dict was written once per revoked token and never pruned.
+
+**Note:** this is the *same class* of mistake as the GitHub OAuth bug above —
+`cached is not None` read as "we have a decision" when it means "we have a
+number". Whenever a cache stores a value with a TTL, the expiry branch must fall
+through to the authoritative source, not past it.
+
+Tests: `tests/test_core/test_blacklist_cache.py` (7). 4 fail on the unfixed code
+with `DID NOT RAISE TokenRevoked`; 3 are baseline guards that must pass either way.
+
+### OAuth — a failed state write silently disabled PKCE for that sign-in
+
+**File:** `backend/src/identity/services/auth_service.py`
+
+`oauth_init` wrote the state and the PKCE verifier as two serial `SETEX` calls. A
+transient Redis error between them left `oauth:state:{state}` stored with **no**
+`oauth:pkce:{state}`. The callback resolves a missing verifier to `None` and
+calls `authenticate(code, code_verifier=None)` — a token exchange with **no PKCE
+at all**, after having advertised a `code_challenge` to the provider.
+
+Nothing surfaces this. The code is single-use and short-lived, so it presents as
+one sign-in that is marginally more forgeable and nothing else. Now written
+together by `_INIT_OAUTH_STATE_LUA` — one round trip, both keys or neither.
+
+**Note:** same shape as the handoff double-redemption in `f8a1740`. A control
+that degrades to absent leaves no log line, so it cannot be found by looking.
+
+### Workspaces — `cancel_invite` had no ownership check
+
+**File:** `backend/src/workspaces/services/workspace_service.py`
+
+`cancel_invite(invite_id, workspace_id)` read the invite and updated it, trusting
+the caller's `workspace_id` without comparing it. Any member who learned an invite
+id could cancel an invite in a workspace they have no role in. `remove_member`
+and `update_member_role` both verified; this one did not.
+
+### Workspaces — `accept_invite` was a read-then-write race
+
+**Files:** `workspace_service.py`, `repositories/workspace_invite_repository.py`
+
+Two concurrent accepts could both pass the `status == "pending"` check and both
+create a membership. `invite_repo.accept()`'s `None` "already accepted" signal was
+discarded by the caller anyway.
+
+Replaced with `claim_pending(invite_id) -> bool` — a single conditional
+`UPDATE ... WHERE id=:id AND status='pending'`, rowcount as the signal. The claim
+runs **first**, then the membership insert, and that one commit persists both, so
+a rollback undoes the claim and the invite stays redeemable. `IntegrityError` now
+becomes `AlreadyMember` (409) instead of a 500. The dead `accept()` is removed.
+
+### Links — uniqueness that was only enforced in Python
+
+**Files:** `favorite_service.py`, `folder_service.py`, `models/folder.py`, migration `d4e5f6a7b8c9`
+
+- Folders had **no** uniqueness constraint at all — every other "unique name"
+  (workspace, tag, API-key) had one. Two same-named folders render side by side
+  and the user cannot tell them apart. New `uq_folder_name_workspace`. The
+  migration dedupes first, **reassigning `urls.folder_id`** to the survivor: the
+  FK is `ON DELETE SET NULL`, so dropping a duplicate would silently orphan its URLs.
+- `favorite_service.add` and `folder_service.create` let a unique-violation
+  `IntegrityError` escape as a 500 → now `ConflictError` (409).
+
+### Analytics — totals were all-time, the chart beside them was period-scoped
+
+**Files:** `analytics_service.py`, `routes/analytics.py`
+
+`GET /analytics/summary` accepted a `days` parameter **the route never declared**.
+FastAPI discards query params a path operation does not declare, so the value was
+silently dropped: headline numbers were lifetime totals while the daily chart next
+to them honoured the selected range. "Last 7 days: 1,204" above bars summing to 90.
+
+`days` is now declared and applied via a single Mongo `$facet`, so totals and
+series still cost one round trip.
+
+### Analytics — the rollup watermark moved from Redis to Postgres
+
+**Files:** `aggregation_worker.py`, `analytics_repository.py`, `models/analytics.py`, migration `e5f6a7b8c9d0`
+
+`upsert_rollup` committed internally, then the worker persisted the watermark to
+Redis as a **separate write**. A crash between them re-aggregated an
+already-counted window; the reverse ordering would have dropped one. The
+watermark is now a row in `aggregation_watermarks`, written in the same
+transaction as the rollup. Redis is kept as a non-load-bearing cache, and the
+migration seeds from it so a deploy does not re-aggregate history.
+
+Also removes an N+1: the rollup loop resolved each URL by short code
+individually. `get_url_ids_by_short_codes()` resolves the batch.
+
+### Auth — a rejected refresh left a dead cookie in the browser for 7 days
+
+**File:** `backend/src/identity/routes/auth.py`
+
+`POST /auth/refresh` raised on failure. **Raising discards the injected
+`Response` and its headers**, so the `delete_cookie` calls never reached the
+client. The cookie is httpOnly — JS can neither read nor delete it — so it was
+replayed on every subsequent request, and each replay consumed the per-IP
+`refresh` rate-limit budget, letting one stuck client throttle that user's own
+next sign-in.
+
+The rejection is now a hand-built `JSONResponse` carrying the delete headers.
+`_clear_auth_cookies` is shared with `logout` rather than duplicated.
+
+**Note:** this is the second time in this file that "raise instead of return"
+silently dropped response headers. If a handler must set a cookie *on the failure
+path*, it must return a `Response`, never raise.
+
+### Auth — wrong `current_password` answered 401 on an authenticated endpoint
+
+**Files:** `identity/services/profile_service.py`, `shared/errors/auth.py`
+
+`change_password` / `change_email` raised `InvalidCredentials` (401) while the
+caller was *already authenticated*. The frontend reads 401 as "re-authenticate",
+so it refreshed, re-sent the same wrong password, and reported **"Session
+expired"** instead of naming the field — plus two audit rows for one user action.
+
+New `IncorrectCurrentPassword(BadRequestError)` → 400. `InvalidCredentials` stays
+401 because login genuinely has no session yet. This restores "401 means
+re-authenticate" for every client.
+
+### Webhooks — two circuit-breaker bugs
+
+**File:** `backend/src/webhooks/services/webhook_service.py`
+
+- `asyncio.create_task(deliver(...))` with no reference kept. The loop holds only
+  a **weak** reference, so a delivery task was eligible for collection between
+  scheduling and completion — a silently dropped webhook event. `_track()` now
+  retains the task and logs its exception.
+- The failure counter was only reset by a *successful* delivery, so a webhook
+  that went down and stayed down counted forever and the breaker never closed —
+  the endpoint had to be deleted and recreated. Now `(count, last_at)` with a
+  300s window, and `_forget_webhook()` on delete.
+
+### Infra — two module-level caches that could only grow
+
+`shared/core/user_plan.py` (plan cache, no eviction → `_MAX_PLAN_CACHE_ENTRIES`
++ `_prune()`) and `deps.py` (the blacklist cache above). Same mistake both times:
+a dict written on a miss and never revisited.
+
+## Performance Batch 2 — OAuth Sign-In Instrumentation
+
+### The 2s sign-in was a guess; now it is measurable
+
+**File:** `backend/src/identity/services/auth_service.py`
+
+The reported ~2s Google sign-in had **four** equally-valid explanations — two
+HTTPS calls to the provider, a cold Neon connection (free tier suspends compute
+after ~5 min idle), a Render cold start, or two Upstash round trips. Request-level
+timing already existed (`tracing.py` logs `duration_ms` for every request) but a
+single total cannot attribute cost, so nothing in the logs distinguished them.
+
+`oauth_callback` now laps each phase and logs the breakdown unconditionally, on
+success and failure:
+
+```
+oauth_callback timings provider=google total=1832ms redis_state_pkce=180ms
+  provider_exchange=410ms db_lookup_by_sub=12ms db_audit_log=8ms
+  mint_tokens=1ms redis_store_session=174ms
+```
+
+**Argon2 is timed separately from the INSERT.** A new OAuth user pays 100-300ms
+for a hash that exists only so the account can also have a password. It runs in a
+thread so it cannot block the loop, but it is still wall-clock, and it only
+happens on a user's *first* sign-in — exactly when someone is timing how fast
+sign-in feels. Folded into a `db_create` phase it would read as a slow database.
+
+**Note:** the phases are **not** independent costs. A single large `db_*` phase
+while the others are small is the signature of a cold connection, which is a
+different fix from a slow provider. Do not sum the phases and treat the total as
+attributable latency.
+
+**No claim is made that the 2s is fixed.** Two Upstash round trips were removed
+(one per OAuth leg, each of which was also a correctness fix) — a real but
+unmeasured reduction. The dominant term is not yet identified; that needs one
+production log line.
+
+### FakeRedis must model every script, and dispatch on the script body
+
+**File:** `backend/tests/test_core/test_auth_reuse_pkce.py`
+
+`FakeRedis.eval` now models three scripts instead of two, matched on **script
+text** rather than `numkeys` — the init and consume scripts are called with the
+same `numkeys` and the same two keys, so only their bodies differ.
+
+A real EVAL runs Lua; a double cannot. Returning one canned value for every
+script hides shape changes: these scripts return different types (an int status,
+a `[state, verifier]` pair, an int `1`) and take different argument shapes. A call
+site that unpacked the wrong one, or passed keys where it should pass values,
+passes against the double and fails in production. **When a fake cannot execute
+the real thing, model it — do not return a canned value.**
+
+## Frontend Batch 2 — False Empty States, Silently Truncated Lists
+
+### An outage rendered as "no data" on seven pages
+
+**Files:** `folders`, `tags`, `webhooks`, `webhooks/receiver`, `audit-logs`, `favorites`, `urls` pages
+
+Every list page called `useQuery({ enabled: isReady })`. While a query is
+**disabled**, v5 reports `isPending === true` but `isFetching === false` — so
+`isLoading` (defined as `isPending && isFetching`) is **false**, and `isError` is
+false because nothing has been fetched to fail. All three branches missed and the
+page fell through to the empty state.
+
+When the *gating* query failed, users saw **"No folders yet"** — a confident,
+specific, wrong statement inviting them to create a duplicate. Fix per page:
+`isPending` instead of `isLoading`, plus an explicit `wsError` branch, because a
+failed gating query means the list query never runs and *its* `isError` is also
+false. The error belongs to the query that actually failed.
+
+**Note:** in v5, `isLoading` is not "has not loaded" — it is "pending *and*
+fetching". For any `enabled: false` query it is permanently false. Prefer
+`isPending`.
+
+### Bulk operations always reported "0 URLs", and expiries died up to 5.5h early
+
+**File:** `frontend/src/app/(authenticated)/bulk/page.tsx`
+
+Each endpoint returns a **different** result key, but the page read
+`result.updated`/`deleted`/`disabled` for all of them — disable and reactivate
+always rendered "0".
+
+Worse: the CSV `expires_at` column is **local wall-clock** and was labelled UTC
+via `toISOString().slice(0, 16)`. Every bulk-created link with an expiry died up
+to 5.5 hours early depending on the creator's timezone. Now `new Date(...).toISOString()`.
+
+### 401 handling on endpoints where 401 is not a session problem
+
+**File:** `frontend/src/lib/api.ts`
+
+`apiFetch` treated every 401 as "expired" → refresh → retry → `/login`. Three
+endpoints return 401 for unrelated reasons, each triggering a pointless refresh
+and then a logout: `/auth/oauth/exchange` (invalid one-time code — single-use by
+construction) and `/profile/*` (wrong current password). `NON_SESSION_401` lists
+them, and the retry path now surfaces the server's real error via
+`errorFromResponse()` instead of always saying "Session expired" — which is
+exactly what made this class of bug invisible from the UI.
+
+### `clearTokens()` could not clear anything
+
+It called `localStorage.removeItem` for tokens that are httpOnly **cookies**. JS
+can neither read nor delete an httpOnly cookie, so the function was a no-op that
+looked like a fix. It is now empty with the reason inline — leaving a
+plausible-looking dead function is what caused the original confusion. **Cookie
+clearing must happen server-side.** (Do **not** "restore" this function.)
+
+### List endpoints were silently truncated at 20
+
+`urls.list()`, `auditApi.list()`, `webhookReceiverApi.list()` defaulted to the
+server's default page size when called without an explicit `limit`. Favorites
+resolved up to 100 ids and then fetched with no limit — so a user with 50
+favorites saw 20, with no indication that 20 was not all of them.
+
+Rather than patch three call sites (and hope a fourth is remembered),
+`MAX_LIST_LIMIT = 100` is now the default **at the API choke point**, matching the
+server ceiling. An explicit `limit` still wins.
+
+### Assorted correctness
+
+- `urls/page.tsx` header showed `items.length` — the size of the current **page** —
+  as the workspace total. A 500-URL workspace read "5 URLs". Now `total`.
+- `billing/page.tsx` invalidated `["authMe"]`, but the canonical shared key is
+  `["me"]` (shared with `AuthPrefetcher` and `useMe`) — the invalidation hit
+  nothing, so the plan badge stayed stale until a hard reload.
+- The urls edit mutation did not invalidate `["urls"]`, so the list kept showing
+  the pre-edit short code.
+- `admin/page.tsx` could compute page 0 of a list it had just deleted the last
+  item from; `setTotalUsers` was missing from two handlers that change the count.
+- `sidebar.handleLogout` navigated to `/login` unconditionally; on a network error
+  the session was still live, so the proxy bounced straight back to `/dashboard`.
+  Now toasts and goes to `/login?expired=1`, which the proxy honours.
+- `useUrls` had no `placeholderData`, so every filter keystroke blanked the table
+  with "No URLs found". `placeholderData: (prev) => prev` holds the rows.
+
+**Note:** `favorites-page.test.tsx` called `getByText("No favorites yet")`
+synchronously. Under the old code the empty state is what a page shows whenever
+its query has not resolved — *including mid-flight* — so the assertion passed
+**because of** the bug it was meant to guard against. It now awaits, and a new
+test pins the real invariant: the empty state must be **absent** while the query
+is in flight.
+
 ## Security Audit Batch — OAuth Takeover, Rate-Limit IP, Admin Bootstrap, Dead Config
 
 A full audit pass. Each entry lists the file(s), what was actually wrong, and why the fix is the fix. New tests pin every one of these.
