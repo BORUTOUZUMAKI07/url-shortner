@@ -1,0 +1,159 @@
+# ============================================================================
+# LinkForge – OpenTelemetry Collector (Layer 2: collection & transport)
+# ============================================================================
+# The local agent between the app (Layer 1) and the sinks (Layer 3).
+#
+#   App (OTel SDK) ──OTLP──▶ otel-collector ──OTLP──▶ New Relic
+#       │                       │
+#       └──/metrics─────────────┤ (scrape → debug, local view only)
+#
+# * Runs in `docker compose up otel-collector` (dev) or as a Render free web
+#   service (production, see backend/render.yaml).
+# * The New Relic ingest key is injected via the NEW_RELIC_LICENSE_KEY env var
+#   (set in compose's environment or the Render blueprint) — it never lives in
+#   a committed file.
+# * Everything is fail-open: if a sink is unreachable the exporter retries
+#   with backoff; the collector keeps serving and never blocks the app.
+#
+# Set NEW_RELIC_LICENSE_KEY (or OTEL_HTTP_AUTH_HTPASSWD) by exporting it in
+# the shell before `docker compose up`, e.g. on PowerShell:
+#   $env:NEW_RELIC_LICENSE_KEY = "xxxxxxxx"
+# ============================================================================
+
+receivers:
+  # The app pushes all three signals here over OTLP/HTTP (port 4318).
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        # SECURITY: on a free-tier Render service this endpoint is PUBLIC (a
+        # random person could POST junk and burn your New Relic free tier).
+        # To lock it down, replace the two lines under `http:` with:
+        #   http:
+        #     endpoint: 0.0.0.0:4318
+        #     auth:
+        #       authenticator: basicauth/server
+        # and uncomment the basicauth extension below, then set the app's
+        # OTEL_EXPORTER_OTLP_HEADERS to
+        #   Authorization: Basic <base64(user:pass)>
+        # (compose's `backend` service can pass it via env, e.g. the
+        # LinkForge default: Authorization: Basic bGlua2ZvcmdlOmxpbmtaZvcmdl).
+
+  # Scrapes the app's /metrics (Prometheus text). This is the /metrics path
+  # exercising the collector as a scraper. Output goes to the `debug` exporter
+  # ONLY — the app already streams the same instruments over OTLP, so scraping
+  # them into New Relic too would double-count every metric.
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: linkforge-app
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets: ["backend:8000"]
+              labels:
+                service.name: linkforge
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 384
+    spike_limit_mib: 128
+
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 10000
+    expected_new_traces_per_sec: 100
+    policies:
+      - name: keep-errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: keep-slow
+        type: latency
+        latency:
+          threshold_ms: 2000
+      - name: sample-rest
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+  resource:
+    attributes:
+      - key: service.namespace
+        value: linkforge
+        action: upsert
+      - key: deployment.environment
+        value: ${env:ENVIRONMENT}
+        action: upsert
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  # Uncomment to protect the public OTLP endpoint. htpasswd string is either
+  # plain "user:pass" or a bcrypt hash from `htpasswd -nbB user pass`.
+  # basicauth/server:
+  #   htpasswd:
+  #     inline: ${env:OTLP_HTTP_AUTH_HTPASSWD:linkforge:linkforge}
+
+exporters:
+  otlphttp/newrelic:
+    endpoint: https://otlp.nr-data.net:4318
+    headers:
+      api-key: ${env:NEW_RELIC_LICENSE_KEY}
+    compression: gzip
+    timeout: 10s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+  # 1-line JSON view of everything flowing through the agent — great for
+  # confirming the pipeline locally with zero vendor involvement.
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 20
+
+  # ─── Grafana Cloud / other Prometheus-compatible SaaS (Layer-3 fan-out) ───
+  # Ready when you are: uncomment and fill the URL/creds, no app changes.
+  # prometheusremotewrite/grafana:
+  #   endpoint: ${env:GRAFANA_MT_REMOTE_WRITE_URL}
+  #   auth:
+  #     authenticator: basicauth/client
+  #   retry_on_failure:
+  #     enabled: true
+
+# extensions:
+#   basicauth/client:
+#     client_auth:
+#       username: ${env:GRAFANA_MT_USERNAME}
+#       password: ${env:GRAFANA_MT_PASSWORD}
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, batch, resource]
+      exporters: [otlphttp/newrelic, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [otlphttp/newrelic, debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [otlphttp/newrelic, debug]
+    # App /metrics scrape → local debug only (see receiver comment).
+    metrics/scrape:
+      receivers: [prometheus]
+      processors: [memory_limiter, batch]
+      exporters: [debug]

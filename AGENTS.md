@@ -928,12 +928,30 @@ url-clicked, url-created, dlq-url-clicked, dlq-url-created
 ```
 
 ## New Relic (free tier: 100GB/month, no expiration)
-Get an ingest license key from https://one.newrelic.com/launcher/api-keys-ui.api-keys-ui
-Update these in `.env`:
+
+The app observes in **three layers** (see `docker/otel-collector-config.yaml`):
+
+1. **In-process (Layer 1)** — the OTel SDK records metrics/traces/logs and serves
+   a local Prometheus `/metrics` endpoint (same instruments, text format, works
+   even when nothing else is reachable). With `OTLP_ENABLED=true` (default) it
+   pushes OTLP to the Layer-2 collector. Trace volume is controlled in-app via
+   `OTEL_TRACES_SAMPLE_RATIO` (default `1.0` = send everything).
+2. **Collector agent (Layer 2)** — `docker compose up otel-collector` locally,
+   or the Render service in `backend/render.yaml` in production. It holds the
+   New Relic ingest key, tail-samples traces (keeps all errors, ~10% of the
+   rest), batches, and fans out. Get an ingest key from
+   https://one.newrelic.com/launcher/api-keys-ui.api-keys-ui and set
+   `NEW_RELIC_LICENSE_KEY` (never committed).
+3. **New Relic (Layer 3)** — the canonical sink. The agent is what talks to it,
+   so the app env has no NR credentials.
+
+Straight-to-NR fallback (no collector) is still supported:
 ```
 OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.nr-data.net:4318
 OTEL_EXPORTER_OTLP_HEADERS=api-key=<your-ingest-license-key>
 ```
+Prefer the collector: it keeps errors, dedupes, and lets you point at a second
+vendor (Grafana etc.) without touching the app.
 
 ## No code changes needed
 The app reads all credentials from env vars at runtime — including the Kafka bootstrap hostname used by `_sni_patch.py`. Just update `.env` and restart.

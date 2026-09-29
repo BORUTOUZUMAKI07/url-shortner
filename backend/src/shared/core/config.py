@@ -211,11 +211,21 @@ class Settings(BaseSettings):
     GITHUB_OAUTH_CLIENT_SECRET: Optional[str] = None
     GITHUB_OAUTH_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/oauth/github/callback"
 
-    # --- Observability (OpenTelemetry OTLP) ---
+    # --- Observability (3 layers: in-process → collector → New Relic) ---
     ENVIRONMENT: str = "production"
+    # Layer-1 switch. When ON the app records metrics/traces/logs via the OTel
+    # SDK and pushes OTLP at OTEL_EXPORTER_OTLP_ENDPOINT — normally the local
+    # Layer-2 collector (http://localhost:4318 / otel-collector:4318), or New
+    # Relic's own OTLP endpoint (https://otlp.nr-data.net:4318 + api-key
+    # header) when running without the collector. Exporters are fail-open: the
+    # app never blocks or crashes on telemetry.
     OTLP_ENABLED: bool = True
     OTEL_EXPORTER_OTLP_ENDPOINT: Optional[str] = None
     OTEL_EXPORTER_OTLP_HEADERS: Optional[str] = None
+    # Fraction of spans the app emits. 1.0 = send everything and let the
+    # Layer-2 collector tail-sample (keeps 100% of errors, trims the rest).
+    # Lower this only when pushing straight to a vendor with no collector.
+    OTEL_TRACES_SAMPLE_RATIO: float = 1.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -24,7 +24,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 import src.shared.events.kafka as kafka_module
 from src.admin.routes import admin
@@ -39,6 +39,7 @@ from src.shared.core.database import check_db_health, engine, init_db
 from src.shared.core.mongodb import init_mongodb
 from src.shared.core.redis import init_redis, redis_client
 from src.shared.core.tracing import (
+    get_app_metrics_text,
     init_metrics,
     init_tracing,
     instrument_fastapi,
@@ -57,6 +58,19 @@ from src.webhooks.workers.metadata_worker import consume_url_created
 from src.webhooks.workers.webhook_click_consumer import consume_url_clicked_webhooks
 from src.webhooks.workers.webhook_retry_worker import start_worker as start_webhook_retry_worker
 from src.workspaces.routes import workspaces
+
+
+def metrics_endpoint() -> PlainTextResponse:
+    """Prometheus-compatible /metrics scrape endpoint (Layer-1 local truth).
+
+    Serves the same instruments that are OTLP-exported to the Layer-2
+    collector, in Prometheus text format — a vendor-independent copy that
+    stays scrapeable even when the collector / New Relic are unreachable.
+    """
+    return PlainTextResponse(
+        content=get_app_metrics_text(),
+        media_type="text/plain; version=0.0.4",
+    )
 
 
 def create_app(lifespan_override=None):
@@ -126,6 +140,15 @@ def create_app(lifespan_override=None):
         except Exception:
             pass
         return JSONResponse({"status": "ok"})
+
+    # Prometheus scrape endpoint — local, vendor-independent metrics (keeps
+    # working when the Layer-2 collector / New Relic are unreachable).
+    app.add_api_route(
+        "/metrics",
+        metrics_endpoint,
+        methods=["GET"],
+        include_in_schema=False,
+    )
 
     # Include routers (bulk must be before urls to avoid /urls/{id}/qr catching /urls/bulk/qr)
     app.include_router(auth.router, prefix="/api/v1")

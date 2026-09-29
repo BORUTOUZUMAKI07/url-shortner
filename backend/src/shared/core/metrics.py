@@ -133,7 +133,7 @@ class URLShortenerMetrics:
             name="pending_events_queue_depth",
             description="Number of pending events in queue",
             unit="1",
-            callbacks=[lambda options: []],  # Callback will be updated
+            callbacks=[lambda options: []],  # Accepts the SDK callback-options arg; returns no measurements yet
         )
 
 

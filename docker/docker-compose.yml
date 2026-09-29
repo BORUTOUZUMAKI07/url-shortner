@@ -99,6 +99,33 @@ services:
     depends_on:
       - kafka
 
+  # ── Observability (Layer 2: collection & transport) ──────
+  # In-process OTel SDK (Layer 1) pushes metrics/traces/logs here over OTLP;
+  # the agent tail-samples, batches, and forwards to New Relic (Layer 3) via
+  # OTEL_EXPORTER_OTLP_ENDPOINT_HEADERS — the NR ingest key lives on the
+  # agent, not the app. It also scrapes the app's /metrics to exercise the
+  # scrape path (output is local/debug only — see otel-collector-config.yaml).
+  #
+  # Set the ingest key before starting (PowerShell):
+  #   $env:NEW_RELIC_LICENSE_KEY = "xxxx"
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.121.0
+    container_name: linkforge_otel_collector
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    environment:
+      # not-set keeps the config loadable without a key; NR export fails open.
+      - NEW_RELIC_LICENSE_KEY=${NEW_RELIC_LICENSE_KEY:-not-set}
+      - ENVIRONMENT=development
+    ports:
+      - "4317:4317"   # OTLP/gRPC (optional)
+      - "4318:4318"   # OTLP/HTTP — what the app pushes to
+      - "8888:8888"   # collector self-metrics
+      - "13133:13133" # /healthz
+    depends_on:
+      - backend
+
   # ── Application ──────────────────────────────────────────
   backend:
     build:
@@ -115,6 +142,12 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - FRONTEND_URL=http://localhost:3001
       - ENVIRONMENT=development
+      # Layer-1 → Layer-2: push all three signals to the local collector.
+      # The collector owns the New Relic API key (adds it as api-key header).
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_HEADERS=
+      # 1.0 = send every span; the collector tail-samples (keeps all errors).
+      - OTEL_TRACES_SAMPLE_RATIO=1.0
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,6 +156,8 @@ services:
       mongodb:
         condition: service_started
       kafka:
+        condition: service_started
+      otel-collector:
         condition: service_started
 
   frontend:

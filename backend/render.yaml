@@ -77,3 +77,28 @@ services:
         sync: false
       - key: REQUIRE_EMAIL_VERIFICATION
         value: "false"
+
+  # ── Layer-2: OpenTelemetry Collector (collection & transport) ──────────────
+  # Public HTTPS :443 is proxied to $PORT (4318) — the OTLP/HTTP receiver the
+  # backend pushes all three signals to. The agent tail-samples traces, batches,
+  # and forwards to New Relic (Layer-3 sink) using NEW_RELIC_LICENSE_KEY. Free
+  # plan: the instance sleeps after ~15 min of inactivity and cold-starts on the
+  # next OTLP push (fail-open — the backend never blocks on telemetry, so a few
+  # spans at wake-up are dropped by design). No Render health check: the agent's
+  # /healthz lives on:13133, which Render can't reach through the single public
+  # port. Enable basicauth on the receiver (see docker/otel-collector-config.yaml)
+  # before pointing real traffic at the public URL.
+  - type: web
+    name: linkforge-otel-collector
+    runtime: docker
+    region: oregon
+    plan: free
+    rootDir: docker
+    dockerfilePath: otel-collector.Dockerfile
+    envVars:
+      - key: NEW_RELIC_LICENSE_KEY
+        sync: false
+      - key: ENVIRONMENT
+        value: production
+      - key: PORT
+        value: "4318"

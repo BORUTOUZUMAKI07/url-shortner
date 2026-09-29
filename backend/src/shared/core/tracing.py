@@ -8,13 +8,15 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader, PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
 from src.shared import get_logger
 from src.shared.core.config import settings
+from src.shared.core.metrics_text import render_prometheus_exposition
 
 logger = get_logger(__name__)
 
@@ -68,10 +70,15 @@ def init_tracing():
             headers=_get_otlp_headers(),
             timeout=10,
         )
-        tracer_provider = TracerProvider(resource=resource)
+        # Sampling: the app sends a configured fraction (1.0 = everything) and
+        # the Layer-2 collector tail-samples — keeping 100% of errors while
+        # trimming the rest. Lower OTEL_TRACES_SAMPLE_RATIO only when pushing
+        # straight to a vendor with no collector in between.
+        sampler = ParentBased(TraceIdRatioBased(settings.OTEL_TRACES_SAMPLE_RATIO))
+        tracer_provider = TracerProvider(resource=resource, sampler=sampler)
         tracer_provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
         trace.set_tracer_provider(tracer_provider)
-        logger.info("OTLP tracing initialized")
+        logger.info("OTLP tracing initialized (sampling ratio=%s)", settings.OTEL_TRACES_SAMPLE_RATIO)
         _otlp_tracing_initialized = True
     except Exception as e:
         logger.warning("Failed to initialize OTLP tracing: %s", e)
@@ -80,10 +87,11 @@ def init_tracing():
 
 
 _otlp_metrics_initialized = False
+_metrics_reader: "InMemoryMetricReader | None" = None
 
 
 def init_metrics():
-    global _otlp_metrics_initialized
+    global _otlp_metrics_initialized, _metrics_reader
     if _otlp_metrics_initialized:
         return
     if not settings.OTLP_ENABLED:
@@ -98,14 +106,18 @@ def init_metrics():
             headers=_get_otlp_headers(),
             timeout=10,
         )
-        reader = PeriodicExportingMetricReader(otlp_exporter, export_interval_millis=60000)
+        otlp_reader = PeriodicExportingMetricReader(otlp_exporter, export_interval_millis=60000)
+        # Second reader on the SAME instruments: renders every metric as
+        # Prometheus text at /metrics — a local, vendor-independent copy that
+        # keeps working even when the collector / New Relic are unreachable.
+        _metrics_reader = InMemoryMetricReader()
         resource = Resource.create({
             "service.name": settings.PROJECT_NAME,
             "environment": settings.ENVIRONMENT,
         })
-        meter_provider = MeterProvider(metric_readers=[reader], resource=resource)
+        meter_provider = MeterProvider(metric_readers=[otlp_reader, _metrics_reader], resource=resource)
         metrics.set_meter_provider(meter_provider)
-        logger.info("OTLP metrics initialized")
+        logger.info("OTLP metrics initialized (OTLP + /metrics readers)")
         _otlp_metrics_initialized = True
     except Exception as e:
         logger.warning("Failed to initialize OTLP metrics: %s", e)
@@ -113,9 +125,24 @@ def init_metrics():
         _otlp_metrics_initialized = True
 
 
+def get_app_metrics_text() -> str:
+    """Return the app's metrics in Prometheus text exposition format.
+
+    When no metric reader has been initialized yet (OTLP disabled, or
+    init_metrics not run) the /metrics endpoint still returns a valid empty
+    scrape rather than erroring, so scrapers keep working unconditionally.
+    """
+    if _metrics_reader is None:
+        return "# no metric reader initialized\n"
+    data = _metrics_reader.get_metrics_data()
+    if data is None:
+        return "# no metric data collected yet\n"
+    return render_prometheus_exposition(data)
+
+
 def instrument_fastapi(app):
     try:
-        FastAPIInstrumentor.instrument_app(app, excluded_urls="/health")
+        FastAPIInstrumentor.instrument_app(app, excluded_urls="/health,/api/v1/ping,/metrics")
         app.middleware_stack = None
         logger.info("FastAPI instrumented")
     except Exception as e:

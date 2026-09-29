@@ -17,7 +17,7 @@ Enterprise URL shortener with multi-tenant workspaces, click analytics, QR codes
 | **Databases** | PostgreSQL (Neon), MongoDB, Redis (Upstash / plain) |
 | **Event Bus** | Apache Kafka + Schema Registry (Aiven, Avro) |
 | **Auth** | JWT (access/refresh tokens), OAuth 2.0 (Google, GitHub), Argon2 hashing |
-| **Observability** | OpenTelemetry → New Relic (traces + metrics) |
+| **Observability** | OpenTelemetry 3-layer: in-process OTel SDK → collector agent → New Relic (metrics + traces + logs); local `/metrics` |
 | **CI/CD** | GitHub Actions, GHCR image publishing |
 | **Deployment** | Render (backend), Vercel (frontend) |
 
@@ -213,7 +213,7 @@ Copy `backend/.env.example` to `backend/.env` and fill in your values. Key varia
 | `SECRET_KEY` | JWT signing key (`openssl rand -hex 32`) |
 | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | Google OAuth |
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | GitHub OAuth |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | New Relic ingest |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | Layer-2 collector endpoint (OTLP; `http://localhost:4318` locally); headers only when pushing direct to a vendor |
 | `FRONTEND_URL` / `BACKEND_URL` | Public URLs for redirects / CORS |
 
 ---
