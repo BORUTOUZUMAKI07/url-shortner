@@ -60,13 +60,13 @@ export default function BulkPage() {
     enabled: !!wsId,
   })
 
-  const { data: tags = [], isError: tagsError } = useQuery({
+  const { data: tags = [], isError: tagsError, isPending: tagsPending } = useQuery({
     queryKey: ["tags", wsId],
     queryFn: () => tagsApi.list(wsId!),
     enabled: !!wsId,
   })
 
-  const { data: urlsResponse, isError: urlsError, refetch: refetchUrls } = useQuery({
+  const { data: urlsResponse, isError: urlsError, isPending: urlsPending, refetch: refetchUrls } = useQuery({
     queryKey: ["urls", wsId],
     queryFn: () => urls.list(wsId!),
     enabled: !!wsId,
@@ -252,7 +252,7 @@ export default function BulkPage() {
                         {t.name}
                       </button>
                     ))}
-                    {tagsError ? <p className="text-xs text-red-600">Failed to load tags.</p> : tags.length === 0 && <p className="text-xs text-muted-foreground">No tags in this workspace</p>}
+                    {tagsError ? <p className="text-xs text-red-600">Failed to load tags.</p> : tagsPending ? null : tags.length === 0 && <p className="text-xs text-muted-foreground">No tags in this workspace</p>}
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -319,6 +319,10 @@ export default function BulkPage() {
               <p className="text-lg font-medium">Failed to load URLs</p>
               <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your URLs.</p>
               <Button variant="outline" className="mt-4" onClick={() => refetchUrls()}>Try again</Button>
+            </div>
+          ) : urlsPending ? (
+            <div className="flex h-32 items-center justify-center">
+              <div className="size-5 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
             </div>
           ) : allUrls.length === 0 ? (
             <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">

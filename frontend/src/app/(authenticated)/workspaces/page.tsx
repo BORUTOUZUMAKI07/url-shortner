@@ -68,7 +68,12 @@ function WorkspacesPageInner() {
     }
   }, [searchParams, router])
 
-  const { data: workspaces = [], isError: workspacesError, refetch: refetchWorkspaces } = useQuery({
+  // isPending (not isLoading) is the "no data yet" signal here: `enabled:
+  // !authLoading` makes this query disabled while the user is still loading,
+  // and a disabled query reports isLoading=false (v5: isPending && isFetching).
+  // Without isPending, the list below rendered "No workspaces yet" on every
+  // cold load — the same false empty state the list pages guard against.
+  const { data: workspaces = [], isPending: workspacesPending, isError: workspacesError, refetch: refetchWorkspaces } = useQuery({
     queryKey: ["workspaces"],
     queryFn: workspacesApi.list,
     enabled: !authLoading
@@ -210,7 +215,7 @@ function WorkspacesPageInner() {
             <p className="mt-1 text-sm text-muted-foreground">Something went wrong while fetching your workspaces.</p>
             <Button variant="outline" className="mt-4" onClick={() => refetchWorkspaces()}>Try again</Button>
           </div>
-        ) : workspaces.length === 0 ? (
+        ) : workspacesPending ? null : workspaces.length === 0 ? (
           <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
             <Building2 className="mx-auto mb-3 size-10 text-muted-foreground" />
             <p className="text-lg font-medium">No workspaces yet</p>

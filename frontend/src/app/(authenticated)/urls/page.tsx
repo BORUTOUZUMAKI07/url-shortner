@@ -26,7 +26,7 @@ export default function URLsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [folderFilter, setFolderFilter] = useState("")
   const [tagFilter, setTagFilter] = useState("")
-  const { data: urlsData, error: urlsError } = useUrls(wsId, {
+  const { data: urlsData, error: urlsError, isPending: urlsPending } = useUrls(wsId, {
     search: debouncedSearch || undefined,
     folder_id: folderFilter ? Number(folderFilter) : undefined,
     tag: tagFilter || undefined,
@@ -142,7 +142,12 @@ export default function URLsPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {items.length === 0 ? (
+          {urlsPending && items.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="size-5 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
+              <p className="mt-3 text-sm text-stone-500">Loading URLs...</p>
+            </div>
+          ) : items.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <div className="mb-4 rounded-full bg-stone-200/50 p-4">
                 <Link2 className="size-8 text-stone-500" />

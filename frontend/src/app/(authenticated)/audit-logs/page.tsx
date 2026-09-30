@@ -23,7 +23,11 @@ export default function AuditLogsPage() {
   // isLoading nor isError, so control fell through to `logs.length === 0` and
   // rendered "No audit logs yet. Actions in your workspace will appear here."
   // An outage was displayed as an empty workspace, indistinguishable from truth.
-  const { data: workspaces, isLoading: isLoadingWs, isError: wsError, refetch: refetchWs } = useQuery({
+  // The loading signal must be `isPending` (not `isLoading`): in v5 isLoading is
+  // `isPending && isFetching`, which is false for a query disabled by
+  // `enabled: !authLoading` — the state this page sits in while the user loads.
+  // With isLoading the same fall-through happened on every cold load.
+  const { data: workspaces, isPending: wsPending, isError: wsError, refetch: refetchWs } = useQuery({
     queryKey: ["workspaces"],
     queryFn: workspacesApi.list,
     enabled: !authLoading
@@ -59,7 +63,7 @@ export default function AuditLogsPage() {
         </div>
       </div>
 
-      {isLoadingWs || isLoadingLogs ? (
+      {wsPending || isLoadingLogs ? (
         <div className="flex h-32 items-center justify-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>

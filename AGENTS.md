@@ -1,5 +1,43 @@
 # Critical Fixes
 
+## Frontend Audit 2026-09-30 — `isLoading` on Gated Queries Still Rendered False Empty States
+
+A pass over every list page. The **same bug class as Frontend Batch 2** had survived in two files that batch never touched, and regressed in a third that claimed to fix it.
+
+### Files
+
+- `frontend/src/app/(authenticated)/audit-logs/page.tsx`
+- `frontend/src/app/(authenticated)/workspaces/page.tsx`
+- `frontend/src/app/(authenticated)/bulk/page.tsx`
+- `frontend/src/app/(authenticated)/urls/page.tsx`
+- `frontend/src/test/workspaces-page.test.tsx`
+
+### The gating pattern, restated
+
+A page needs `wsId` to fetch its data, so it fetches workspaces with `enabled: !authLoading` (auth = the layout's `useMe()`). While `authLoading` is true that query is **disabled** — and in TanStack Query v5 a disabled query reports `isPending === true`, `isFetching === false`, so `isLoading` (defined as `isPending && isFetching`) is `false`. Any empty-state branch keyed off anything but `isPending` on the gated query therefore fires while the page is still loading.
+
+### What was wrong
+
+- **audit-logs** destructured the gated workspaces query as `isLoading: isLoadingWs`. Its own comment (lines 21-25) describes the Batch-2 false-empty-state fall-through and claims the fix — but the loading signal used was the one that can never be true while the query is disabled, so the *same* fall-through to `logs.length === 0` → "No audit logs yet" happened on every cold load. Folders/tags/webhooks/favorites already used `isPending ? null`; this page did not.
+- **workspaces** (`/workspaces`) was **not** in the Batch-2 seven-page batch and never got a pending guard at all: `workspacesError ? … : workspaces.length === 0 ? "No workspaces yet"`. With `workspaces = []` while the gated query was disabled (and again during its first fetch), every cold load rendered "No workspaces yet" — a confident claim that an empty workspace was real.
+- **bulk** Manage tab: `allUrls.length === 0` → "No URLs to manage" while the URLs query was disabled/in-flight (gated on `!!wsId`, which awaits the same workspaces lookup). Same class for the inline "No tags in this workspace" hint.
+- **urls** (`/urls`): `placeholderData: (prev) => prev` fixed the Batch-2 flash on **filter changes**, but on a **cold mount** there is no previous data, so the first paint still showed "No URLs found". Not gated on auth — just the same "empty state while query is in flight" invariant, violated once per cold load.
+
+### Fixes
+
+Each gated query's loading signal is `isPending`; each empty-state branch sits **after** the pending branch:
+
+- audit-logs: `isPending: wsPending`, spinner on `wsPending || isLoadingLogs` (the logs query is only ever disabled by a missing `wsId`, so its own `isLoading` remains correct).
+- workspaces: `isPending: workspacesPending`, `workspacesPending ? null` before the empty state.
+- bulk: `urlsPending` spinner before "No URLs to manage"; `tagsPending ? null` before "No tags in this workspace".
+- urls: `urlsPending && items.length === 0` → "Loading URLs…" spinner before the empty state. (Not reached on filter changes — placeholder data makes `items.length > 0`.)
+
+### Tests
+
+`workspaces-page.test.tsx`'s old `getByText("No workspaces yet")` was synchronous and passed **because of** the bug — it read the pre-resolution state (see the favorites-page note in Frontend Batch 2 for the identical trap). It now overrides the `/workspaces` handler to `[]` and awaits, and a new test pins the invariant: with a delayed `/workspaces`, the empty state must be **absent** while the query is in flight.
+
+**Note:** the gate pages (folders/tags/webhooks/favorites) and the receiver page were correct already — receiver guards with `!wsId → "Loading workspace…"`, the rest with `isPending ? null`. Do not "simplify" a list page's loading branch to `isLoading`; in v5 it is `isPending && isFetching`, false for every disabled query.
+
 ## Audit Batch 3 — Idempotency, Cache Eviction, Rotation Ordering, Verification Lockout
 
 Four lowered-value audit items plus readiness work for the `REQUIRE_EMAIL_VERIFICATION` flag. The recurring theme this batch: **a control implemented as two dependent steps** (check-then-set, evict-in-a-loop, revoke-then-create, pre-check-then-INSERT) whose failure mode is a silent duplicate, a silent latency tax, a silent lockout, or a 500 where a 409 belongs.
