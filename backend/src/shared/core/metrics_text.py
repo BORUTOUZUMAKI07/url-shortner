@@ -15,6 +15,8 @@ Output conventions:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from opentelemetry.sdk.metrics.export import (
     ExponentialHistogram,
     Gauge,
@@ -43,7 +45,7 @@ def _label_name(key: str) -> str:
     return sanitized
 
 
-def _format_labels(attributes: dict) -> str:
+def _format_labels(attributes: Mapping[str, object] | None) -> str:
     if not attributes:
         return ""
     parts = ",".join(
