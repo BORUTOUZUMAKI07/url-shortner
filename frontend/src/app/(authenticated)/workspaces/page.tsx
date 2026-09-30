@@ -10,8 +10,8 @@ import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { auth, getErrorMessage, workspacesApi } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { getErrorMessage, workspacesApi } from "@/lib/api"
+import { useMe } from "@/queries"
 import { Plus, Users, Building2, XCircle, UserPlus, LogIn, Trash2, Pencil } from "lucide-react"
 
 export default function WorkspacesPage() {
@@ -29,7 +29,11 @@ export default function WorkspacesPage() {
 function WorkspacesPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { user, setUser } = useAuthStore()
+  // Shared ["me"] cache — the single source of truth. The old private
+  // ["authMe"] query (and its setUser copy) is gone; the old query also stashed
+  // the URL invite_token into sessionStorage for the login page's
+  // redirectAfterLogin — that moved into the accept-invite effect below.
+  const { data: user, isPending: authLoading, isError: meError } = useMe()
   const queryClient = useQueryClient()
 
   const [newName, setNewName] = useState("")
@@ -41,26 +45,20 @@ function WorkspacesPageInner() {
   const [renameValue, setRenameValue] = useState("")
   const [deleting, setDeleting] = useState<number | null>(null)
 
-  const { isLoading: authLoading } = useQuery({
-    queryKey: ["authMe"],
-    queryFn: async () => {
-      try {
-        const token = searchParams.get("invite_token")
-        if (token) sessionStorage.setItem("invite_token", token)
-        const user = await auth.me()
-        setUser(user)
-        return user
-      } catch (err) {
-        router.push("/login?expired=1")
-        throw err
-      }
-    },
-    retry: false
-  })
+  // A dead session self-redirects via the api layer's global 401 handling;
+  // this covers the non-401 me() failure (server/blob, network) like the old
+  // auth-gating query did.
+  useEffect(() => {
+    if (meError) router.push("/login?expired=1")
+  }, [meError, router])
 
   useEffect(() => {
     const token = searchParams.get("invite_token")
     if (token) {
+      // Keep the login page's redirectAfterLogin working: the token must be
+      // reachable if the invite URL is ever revisited from the sign-in screen
+      // (previously stashed by the auth-gating query on this page).
+      sessionStorage.setItem("invite_token", token)
       workspacesApi.acceptInvite(token).then(() => {
         toast.success("Workspace invite accepted!")
         router.replace("/workspaces")

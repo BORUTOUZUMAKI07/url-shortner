@@ -1,27 +1,22 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { render, screen } from "@/test/test-utils"
 import ProfilePage from "@/app/(authenticated)/profile/page"
 
-const { mockUser, mockStore, mockStoreHook, authMeResolvedObj } = vi.hoisted(() => {
+const { mockUser } = vi.hoisted(() => {
   const mockUser = { id: 1, email: "test@test.com", is_verified: true, is_active: true, plan: "free", is_superadmin: false, avatar_url: null, created_at: "2024-01-01" }
-  const mockStore = { user: mockUser, setUser: vi.fn() }
-  const mockStoreHook = (selector?: (s: any) => any) => selector ? selector(mockStore) : mockStore
-  mockStoreHook.getState = () => mockStore
-  const authMeResolvedObj = { value: true }
-  return { mockUser, mockStore, mockStoreHook, authMeResolvedObj }
+  return { mockUser }
 })
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
 }))
 
-vi.mock("@/store/auth", () => ({ useAuthStore: mockStoreHook }))
+// The page reads the user from the shared ["me"] cache via useMe.
+vi.mock("@/queries", () => ({
+  useMe: () => ({ data: mockUser }),
+}))
 
 describe("ProfilePage", () => {
-  beforeEach(() => {
-    authMeResolvedObj.value = true
-    mockStore.user = mockUser
-  })
 
   it("renders the page title", async () => {
     render(<ProfilePage />)

@@ -6,13 +6,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
 }))
 
-vi.mock("@/store/auth", () => ({
-  useAuthStore: (selector?: (s: any) => any) => {
-    const state = { user: { id: 1, email: "test@test.com" }, setUser: vi.fn() }
-    return selector ? selector(state) : state
-  },
-}))
-
 describe("WebhookReceiverPage", () => {
   it("renders the page title", async () => {
     render(<WebhookReceiverPage />)

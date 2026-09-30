@@ -7,13 +7,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
 }))
 
-vi.mock("@/store/auth", () => ({
-  useAuthStore: (selector?: (s: any) => any) => {
-    const state = { user: { id: 1 }, setUser: vi.fn(), logout: vi.fn() }
-    return selector ? selector(state) : state
-  },
-}))
-
 describe("URLDetailPage", () => {
   it("renders the page title", async () => {
     render(<URLDetailPage />)

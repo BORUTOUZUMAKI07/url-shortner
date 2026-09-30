@@ -1,9 +1,9 @@
 "use client"
 
 import Image from "next/image"
-import { useState, useRef } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { useQuery } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { auth, getErrorMessage, profileApi } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { useMe } from "@/queries"
 import { User, Mail, Crown, CalendarDays, CheckCircle, XCircle, ExternalLink, Lock, Camera, Loader2, AlertCircle, Check } from "lucide-react"
 
 const passwordSchema = z.object({
@@ -30,7 +30,11 @@ type EmailFormData = z.infer<typeof emailSchema>
 
 export default function ProfilePage() {
   const router = useRouter()
-  const { user, setUser } = useAuthStore()
+  const queryClient = useQueryClient()
+  // Shared ["me"] cache — the single source of truth (AGENTS.md, Frontend
+  // Batch 3). The old private ["authMe"] query fetched me() on top of the
+  // layout's fetch and wrote a second copy; it's gone.
+  const { data: user, isError: meError } = useMe()
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Password form
@@ -65,20 +69,12 @@ export default function ProfilePage() {
     }
   }
 
-  useQuery({
-    queryKey: ["authMe"],
-    queryFn: async () => {
-      try {
-        const user = await auth.me()
-        setUser(user)
-        return user
-      } catch (err) {
-        router.push("/login?expired=1")
-        throw err
-      }
-    },
-    retry: false
-  })
+  // The old query redirected to /login?expired=1 on any me() failure; a dead
+  // session normally self-redirects via the api layer's global 401 handling,
+  // so this is the belt for the non-401 case (server/blob, network).
+  useEffect(() => {
+    if (meError) router.push("/login?expired=1")
+  }, [meError, router])
 
   async function onPasswordSubmit(data: PasswordFormData) {
     setPwError(""); setPwSuccess("")
@@ -94,7 +90,7 @@ export default function ProfilePage() {
     try {
       const res = await profileApi.changeEmail(data.newEmail, data.emailPw)
       setEmailSuccess(res.detail)
-      setUser({ ...user!, email: data.newEmail, is_verified: false })
+      queryClient.setQueryData(["me"], { ...user!, email: data.newEmail, is_verified: false })
       emailForm.reset()
     } catch (e: unknown) { setEmailError(getErrorMessage(e, "Failed to update email")) }
   }
@@ -107,7 +103,7 @@ export default function ProfilePage() {
         try {
           const dataUri = reader.result as string
           const res = await profileApi.uploadAvatar(dataUri)
-          setUser({ ...user!, avatar_url: res.avatar_url })
+          queryClient.setQueryData(["me"], { ...user!, avatar_url: res.avatar_url })
         } catch (e: unknown) { setAvatarError(getErrorMessage(e)) }
         setAvatarLoading(false)
       }

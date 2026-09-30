@@ -7,14 +7,14 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Button } from "@/components/ui/button"
 import { auth, getErrorMessage } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { useQueryClient } from "@tanstack/react-query"
 import { loginSchema, type LoginFormData } from "@/lib/schemas"
 import { motion } from "motion/react"
 
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const setUser = useAuthStore((s) => s.setUser)
+  const queryClient = useQueryClient()
 
   const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -67,7 +67,7 @@ function LoginForm() {
       // extra /auth/me hop is needed (an extra request whose failure would
       // strand the user after the one-time code is already consumed).
       auth.exchangeOauth(handoffCode)
-        .then(({ user }) => setUser(user))
+        .then(({ user }) => queryClient.setQueryData(["me"], user))
         .then(redirectAfterLogin)
         .catch(() => setError("root", { message: "OAuth login failed. Please try again." }))
       return
@@ -76,15 +76,16 @@ function LoginForm() {
     if (inviteToken) {
       sessionStorage.setItem("invite_token", inviteToken)
     }
-  }, [searchParams, redirectAfterLogin, setError, setUser])
+  }, [searchParams, redirectAfterLogin, setError, queryClient])
 
   async function onSubmit(data: LoginFormData) {
     setNeedsVerification(false)
     setResendMsg(null)
     try {
       await auth.login(data.email, data.password)
-      const user = await auth.me()
-      setUser(user)
+      // Seed the shared ["me"] cache with the freshly-signed-in user; the
+      // layout's useMe() (sidebar) reads it on the very next page.
+      queryClient.setQueryData(["me"], await auth.me())
       redirectAfterLogin()
     } catch (err: unknown) {
       const message = getErrorMessage(err, "Login failed")

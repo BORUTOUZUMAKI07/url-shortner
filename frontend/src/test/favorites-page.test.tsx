@@ -1,22 +1,10 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect } from "vitest"
 import { render, screen } from "@/test/test-utils"
 import { server } from "@/test/mocks/server"
 import { http, HttpResponse } from "msw"
 import FavoritesPage from "@/app/(authenticated)/favorites/page"
 
 const API = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
-
-const { mockStoreHook } = vi.hoisted(() => {
-  const mockStore = { user: { id: 1, email: "test@test.com" }, setUser: vi.fn() }
-  const mockStoreHook = (selector?: (s: any) => any) => selector ? selector(mockStore) : mockStore
-  return { mockStoreHook }
-})
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
-}))
-
-vi.mock("@/store/auth", () => ({ useAuthStore: mockStoreHook }))
 
 describe("FavoritesPage", () => {
 

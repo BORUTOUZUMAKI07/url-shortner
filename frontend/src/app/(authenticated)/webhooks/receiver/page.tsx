@@ -1,34 +1,18 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { auth, webhookReceiverApi, workspacesApi, ReceivedWebhookEvent } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { webhookReceiverApi, workspacesApi, ReceivedWebhookEvent } from "@/lib/api"
+import { useMe } from "@/queries"
 import { Webhook, RefreshCw, Copy, CheckCircle2, XCircle, Terminal } from "lucide-react"
 
 export default function WebhookReceiverPage() {
-  const router = useRouter()
-  const { setUser } = useAuthStore()
   const [selected, setSelected] = useState<ReceivedWebhookEvent | null>(null)
   const [copied, setCopied] = useState(false)
-  const { isLoading: authLoading } = useQuery({
-    queryKey: ["authMe"],
-    queryFn: async () => {
-      try {
-        const user = await auth.me()
-        setUser(user)
-        return user
-      } catch (err) {
-        router.push("/login?expired=1")
-        throw err
-      }
-    },
-    retry: false
-  })
+  const { isPending: authLoading } = useMe()
 
   const { data: workspaces = [], isError: workspacesError, refetch: refetchWorkspaces } = useQuery({
     queryKey: ["workspaces"],

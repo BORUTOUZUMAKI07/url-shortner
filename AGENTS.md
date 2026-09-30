@@ -546,15 +546,24 @@ Tests: `tests/test_core/test_email_delivery.py`. The stall test releases via `th
 
 **Note:** cookies are httpOnly, so JS `clearTokens()`/`document.cookie` cannot delete them — cookie clearing must happen server-side (logout response or the proxy's max-age-0 delete for expired tokens).
 
-## Auth Store — Dashboard Never Hydrated `user` (no Logout button)
+## Frontend Batch 3 — The zustand Auth Store Is Gone (`useMe()` is the only source of truth)
 
-**File:** `frontend/src/lib/auth-prefetcher.tsx`
+**Files:** `frontend/src/queries/index.ts` (`useMe`), `frontend/src/components/layout/sidebar.tsx`, `frontend/src/app/login/page.tsx`, `frontend/src/app/(authenticated)/{dashboard,admin,profile,billing,workspaces}/page.tsx`, the nine hydration-only pages, `frontend/src/app/(authenticated)/layout.tsx`
 
-The auth store was only populated by per-page `auth.me().then(setUser)` effects; `/dashboard` reads `user` but never sets it. An already-signed-in user (valid cookie) bounced from `/login` → `/dashboard` via the proxy and landed with `user` null → the sidebar rendered **no user/logout section** (it's gated on `{user && …}`), so they were stuck with no way out. Every other authenticated page happened to call `setUser`; the dashboard didn't.
+The auth store (`src/store/auth.ts` + zustand) was a **second copy** of the user next to React Query's `["me"]` cache. Every authenticated page mounted its own `auth.me().then(setUser)` effect (or a private `["authMe"]` query in profile/billing/workspaces), so one page load fetched `me()` twice — once into the cache, once into the store — and the two copies drifted (the dashboard famously had no `setUser` anywhere, so the store stayed empty and the sidebar hid the Logout button).
 
-**Fix:** `AuthPrefetcher` (rendered once in the `(authenticated)` layout) now runs a `useQuery(["me"])` whose queryFn calls `setUser(user)`, hydrating the store on **every** authenticated page — the logout button now appears regardless of entry path. `retry: false` + `staleTime: 5min` (same as the old prefetch). Page-level `setUser` calls are now redundant but harmless. Test in `src/test/auth-prefetcher.test.tsx` covers hydration + error → store stays empty.
+**Deleted:** `src/store/auth.ts`, `frontend/src/lib/auth-prefetcher.tsx` (+ both tests), the zustand dependency in `package.json`, and every `useAuthStore` / `["authMe"]` usage. `useLoginMutation` (an unused export that duplicated the login page's own flow) went too.
 
-**Defense in depth:** the Logout button in `frontend/src/components/layout/sidebar.tsx` is rendered **outside** the `{user && …}` gate (the user card / "Enable Admin Panel" stay gated). A signed-in user is never stranded even if `me()` fails transiently or hydration hasn't finished — there is always an escape hatch. `sidebar.test.tsx` asserts Logout renders when `user` is `null`.
+**The model now:**
+- **Reading:** `useMe()` (`useQuery(["me"], auth.me, staleTime 5min, retry:false)`) is the only accessor. The layout's `<Sidebar />` mounts one `useMe()` per authenticated page, which warms the shared `["me"]` entry; every page's own `useMe()` reuses that fetch. All pages that read the user (sidebar, dashboard, admin, profile, billing, workspaces) use it.
+- **Writing** (never mutate a component's local copy — set the cache entry so every reader re-renders from one place):
+  - new session (login / oauth handoff): `queryClient.setQueryData(["me"], user)`;
+  - field updates (profile email/avatar, billing plan): `setQueryData(["me"], { ...user, field: value })` (billing also invalidates so the refetch confirms server truth; enable-admin uses `invalidateQueries` only);
+  - signed out: `setQueryData(["me"], null)`.
+- **Gating:** the pages that used `["authMe"]` + `enabled: !authLoading` (audit-logs, bulk, favorites, folders, tags, webhooks, receiver) now gate on `useMe().isPending`. A dead session still self-redirects through `api.ts`'s global 401 handling; profile/billing/workspaces/admin keep an explicit `isError → /login?expired=1` effect for the non-401 case (matching the old query's catch).
+- **Preserved:** the login page's OAuth-exchange `setUser` → `setQueryData`; the sidebar's Logout button renders **outside** `{user && …}` so a signed-in user is never stranded (that defense predates this batch); workspaces still stashes the URL `invite_token` into `sessionStorage` (the logic moved from the deleted `["authMe"]` query into the accept-invite effect).
+
+**Note:** the historical sections below describing `AuthPrefetcher`/`["authMe"]`/store hydration describe the pre-Batch-3 code. The `["authMe"]` private keys are gone — do not reintroduce a second user store or a second me-fetch-per-page; if a page needs the user, call `useMe()`.
 
 ## Testcontainers — `Settings()` Rebuilt Too Early (CI "localhost:27017 refused")
 
@@ -1012,7 +1021,7 @@ Was `SELECT * FROM urls ...` then discarded the row. Now `EXISTS(subquery)` retu
 
 **Files:** `frontend/src/lib/providers.tsx`, `frontend/src/queries/index.ts`
 
-Global query `staleTime` was `0` → every mount and window-focus refetched everything. Bumped the default to 30s. `useMe` now sets `staleTime: 5min` + `retry: false`, matching `AuthPrefetcher` (they share the `["me"]` cache entry so the prefetcher and any `useMe` never double-fetch). Removed the `select: (data) => data` no-op in `useUrls`.
+Global query `staleTime` was `0` → every mount and window-focus refetched everything. Bumped the default to 30s. `useMe` now sets `staleTime: 5min` + `retry: false` so the shared `["me"]` entry (warmed once by the layout's sidebar `useMe`, reused by every other page) never double-fetches. Removed the `select: (data) => data` no-op in `useUrls`.
 
 ## Login Page — Cold-Start Prewarm
 

@@ -7,8 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/select"
 import { urls } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
-import { auth } from "@/lib/api"
 import dynamic from "next/dynamic"
 
 const BarChart = dynamic(() => import("recharts").then(mod => mod.BarChart), { ssr: false })
@@ -32,23 +30,7 @@ const DAYS_OPTIONS: Record<string, number | undefined> = { "24h": 1, "7d": 7, "3
 export default function AnalyticsPage() {
   const { id } = useParams()
   const router = useRouter()
-  const { setUser } = useAuthStore()
   const [period, setPeriod] = useState("7d")
-
-  useQuery({
-    queryKey: ["authMe"],
-    queryFn: async () => {
-      try {
-        const user = await auth.me()
-        setUser(user)
-        return user
-      } catch (err) {
-        router.push("/login?expired=1")
-        throw err
-      }
-    },
-    retry: false
-  })
 
   const urlId = Number(id)
   const days = DAYS_OPTIONS[period]

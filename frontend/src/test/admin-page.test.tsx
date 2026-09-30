@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { render, screen } from "@/test/test-utils"
 import AdminPage from "@/app/(authenticated)/admin/page"
 
@@ -6,20 +6,17 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
 }))
 
-const { mockSuperadmin, mockStore, mockStoreHook } = vi.hoisted(() => {
+const { mockSuperadmin } = vi.hoisted(() => {
   const mockSuperadmin = { id: 1, email: "admin@test.com", is_superadmin: true, is_verified: true, is_active: true, plan: "enterprise", avatar_url: null, created_at: "2024-01-01" }
-  const mockStore = { user: mockSuperadmin, setUser: vi.fn() }
-  const mockStoreHook = (selector?: (s: any) => any) => selector ? selector(mockStore) : mockStore
-  mockStoreHook.getState = () => mockStore
-  return { mockSuperadmin, mockStore, mockStoreHook }
+  return { mockSuperadmin }
 })
 
-vi.mock("@/store/auth", () => ({ useAuthStore: mockStoreHook }))
+// The page reads the user from the shared ["me"] cache via useMe.
+vi.mock("@/queries", () => ({
+  useMe: () => ({ data: mockSuperadmin }),
+}))
 
 describe("AdminPage", () => {
-  beforeEach(() => {
-    mockStore.user = mockSuperadmin
-  })
 
   it("renders the page title", async () => {
     render(<AdminPage />)

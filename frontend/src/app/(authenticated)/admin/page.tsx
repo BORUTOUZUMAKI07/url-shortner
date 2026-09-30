@@ -5,14 +5,20 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { auth, adminApi, type AdminStats, type User, type Workspace, type URLItem } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { adminApi, type AdminStats, type User, type Workspace, type URLItem } from "@/lib/api"
+import { useMe } from "@/queries"
 import { Shield, Users, Link2, Building2, Trash2, Crown, RefreshCw, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react"
 
 export default function AdminPage() {
   const router = useRouter()
   useEffect(() => { document.title = "Admin - LinkForge" }, [])
-  const { user, setUser } = useAuthStore()
+  // The user comes from the shared ["me"] cache (warmed by the layout's
+  // Sidebar). The redirects that used to live in a per-page auth.me() effect:
+  //   - a non-superadmin visiting /admin is bounced back to the dashboard;
+  //   - a session that can no longer load the user is sent through login.
+  // (A dead session normally redirects itself via the api layer's global 401
+  // handling; this is the belt for the non-401 case.)
+  const { data: user, isError: meError } = useMe()
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [users, setUsers] = useState<User[]>([])
   const [totalUsers, setTotalUsers] = useState(0)
@@ -27,13 +33,12 @@ export default function AdminPage() {
   const limit = 20
 
   useEffect(() => {
-    auth.me()
-      .then((u) => {
-        setUser(u)
-        if (!u.is_superadmin) router.push("/dashboard")
-      })
-      .catch(() => router.push("/login?expired=1"))
-  }, [router, setUser])
+    if (user && !user.is_superadmin) router.push("/dashboard")
+  }, [user, router])
+
+  useEffect(() => {
+    if (meError) router.push("/login?expired=1")
+  }, [meError, router])
 
   useEffect(() => {
     if (!user?.is_superadmin) return

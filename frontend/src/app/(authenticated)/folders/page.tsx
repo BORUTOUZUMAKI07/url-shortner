@@ -1,37 +1,21 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { auth, foldersApi, workspacesApi } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { foldersApi, workspacesApi } from "@/lib/api"
+import { useMe } from "@/queries"
 import { Plus, Trash2, FolderOpen, Pencil } from "lucide-react"
 
 export default function FoldersPage() {
-  const router = useRouter()
-  const { setUser } = useAuthStore()
   const [newName, setNewName] = useState("")
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editName, setEditName] = useState("")
   const queryClient = useQueryClient()
 
-  const { isLoading: authLoading } = useQuery({
-    queryKey: ["authMe"],
-    queryFn: async () => {
-      try {
-        const user = await auth.me()
-        setUser(user)
-        return user
-      } catch (err) {
-        router.push("/login?expired=1")
-        throw err
-      }
-    },
-    retry: false
-  })
+  const { isPending: authLoading } = useMe()
 
   // isError is destructured deliberately. `wsId` comes from this query, so if it
   // fails the folder query below is *disabled* — and a disabled query is not

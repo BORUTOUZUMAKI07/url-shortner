@@ -1,41 +1,25 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { auth, webhooksApi, workspacesApi } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { webhooksApi, workspacesApi } from "@/lib/api"
+import { useMe } from "@/queries"
 import { Webhook as WebhookIcon, Plus, Trash2, Radio } from "lucide-react"
 import Link from "next/link"
 
 const EVENT_OPTIONS = ["url.created", "url.clicked", "url.expired", "url.deleted"]
 
 export default function WebhooksPage() {
-  const router = useRouter()
-  const { setUser } = useAuthStore()
   const [url, setUrl] = useState("")
   const [events, setEvents] = useState<string[]>(["url.created"])
   const [showForm, setShowForm] = useState(false)
   const queryClient = useQueryClient()
 
-  const { isLoading: authLoading } = useQuery({
-    queryKey: ["authMe"],
-    queryFn: async () => {
-      try {
-        const user = await auth.me()
-        setUser(user)
-        return user
-      } catch (err) {
-        router.push("/login?expired=1")
-        throw err
-      }
-    },
-    retry: false
-  })
+  const { isPending: authLoading } = useMe()
 
   // See folders/page.tsx: wsId is derived from this query, so a failure leaves
   // the webhooks query disabled — not loading, and unable to be in an error

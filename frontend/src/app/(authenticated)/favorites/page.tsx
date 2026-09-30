@@ -1,33 +1,17 @@
 "use client"
 
-import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { auth, favoritesApi, urls, URLItem } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { favoritesApi, urls, URLItem } from "@/lib/api"
+import { useMe } from "@/queries"
 import { Heart, ExternalLink, BarChart3, HeartOff } from "lucide-react"
 
 export default function FavoritesPage() {
-  const router = useRouter()
-  const { setUser } = useAuthStore()
   const queryClient = useQueryClient()
 
-  const { isLoading: authLoading } = useQuery({
-    queryKey: ["authMe"],
-    queryFn: async () => {
-      try {
-        const user = await auth.me()
-        setUser(user)
-        return user
-      } catch (err) {
-        router.push("/login?expired=1")
-        throw err
-      }
-    },
-    retry: false
-  })
+  const { isPending: authLoading } = useMe()
 
   // isPending, not isLoading — see folders/page.tsx. Without it this page
   // flashed "No favorites yet" on first paint.

@@ -1,12 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { auth, workspacesApi, auditApi } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { workspacesApi, auditApi } from "@/lib/api"
+import { useMe } from "@/queries"
 import { History, ShieldAlert, ChevronDown, ChevronUp, Loader2 } from "lucide-react"
 
 function formatJson(raw: string | null): string {
@@ -15,24 +14,9 @@ function formatJson(raw: string | null): string {
 }
 
 export default function AuditLogsPage() {
-  const router = useRouter()
-  const { setUser } = useAuthStore()
   const [expanded, setExpanded] = useState<number | null>(null)
 
-  const { isLoading: authLoading } = useQuery({
-    queryKey: ["authMe"],
-    queryFn: async () => {
-      try {
-        const user = await auth.me()
-        setUser(user)
-        return user
-      } catch (err) {
-        router.push("/login?expired=1")
-        throw err
-      }
-    },
-    retry: false
-  })
+  const { isPending: authLoading } = useMe()
 
   // isError is needed because wsId comes from this query. When it fails, the
   // audit query below is disabled — and a disabled query reports neither

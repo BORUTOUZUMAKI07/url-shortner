@@ -1,25 +1,22 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { render, screen } from "@/test/test-utils"
 import BillingPage from "@/app/(authenticated)/billing/page"
 
-const { mockUser, mockStore, mockStoreHook } = vi.hoisted(() => {
+const { mockUser } = vi.hoisted(() => {
   const mockUser = { id: 1, email: "test@test.com", is_verified: true, is_active: true, plan: "free", is_superadmin: false, avatar_url: null, created_at: "2024-01-01" }
-  const mockStore = { user: mockUser, setUser: vi.fn() }
-  const mockStoreHook = (selector?: (s: any) => any) => selector ? selector(mockStore) : mockStore
-  mockStoreHook.getState = () => mockStore
-  return { mockUser, mockStore, mockStoreHook }
+  return { mockUser }
 })
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
 }))
 
-vi.mock("@/store/auth", () => ({ useAuthStore: mockStoreHook }))
+// The page reads the user (and its pending gate) from the shared ["me"] cache.
+vi.mock("@/queries", () => ({
+  useMe: () => ({ data: mockUser, isPending: false }),
+}))
 
 describe("BillingPage", () => {
-  beforeEach(() => {
-    mockStore.user = mockUser
-  })
 
   it("renders the page title", async () => {
     render(<BillingPage />)

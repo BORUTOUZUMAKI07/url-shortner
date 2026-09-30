@@ -1,13 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { auth, billingApi, getErrorMessage } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { billingApi, getErrorMessage } from "@/lib/api"
+import { useMe } from "@/queries"
 import { Crown, Check, ArrowLeft, Loader2 } from "lucide-react"
 
 const PLANS = [
@@ -18,39 +18,30 @@ const PLANS = [
 
 export default function BillingPage() {
   const router = useRouter()
-  const { user, setUser } = useAuthStore()
+  // Shared ["me"] cache — the single source of truth. The old private
+  // ["authMe"] query fetched me() on top of the layout's fetch; it's gone.
+  const { data: user, isPending: authLoading, isError: meError } = useMe()
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const queryClient = useQueryClient()
 
-  const { isLoading: authLoading } = useQuery({
-    queryKey: ["authMe"],
-    queryFn: async () => {
-      try {
-        const user = await auth.me()
-        setUser(user)
-        return user
-      } catch (err) {
-        router.push("/login?expired=1")
-        throw err
-      }
-    },
-    retry: false
-  })
+  // The old auth-gating query redirected on any me() failure; a dead session
+  // self-redirects via the api layer's global 401 handling, so this only needs
+  // to cover the non-401 case.
+  useEffect(() => {
+    if (meError) router.push("/login?expired=1")
+  }, [meError, router])
 
   const upgradeMutation = useMutation({
     mutationFn: (plan: string) => billingApi.upgrade(plan),
     onMutate: () => { setError(""); setSuccess("") },
     onSuccess: (res) => {
-      setUser({ ...user!, plan: res.plan })
+      // Optimistic write to the shared ["me"] cache so the new plan renders
+      // immediately, then invalidate so the refetch confirms the server truth.
+      // (Every reader of useMe sees this — there is no second copy to update.)
+      queryClient.setQueryData(["me"], { ...user!, plan: res.plan })
       setSuccess(res.detail)
-      // Invalidate the canonical ["me"] entry, which is what AuthPrefetcher and
-      // useMe share. ["authMe"] is this file's own private key — nothing else
-      // reads it, so invalidating it left the shared entry untouched. Its 5min
-      // staleTime meant a page mounting within the window repopulated the old
-      // plan from the server and the upgrade appeared to undo itself.
       queryClient.invalidateQueries({ queryKey: ["me"] })
-      queryClient.invalidateQueries({ queryKey: ["authMe"] })
     },
     onError: (e: unknown) => {
       setError(getErrorMessage(e, "Failed to upgrade"))

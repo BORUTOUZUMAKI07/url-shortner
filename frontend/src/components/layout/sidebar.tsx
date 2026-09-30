@@ -11,8 +11,9 @@ import {
   Heart, History, Crown, Shield, Menu, X,
 } from "lucide-react"
 import { toast } from "sonner"
-import { useAuthStore } from "@/store/auth"
+import { useQueryClient } from "@tanstack/react-query"
 import { adminApi, auth, getErrorMessage } from "@/lib/api"
+import { useMe } from "@/queries"
 
 interface NavItem {
   href: string
@@ -55,14 +56,19 @@ export function Sidebar() {
   const [open, setOpen] = useState(false)
   const [seedingAdmin, setSeedingAdmin] = useState(false)
   const pathname = usePathname()
-  const { user, setUser, logout: storeLogout } = useAuthStore()
+  const queryClient = useQueryClient()
+  // The shared ["me"] cache is the single source of truth for the current
+  // user; mounting this useMe() on every authenticated page also warms the
+  // cache for the page below (the layout renders this before the page).
+  const { data: user } = useMe()
 
   async function handleSeedAdmin() {
     setSeedingAdmin(true)
     try {
       await adminApi.seed()
-      const me = await auth.me()
-      setUser(me)
+      // The account just became a superadmin. Read it back from the server
+      // into the shared ["me"] cache rather than hand-editing a copy.
+      await queryClient.invalidateQueries({ queryKey: ["me"] })
       toast.success("Admin panel enabled")
     } catch (err: unknown) {
       toast.error(getErrorMessage(err, "Could not enable admin panel"))
@@ -90,11 +96,11 @@ export function Sidebar() {
       // explanation. `expired=1` is the flag proxy.ts looks for to suppress that
       // bounce, so the sign-in form is reachable either way.
       toast.error("Could not reach the server to end your session. Sign-in will be required again.")
-      storeLogout()
+      queryClient.setQueryData(["me"], null)
       window.location.href = "/login?expired=1"
       return
     }
-    storeLogout()
+    queryClient.setQueryData(["me"], null)
     window.location.href = "/login"
   }
 

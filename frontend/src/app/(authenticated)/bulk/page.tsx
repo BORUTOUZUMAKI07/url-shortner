@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,8 +10,8 @@ import { Select } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
-import { auth, bulkApi, workspacesApi, foldersApi, tagsApi, urls } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { bulkApi, workspacesApi, foldersApi, tagsApi, urls } from "@/lib/api"
+import { useMe } from "@/queries"
 import { Upload, Download, UploadCloud, ToggleLeft, ToggleRight, Trash2, QrCode, Search } from "lucide-react"
 
 // The old `BulkActionResult` union here is gone: it modelled the response as
@@ -28,8 +27,6 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function BulkPage() {
-  const router = useRouter()
-  const { setUser } = useAuthStore()
   const [selectedWsId, setSelectedWsId] = useState<number | null>(null)
   const [urlsInput, setUrlsInput] = useState("")
   const [folderId, setFolderId] = useState("")
@@ -47,20 +44,7 @@ export default function BulkPage() {
   const [tab, setTab] = useState<"create" | "manage">("create")
   const queryClient = useQueryClient()
 
-  const { isLoading: authLoading } = useQuery({
-    queryKey: ["authMe"],
-    queryFn: async () => {
-      try {
-        const user = await auth.me()
-        setUser(user)
-        return user
-      } catch (err) {
-        router.push("/login?expired=1")
-        throw err
-      }
-    },
-    retry: false
-  })
+  const { isPending: authLoading } = useMe()
 
   const { data: workspaces = [], isError: workspacesError, refetch: refetchWorkspaces } = useQuery({
     queryKey: ["workspaces"],

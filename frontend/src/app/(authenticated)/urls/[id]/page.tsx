@@ -11,9 +11,8 @@ import { Select } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { auth, foldersApi, getErrorMessage, tagsApi, urls } from "@/lib/api"
+import { foldersApi, getErrorMessage, tagsApi, urls } from "@/lib/api"
 import { buildShortUrl } from "@/lib/utils"
-import { useAuthStore } from "@/store/auth"
 import { ExternalLink, ArrowLeft, BarChart3, Calendar, Hash, Globe, QrCode, Download, FolderOpen, Tags, Link2, type LucideIcon } from "lucide-react"
 
 type UrlUpdateInput = Parameters<typeof urls.update>[1]
@@ -28,7 +27,6 @@ export default function URLDetailPage() {
   const { id } = useParams()
   useEffect(() => { document.title = "URL Details - LinkForge" }, [])
   const router = useRouter()
-  const { setUser } = useAuthStore()
   const queryClient = useQueryClient()
 
   const [originalUrl, setOriginalUrl] = useState("")
@@ -40,21 +38,6 @@ export default function URLDetailPage() {
   const [error, setError] = useState("")
   const [selectedFolder, setSelectedFolder] = useState("")
   const [selectedTags, setSelectedTags] = useState<string[]>([])
-
-  useQuery({
-    queryKey: ["authMe"],
-    queryFn: async () => {
-      try {
-        const user = await auth.me()
-        setUser(user)
-        return user
-      } catch (err) {
-        router.push("/login?expired=1")
-        throw err
-      }
-    },
-    retry: false
-  })
 
   const urlId = Number(id)
 

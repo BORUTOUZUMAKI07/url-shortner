@@ -8,7 +8,7 @@ import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { StatsCardSkeleton, TableSkeleton } from "@/components/ui/skeleton"
 import { useDashboard } from "@/hooks/useDashboard"
-import { useAuthStore } from "@/store/auth"
+import { useMe } from "@/queries"
 import {
   BarChart3, ExternalLink, Plus, Link2, Activity,
   AlertTriangle, ArrowRight, LayoutDashboard,
@@ -16,7 +16,7 @@ import {
 
 export default function DashboardPage() {
   useEffect(() => { document.title = "Dashboard - LinkForge" }, [])
-  const { user } = useAuthStore()
+  const { data: user } = useMe()
 
   const {
     urlList, totalUrlsCount, workspaces, wsId, error, quota,

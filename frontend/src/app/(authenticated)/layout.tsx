@@ -1,11 +1,9 @@
 import { Suspense } from "react"
 import { Sidebar } from "@/components/layout/sidebar"
-import { AuthPrefetcher } from "@/lib/auth-prefetcher"
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
-      <AuthPrefetcher />
       <Suspense fallback={null}>
         <Sidebar />
       </Suspense>

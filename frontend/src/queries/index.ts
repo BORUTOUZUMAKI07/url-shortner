@@ -7,21 +7,27 @@ import {
 } from "@/lib/api"
 
 // --- Auth ---
+// The single source of truth for the current user — there is deliberately no
+// other copy (no zustand store; see AGENTS.md, "Frontend Batch 3").
+//
+// Reading: every component that needs the user calls useMe(). The layout's
+// <Sidebar /> mounts one per authenticated page, warming the shared ["me"]
+// entry, so each page's own useMe() reuses the same fetch.
+//
+// Writing: never mutate this hook's result by hand — write to the cache entry
+// instead, so every reader re-renders from one place:
+//   - new session (login / oauth handoff): `qc.setQueryData(["me"], user)`
+//   - user fields change (profile email/avatar, billing plan): either
+//     `qc.setQueryData(["me"], { ...user, field: value })` (optimistic, from a
+//     mutation response) or `qc.invalidateQueries({ queryKey: ["me"] })`
+//     (refetch server truth — enable-admin uses this).
+//   - signed out: `qc.setQueryData(["me"], null)`.
 export function useMe() {
   return useQuery({
     queryKey: ["me"],
     queryFn: () => auth.me(),
-    // Keep in sync with AuthPrefetcher (same cache entry): no double fetch.
     staleTime: 5 * 60 * 1000,
     retry: false,
-  })
-}
-
-export function useLoginMutation() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) => auth.login(email, password),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["me"] }),
   })
 }
 

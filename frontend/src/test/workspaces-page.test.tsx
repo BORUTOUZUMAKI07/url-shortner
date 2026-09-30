@@ -1,27 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { render, screen } from "@/test/test-utils"
 import WorkspacesPage from "@/app/(authenticated)/workspaces/page"
-
-const { mockStore, mockStoreHook } = vi.hoisted(() => {
-  const mockStore = { user: { id: 1, email: "test@test.com", plan: "free" }, setUser: vi.fn() }
-  const mockStoreHook = (selector?: (s: any) => any) => selector ? selector(mockStore) : mockStore
-  mockStoreHook.getState = () => mockStore
-  return { mockStore, mockStoreHook }
-})
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }))
 
-vi.mock("@/store/auth", () => ({ useAuthStore: mockStoreHook }))
-
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 describe("WorkspacesPage", () => {
-  beforeEach(() => {
-    mockStore.user = { id: 1, email: "test@test.com", plan: "free" }
-  })
 
   it("renders the page title", () => {
     render(<WorkspacesPage />)

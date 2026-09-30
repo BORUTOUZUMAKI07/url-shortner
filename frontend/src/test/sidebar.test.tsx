@@ -5,7 +5,6 @@ import { Sidebar } from "@/components/layout/sidebar"
 const { mockState } = vi.hoisted(() => ({
   mockState: {
     user: null as { id: number; email: string; is_superadmin: boolean } | null,
-    logout: vi.fn(),
   },
 }))
 
@@ -13,8 +12,9 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/dashboard",
 }))
 
-vi.mock("@/store/auth", () => ({
-  useAuthStore: (selector?: (s: any) => any) => (selector ? selector(mockState) : mockState),
+vi.mock("@/queries", () => ({
+  // The sidebar reads the user from the shared ["me"] cache via useMe.
+  useMe: () => ({ data: mockState.user }),
 }))
 
 describe("Sidebar", () => {

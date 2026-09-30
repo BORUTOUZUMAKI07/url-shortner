@@ -1,38 +1,22 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { auth, tagsApi, workspacesApi } from "@/lib/api"
-import { useAuthStore } from "@/store/auth"
+import { tagsApi, workspacesApi } from "@/lib/api"
+import { useMe } from "@/queries"
 import { Plus, X, Tags as TagsIcon } from "lucide-react"
 
 export default function TagsPage() {
-  const router = useRouter()
-  const { setUser } = useAuthStore()
   const [newName, setNewName] = useState("")
   const [selectedWsId, setSelectedWsId] = useState<number | null>(null)
   const queryClient = useQueryClient()
 
-  const { isLoading: authLoading } = useQuery({
-    queryKey: ["authMe"],
-    queryFn: async () => {
-      try {
-        const user = await auth.me()
-        setUser(user)
-        return user
-      } catch (err) {
-        router.push("/login?expired=1")
-        throw err
-      }
-    },
-    retry: false
-  })
+  const { isPending: authLoading } = useMe()
 
   // See folders/page.tsx: wsId is derived from this query, so a failure leaves
   // the tags query disabled — not loading, and unable to be in an error state.
