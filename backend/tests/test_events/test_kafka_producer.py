@@ -104,6 +104,8 @@ class TestKafkaProducer:
             [
                 patch("src.shared.events.kafka.producer", mock_producer),
                 patch("src.shared.events.kafka.serialize", return_value=b"bytes"),
+                patch("src.shared.events.kafka._SEND_RETRY_DELAYS", [0, 0]),
+                patch("src.shared.events.kafka.publish_raw", AsyncMock()),
             ],
             publish_event("url-created", {"short_code": "test"}),
         )
@@ -117,3 +119,98 @@ class TestKafkaProducer:
             [patch("src.shared.events.kafka.producer", mock_producer)],
             publish_raw("some-topic", b"data"),
         )
+
+    @pytest.mark.asyncio
+    async def test_durable_topic_event_is_dlq_after_failed_sends(self):
+        mock_producer = AsyncMock()
+        mock_producer.send_and_wait.side_effect = RuntimeError("Kafka unreachable")
+        dlq_publish = AsyncMock()
+
+        await _run_publish(
+            [
+                patch("src.shared.events.kafka.producer", mock_producer),
+                patch("src.shared.events.kafka.serialize", return_value=b"bytes"),
+                patch("src.shared.events.kafka._SEND_RETRY_DELAYS", [0, 0]),
+                patch("src.shared.events.kafka.publish_raw", dlq_publish),
+            ],
+            publish_event("url-created", {"short_code": "test"}),
+        )
+
+        # Initial attempt + 1 retry (the patched [0, 0] schedule), then the
+        # payload is copied to the DLQ topic so the replay worker can
+        # re-publish it once Kafka recovers.
+        assert mock_producer.send_and_wait.await_count == 2
+        dlq_publish.assert_awaited_once_with("dlq-url-created", b"bytes", None)
+
+    @pytest.mark.asyncio
+    async def test_durable_topic_dlq_preserves_key(self):
+        mock_producer = AsyncMock()
+        mock_producer.send_and_wait.side_effect = RuntimeError("Kafka unreachable")
+        dlq_publish = AsyncMock()
+
+        await _run_publish(
+            [
+                patch("src.shared.events.kafka.producer", mock_producer),
+                patch("src.shared.events.kafka.serialize", return_value=b"bytes"),
+                patch("src.shared.events.kafka._SEND_RETRY_DELAYS", [0, 0]),
+                patch("src.shared.events.kafka.publish_raw", dlq_publish),
+            ],
+            publish_event("url-created", {"short_code": "test"}, key="abc123"),
+        )
+
+        dlq_publish.assert_awaited_once_with("dlq-url-created", b"bytes", b"abc123")
+
+    @pytest.mark.asyncio
+    async def test_best_effort_topic_is_dropped_not_dlq(self):
+        mock_producer = AsyncMock()
+        mock_producer.send_and_wait.side_effect = RuntimeError("Kafka unreachable")
+        dlq_publish = AsyncMock()
+
+        await _run_publish(
+            [
+                patch("src.shared.events.kafka.producer", mock_producer),
+                patch("src.shared.events.kafka.serialize", return_value=b"bytes"),
+                patch("src.shared.events.kafka._SEND_RETRY_DELAYS", [0, 0]),
+                patch("src.shared.events.kafka.publish_raw", dlq_publish),
+            ],
+            publish_event("url-clicked", {"short_code": "test"}),
+        )
+
+        dlq_publish.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_successful_send_does_not_dlq(self):
+        mock_producer = AsyncMock()
+        dlq_publish = AsyncMock()
+
+        await _run_publish(
+            [
+                patch("src.shared.events.kafka.producer", mock_producer),
+                patch("src.shared.events.kafka.serialize", return_value=b"bytes"),
+                patch("src.shared.events.kafka._SEND_RETRY_DELAYS", [0, 0]),
+                patch("src.shared.events.kafka.publish_raw", dlq_publish),
+            ],
+            publish_event("url-created", {"short_code": "test"}, key="k"),
+        )
+
+        mock_producer.send_and_wait.assert_awaited_once()
+        dlq_publish.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retry_succeeds_without_dlq(self):
+        mock_producer = AsyncMock()
+        mock_producer.send_and_wait.side_effect = [RuntimeError("flaky blip"), None]
+        dlq_publish = AsyncMock()
+
+        await _run_publish(
+            [
+                patch("src.shared.events.kafka.producer", mock_producer),
+                patch("src.shared.events.kafka.serialize", return_value=b"bytes"),
+                patch("src.shared.events.kafka._SEND_RETRY_DELAYS", [0, 0]),
+                patch("src.shared.events.kafka.publish_raw", dlq_publish),
+            ],
+            publish_event("url-created", {"short_code": "test"}),
+        )
+
+        assert mock_producer.send_and_wait.await_count == 2
+        dlq_publish.assert_not_awaited()

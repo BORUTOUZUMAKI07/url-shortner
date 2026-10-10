@@ -103,6 +103,7 @@ def create_app(lifespan_override=None):
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail, "error_code": exc.error_code},
+            headers=exc.headers,
         )
 
     # Health check – must be registered before the catch-all /{short_code}

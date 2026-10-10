@@ -27,7 +27,7 @@ from src.shared.core.deps import (
     get_auth_service,
     get_current_user,
 )
-from src.shared.core.redis import check_rate_limit
+from src.shared.core.redis import check_rate_limit, rate_limit_headers
 from src.shared.core.security import create_access_token, decode_token
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -348,8 +348,10 @@ _AUTH_LIMITS = {
 async def _enforce_auth_rate_limit(request: Request, action: str) -> None:
     capacity, refill = _AUTH_LIMITS[action]
     key = f"rl:auth:{action}:{get_client_ip(request)}"
-    if await check_rate_limit(key, capacity=capacity, refill_rate_per_sec=refill):
+    result = await check_rate_limit(key, capacity=capacity, refill_rate_per_sec=refill)
+    if result.limited:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many attempts. Please wait and try again.",
+            headers=rate_limit_headers(result, capacity),
         )

@@ -27,8 +27,8 @@ class UnauthorizedError(AppError):
 
 
 class RateLimitError(AppError):
-    def __init__(self, detail: str = "Rate limit exceeded. Try again later."):
-        super().__init__(detail=detail, status_code=429, error_code="RATE_LIMITED")
+    def __init__(self, detail: str = "Rate limit exceeded. Try again later.", headers=None):
+        super().__init__(detail=detail, status_code=429, error_code="RATE_LIMITED", headers=headers)
 
 
 class InternalError(AppError):

@@ -9,7 +9,7 @@ from src.shared import get_logger
 from src.shared.core.client_ip import get_client_ip
 from src.shared.core.config import settings
 from src.shared.core.deps import get_redirect_service
-from src.shared.core.redis import check_rate_limit
+from src.shared.core.redis import check_rate_limit, rate_limit_headers
 from src.shared.errors import RateLimitError, URLDisabled, URLExpired, URLNotFound, URLPasswordIncorrect
 
 logger = get_logger(__name__)
@@ -158,8 +158,8 @@ async def redirect_with_password(
     ip = get_client_ip(request)
 
     rate_key = f"pw_attempt:{ip}:{short_code}"
-    limited = await check_rate_limit(rate_key, capacity=10, refill_rate_per_sec=1.0 / 6.0)
-    if limited:
-        raise RateLimitError()
+    result = await check_rate_limit(rate_key, capacity=10, refill_rate_per_sec=1.0 / 6.0)
+    if result.limited:
+        raise RateLimitError(headers=rate_limit_headers(result, 10))
 
     return await _resolve_and_redirect(short_code, ip, user_agent, referer, pwd, svc)

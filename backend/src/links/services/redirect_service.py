@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -5,7 +6,7 @@ from typing import Optional
 
 from src.links.repositories.url_repository import URLRepository
 from src.links.services.utm_service import parse_utm
-from src.shared.core.redis import check_rate_limit, delete_url_cache, get_url_cache, set_url_cache
+from src.shared.core.redis import check_rate_limit, delete_url_cache, get_url_cache, rate_limit_headers, set_url_cache
 from src.shared.core.security import verify_password_async
 from src.shared.errors.common import RateLimitError
 from src.shared.errors.url import URLDisabled, URLExpired, URLNotFound, URLPasswordIncorrect
@@ -22,6 +23,23 @@ class RedirectResult:
     is_one_time: bool
 
 
+# In-flight cold-miss fetches, keyed by short_code. When a cache-bust lands on a
+# popular code (delete / bulk-disable / one-time consume), every concurrent miss
+# would otherwise run its own DB SELECT against a code that was just invalidated
+# — the classic stampede. The first fetch is shared by all waiters instead.
+_fetch_inflight: dict[str, asyncio.Task] = {}
+
+
+def _track_fetch(short_code: str, task: asyncio.Task) -> None:
+    def _cleanup(done: asyncio.Task) -> None:
+        # Only remove when the dict still points at this task — a newer task may
+        # have been registered by a caller that saw us "done" before cleanup ran.
+        if _fetch_inflight.get(short_code) is done:
+            _fetch_inflight.pop(short_code, None)
+
+    task.add_done_callback(_cleanup)
+
+
 class RedirectService:
     def __init__(self, url_repo: URLRepository, workspace_repo: WorkspaceRepository, events: EventDispatcher):
         self.url_repo = url_repo
@@ -36,9 +54,9 @@ class RedirectService:
         referer: Optional[str],
         pwd: Optional[str] = None,
     ) -> RedirectResult:
-        limited = await check_rate_limit(f"ratelimit:redirect:{short_code}:{ip}", capacity=100, refill_rate_per_sec=1.67)
-        if limited:
-            raise RateLimitError()
+        rate_result = await check_rate_limit(f"ratelimit:redirect:{short_code}:{ip}", capacity=100, refill_rate_per_sec=1.67)
+        if rate_result.limited:
+            raise RateLimitError(headers=rate_limit_headers(rate_result, 100))
 
         url_data = await self._fetch_url(short_code)
         self._validate(url_data)
@@ -77,6 +95,20 @@ class RedirectService:
         url_data = await get_url_cache(short_code)
         if url_data:
             return url_data
+
+        # Coalesce concurrent cold misses: one DB fetch serves every waiter.
+        # done() tasks are replaced with a fresh fetch; a running one is shared.
+        task = _fetch_inflight.get(short_code)
+        if task is None or task.done():
+            task = asyncio.create_task(self._load_url_and_cache(short_code))
+            _fetch_inflight[short_code] = task
+            _track_fetch(short_code, task)
+        # shield: a cancelled caller must not cancel the shared fetch — that
+        # would fail every other in-flight requester with CancelledError. Only
+        # the awaiting caller absorbs the cancellation.
+        return await asyncio.shield(task)
+
+    async def _load_url_and_cache(self, short_code: str) -> dict:
         url_obj = await self.url_repo.get_by_short_code(short_code)
         if not url_obj:
             raise URLNotFound()

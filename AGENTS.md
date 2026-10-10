@@ -38,6 +38,47 @@ Each gated query's loading signal is `isPending`; each empty-state branch sits *
 
 **Note:** the gate pages (folders/tags/webhooks/favorites) and the receiver page were correct already — receiver guards with `!wsId → "Loading workspace…"`, the rest with `isPending ? null`. Do not "simplify" a list page's loading branch to `isLoading`; in v5 it is `isPending && isFetching`, false for every disabled query.
 
+## Backend Batch 2026-10-10 — Redirect Hot-Path L1 Cache, 429 Headers, Publish Retry, Load Tests
+
+Four items from the roadmap gap audit. The theme: the redirect hot path was paying a network round trip **per hit** even for cached codes, 429s were bare (clients could not back off), the only durable event could be silently lost at publish time, and nothing in the repo load-tested the one product-critical burst path.
+
+### Redirect — every hit paid an Upstash REST round trip; cold misses stampeded the DB
+
+**Files:** `backend/src/shared/core/redis.py` (`_InProcessUrlCache`, wired into `get_url_cache`/`set_url_cache`/`delete_url_cache`/`delete_url_caches`), `backend/src/links/services/redirect_service.py` (`_fetch_url` / `_load_url_and_cache`, `_fetch_inflight`)
+
+`get_url_cache` was a straight REST GET per redirect (~100-200ms each, even for codes cached up to 24h). Fix is a tiny **L1 cache** inside the same four choke-point functions every read/write/invalidation path already goes through — so redirect reads, single-URL updates, one-time consumes, and bulk eviction all stay coherent with zero call-site changes:
+
+- TTL 10s (vs 24h downstream) → N-instance staleness after a mutation is bounded and invisible; the downstream cache already accepted 24h.
+- Bounded (8192 entries, FIFO eviction); lock-free (CPython dict ops are atomic under the GIL — a racing set/evict only costs a redundant re-fetch); caches successes only → `get_url_cache` keeps failing open.
+- Hot codes now resolve with **no network hop at all**.
+
+`_fetch_url` also now **coalesces cold misses**: a cache-bust on a popular code (delete/bulk-disable/one-time consume) left every concurrent miss free to run its own DB SELECT. The first miss spawns `_load_url_and_cache`; the rest `await asyncio.shield(task)` the same in-flight fetch — shield so a **cancelled caller cannot cancel the shared fetch** (which would fail every other waiter with `CancelledError`). Done tasks are never reused (the dict is cleaned by a done-callback), and a `URLNotFound` on the shared task propagates to all waiters. Tests: `tests/test_core/test_url_l1_cache.py`, `tests/test_core/test_redirect_singleflight.py`.
+
+### 429s — no Retry-After, no RateLimit-* headers
+
+**Files:** `redis.py` (`TOKEN_BUCKET_LUA` returns `{allowed, tokens, last_updated}`, `RateLimitResult`, `rate_limit_headers`), `shared/middleware/rate_limit.py`, `identity/routes/auth.py` (`_enforce_auth_rate_limit`), `links/routes/redirect.py`, `links/services/redirect_service.py`, `shared/errors/base.py` (+ `common.py`), `main.py`
+
+RFC 6585 says a 429 **SHOULD** carry `Retry-After`; the de-facto standard adds the IETF `RateLimit-Limit/Remaing/Reset` trio. The token-bucket Lua returned only `1`/`0`, so nothing knew how long the caller should wait.
+
+- `TOKEN_BUCKET_LUA` now returns `{allowed, tokens, last_updated}`; `check_rate_limit` returns a `RateLimitResult` (`limited`, `remaining`, `retry_after_seconds`, `reset_after_seconds`) on **both** the Lua and the in-process fallback paths. Lua serializes a fractional token count as a bulk string (`"9.87"`) and an integral one as an integer — the parser accepts both.
+- `rate_limit_headers(result, limit)` builds `Retry-After` (ceiled, never 0) + the `RateLimit-*` trio. Every 429 emits them: the middleware (which **returns** a `JSONResponse` rather than raising — the "raise instead of return silently drops headers" rule applies to 429 headers too), `_enforce_auth_rate_limit`, the password-attempt limiter, and the redirect limiter via `RateLimitError(headers=…)` which `AppError` now carries through to `main.py`'s handler.
+- All five `check_rate_limit` call sites were migrated to `.limited`; the only other rate limiter (`webhook_receiver_service._check_rate_limit`, a soft-reject INCR window) is untouched by design — it is not a 429 path.
+- Tests: `tests/test_core/test_rate_limit_result.py` (Lua parse of both number shapes, fallback-parity, in-process state, middleware 429 headers).
+
+### Event publish — `url-created` could be lost at publish time
+
+**File:** `backend/src/shared/events/kafka.py`
+
+`_send_background` made one attempt, logged, and dropped — a Kafka blip (or a redelivery landing before the producer was up) silently lost events. Deliberate for **clicks** (high-volume, low-value-per-event, and AGENTS.md documents the best-effort choice), but `url-created` drives lifecycle side-effects — metadata enrichment is the consumer, and the metadata worker already DLQs on *its own* processing failure (`metadata_worker.py`).
+
+Fix: `_send_background` retries with a short backoff (0.5s/1s/2s) and, when the topic is in `DURABLE_TOPIC_DLQ` (`url-created → dlq-url-created`), copies the payload to the DLQ topic — which `dlq_replay_worker` already replays to `url-created` once Kafka recovers. That is at-least-once for lifecycle events without a transactional outbox; publish-time retries happen in the background task, so the API never waits. The DLQ publish itself is best-effort (a fully-down broker fails it too — the retries absorb short blips; a long outage is logged loudly). Non-durable topics still drop after retries, now with a clear error. Tests: `tests/test_events/test_kafka_producer.py` (DLQ on exhausted retries, key preserved, no DLQ on success / retry-success, clicks never DLQ'd).
+
+### Load testing — nothing existed
+
+**Files:** `load-tests/locustfile.py`, `load-tests/README.md` (new)
+
+The redirect path had zero load coverage. Locust scenario hammers **real** short codes with an 80/20 hot/cold mix (Pareto-shaped, matching real redirect share), measures the 302 itself (`allow_redirects=False`), and fails loudly on 404/410/429/unexpected. A `SpikeShape` ramps to N users in 10s to reproduce a viral-link moment (and can exercise singleflight by invalidating a hot code at peak). Runs via `uvx locust` — nothing added to `backend/pyproject.toml`; the scripts are dev artifacts.
+
 ## Audit Batch 3 — Idempotency, Cache Eviction, Rotation Ordering, Verification Lockout
 
 Four lowered-value audit items plus readiness work for the `REQUIRE_EMAIL_VERIFICATION` flag. The recurring theme this batch: **a control implemented as two dependent steps** (check-then-set, evict-in-a-loop, revoke-then-create, pre-check-then-INSERT) whose failure mode is a silent duplicate, a silent latency tax, a silent lockout, or a 500 where a 409 belongs.

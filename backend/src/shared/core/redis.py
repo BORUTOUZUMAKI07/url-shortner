@@ -1,6 +1,8 @@
 import asyncio
 import json
 import time
+from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -142,16 +144,52 @@ if tokens >= requested then
     tokens = tokens - requested
     redis.call('HMSET', key, 'tokens', tokens, 'last_updated', current_time)
     redis.call('EXPIRE', key, 86400)
-    return 1
+    return {1, tokens, current_time}
 else
     redis.call('HMSET', key, 'tokens', tokens, 'last_updated', current_time)
     redis.call('EXPIRE', key, 86400)
-    return 0
+    return {0, tokens, current_time}
 end
 """
 
 
-async def check_rate_limit(key: str, capacity: int, refill_rate_per_sec: float) -> bool:
+@dataclass
+class RateLimitResult:
+    """Outcome of a token-bucket check plus the state needed for 429 headers.
+
+    ``remaining`` and ``reset_after_seconds`` describe the bucket *after* this
+    request was counted; ``retry_after_seconds`` is how long the caller should
+    wait before one token refills (None when the request was allowed).
+    """
+
+    limited: bool
+    remaining: int
+    retry_after_seconds: float | None = None
+    reset_after_seconds: float = 0.0
+
+
+def rate_limit_headers(result: RateLimitResult, limit: int) -> dict[str, str]:
+    """Standard 429 headers: RFC 6585 ``Retry-After`` plus the IETF rate-limit
+    draft trio (``RateLimit-Limit`` / ``RateLimit-Remaining`` / ``RateLimit-Reset``,
+    reset expressed in delta-seconds). Every 429 the API emits should carry
+    these so well-behaved clients back off instead of hammering a refilling
+    bucket. ``RateLimit-Reset`` is capped at one bucket-full of refill time.
+    """
+    headers = {
+        "RateLimit-Limit": str(limit),
+        "RateLimit-Remaining": str(result.remaining),
+        "RateLimit-Reset": str(int(result.reset_after_seconds)),
+    }
+    if result.limited and result.retry_after_seconds is not None:
+        # ceil via int()+1: never advertise 0, and a fractional wait must round
+        # *up* so the client does not retry a millisecond too early.
+        headers["Retry-After"] = str(max(1, int(result.retry_after_seconds) + 1))
+    return headers
+
+
+async def check_rate_limit(key: str, capacity: int, refill_rate_per_sec: float) -> RateLimitResult:
+    """Token-bucket check. Returns the bucket state so callers can emit
+    Retry-After / RateLimit-* headers on a 429."""
     try:
         now = time.time()
         result = await redis_client.eval(
@@ -163,7 +201,23 @@ async def check_rate_limit(key: str, capacity: int, refill_rate_per_sec: float) 
             str(now),
             "1"
         )
-        return result == 0  # type: ignore[no-any-return]
+        # Redis serializes a Lua number with a fractional part as a bulk string
+        # ("9.87") and an integral one as an integer (9) — parse both shapes.
+        allowed = int(result[0])
+        tokens = float(result[1])
+        if allowed:
+            return RateLimitResult(
+                limited=False,
+                remaining=int(tokens),
+                retry_after_seconds=None,
+                reset_after_seconds=max(0.0, (float(capacity) - tokens) / refill_rate_per_sec),
+            )
+        return RateLimitResult(
+            limited=True,
+            remaining=int(tokens),
+            retry_after_seconds=max(0.0, (1.0 - tokens) / refill_rate_per_sec),
+            reset_after_seconds=max(0.0, (float(capacity) - tokens) / refill_rate_per_sec),
+        )
     except Exception as e:
         logger.error("Rate limit check failed for key %s (falling back to in-process limiter): %s", key, e)
         return await _limiter.token_bucket(key, float(capacity), refill_rate_per_sec)
@@ -197,8 +251,8 @@ class _InProcessLimiter:
             if quota_state[1] != today:
                 self._quotas.pop(qkey, None)
 
-    async def token_bucket(self, key: str, capacity: float, refill_rate: float) -> bool:
-        """Return True when the request is limited (mirrors check_rate_limit)."""
+    async def token_bucket(self, key: str, capacity: float, refill_rate: float) -> RateLimitResult:
+        """Return the bucket state (mirrors check_rate_limit's Lua path)."""
         async with self._lock:
             now = time.time()
             await self._prune(now)
@@ -211,9 +265,19 @@ class _InProcessLimiter:
             if tokens >= 1.0:
                 tokens -= 1.0
                 self._buckets[key] = [tokens, now]
-                return False
+                return RateLimitResult(
+                    limited=False,
+                    remaining=int(tokens),
+                    retry_after_seconds=None,
+                    reset_after_seconds=max(0.0, (capacity - tokens) / refill_rate),
+                )
             self._buckets[key] = [tokens, now]
-            return True
+            return RateLimitResult(
+                limited=True,
+                remaining=int(tokens),
+                retry_after_seconds=max(0.0, (1.0 - tokens) / refill_rate),
+                reset_after_seconds=max(0.0, (capacity - tokens) / refill_rate),
+            )
 
     async def consume_quota(self, key: str, quota: int) -> bool:
         """Atomically consume one unit of a daily quota; False when exhausted."""
@@ -236,11 +300,76 @@ async def in_process_consume_quota(key: str, quota: int) -> bool:
     return await _limiter.consume_quota(key, quota)
 
 
+class _InProcessUrlCache:
+    """L1 cache in front of Redis for redirect lookups.
+
+    The redirect hot path otherwise pays one Upstash REST HTTPS round trip
+    (~100-200ms) per hit just for the ``get_url_cache`` GET — even for codes
+    cached hours ago. This tiny process-local cache serves the hottest codes
+    without a network hop. Properties:
+
+      - **Short TTL** (seconds, vs the 24h Redis TTL): N-instance staleness
+        after a mutation is bounded and invisible — the downstream cache
+        already accepts up to 24h of staleness.
+      - **Bounded**: FIFO eviction past ``max_entries`` (dict preserves
+        insertion order, so the oldest-inserted key is first).
+      - **Lock-free**: CPython dict operations are atomic under the GIL; a
+        concurrent set/evict racing a get can only cause a redundant re-fetch,
+        never a torn read.
+      - **Caches only successes** (never failures), preserving the fail-open
+        semantics of ``get_url_cache``.
+    """
+
+    __slots__ = ("_data", "ttl_seconds", "max_entries", "_clock")
+
+    def __init__(self, ttl_seconds: float = 10.0, max_entries: int = 8192):
+        self.ttl_seconds = ttl_seconds
+        self.max_entries = max_entries
+        self._data: dict[str, tuple[float, dict]] = {}
+        self._clock = time.monotonic
+
+    def get(self, short_code: str) -> dict | None:
+        entry = self._data.get(short_code)
+        if entry is None:
+            return None
+        inserted_at, data = entry
+        if self._clock() - inserted_at >= self.ttl_seconds:
+            self._data.pop(short_code, None)
+            return None
+        return data
+
+    def set(self, short_code: str, data: dict) -> None:
+        if len(self._data) >= self.max_entries:
+            try:
+                self._data.pop(next(iter(self._data)))
+            except StopIteration:
+                pass
+        self._data[short_code] = (self._clock(), data)
+
+    def delete(self, short_code: str) -> None:
+        self._data.pop(short_code, None)
+
+    def delete_many(self, short_codes: Iterable[str]) -> None:
+        for code in short_codes:
+            self._data.pop(code, None)
+
+    def clear(self) -> None:
+        self._data.clear()
+
+
+_url_l1_cache = _InProcessUrlCache()
+
+
 async def get_url_cache(short_code: str) -> dict | None:
+    hit = _url_l1_cache.get(short_code)
+    if hit is not None:
+        return hit
     try:
         data = await redis_client.get(f"url:{short_code}")
         if data:
-            return json.loads(data)  # type: ignore[no-any-return]
+            parsed: dict = json.loads(data)
+            _url_l1_cache.set(short_code, parsed)
+            return parsed
         return None
     except Exception as e:
         logger.debug("Cache read failed for %s: %s", short_code, e)
@@ -248,6 +377,9 @@ async def get_url_cache(short_code: str) -> dict | None:
 
 
 async def set_url_cache(short_code: str, url_data: dict, ttl: int = 86400) -> None:
+    # Populate L1 with the freshly-fetched row so the next hit skips Redis.
+    # The L1 entry is bounded by its own (much shorter) TTL regardless of ttl.
+    _url_l1_cache.set(short_code, url_data)
     try:
         await redis_client.setex(f"url:{short_code}", ttl, json.dumps(url_data))
     except Exception as e:
@@ -255,6 +387,7 @@ async def set_url_cache(short_code: str, url_data: dict, ttl: int = 86400) -> No
 
 
 async def delete_url_cache(short_code: str) -> None:
+    _url_l1_cache.delete(short_code)
     try:
         await redis_client.delete(f"url:{short_code}")
     except Exception as e:
@@ -270,6 +403,7 @@ async def delete_url_caches(short_codes: list[str]) -> None:
     """
     if not short_codes:
         return
+    _url_l1_cache.delete_many(short_codes)
     try:
         await redis_client.delete_many(*(f"url:{code}" for code in short_codes))
     except Exception as e:
