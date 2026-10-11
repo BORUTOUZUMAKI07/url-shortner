@@ -21,6 +21,23 @@ _CUTOFF_KEY = "aggregation:last_cutoff"
 _WATERMARK_KEY = "url_clicked_rollup"
 _last_cutoff: datetime | None = None
 
+# One-instance-at-a-time gate for the rollup cycle. The rollup ADDS to totals
+# (upsert_rollup), so two workers that read the same watermark would both apply
+# the same Mongo window and permanently double-count. setnx is ONE atomic
+# decision — a loser skips its cycle, and the next cycle re-reads the winner's
+# committed watermark from Postgres via _load_cutoff. This is the webhook
+# consumer's claim trick; no generic distributed lock is needed.
+#
+# The TTL only matters for a hard kill mid-window, and it is safe precisely
+# because the watermark is written in the SAME transaction as the rollups: a
+# killed window was never committed, so re-processing it after the claim
+# expires re-counts nothing. It must exceed the longest possible window
+# (Mongo aggregation + per-URL upserts for a 60s window normally take seconds).
+_CLAIM_KEY = "aggregation:rollup:claim"
+_CLAIM_TTL_SECONDS = 300
+
+logger = get_logger(__name__)
+
 # Soft-delete → hard-delete housekeeping (formerly the cleanup_worker).
 # Runs once per hour inside this process instead of a dedicated poller.
 _PURGE_INTERVAL = 3600          # seconds between purge runs
@@ -31,13 +48,17 @@ _last_purge_ts: float = 0.0
 async def _load_cutoff() -> datetime | None:
     """Read the watermark from Postgres, which is the source of truth.
 
-    The Redis copy is a cache of that row, so falling back to it only matters
-    for a database that predates the watermark table. Reading one primary-key
-    row once per 60s cycle costs nothing.
+    Read every cycle, not once per process: after a cycle was skipped because
+    another worker held the claim, the cursor must resume from the winner's
+    committed watermark — a process-local value could predate it and re-apply
+    the winner's window, which double-counts (upsert_rollup ADDS). One
+    primary-key row per 60s cycle costs nothing; the old comment even claimed
+    this behaviour while the code only queried once per process lifetime.
+
+    On a Postgres failure the in-memory cursor (kept current by _save_cutoff)
+    stands in, then the pre-migration Redis key; neither can be ahead of Postgres.
     """
     global _last_cutoff
-    if _last_cutoff is not None:
-        return _last_cutoff
     try:
         async with AsyncSessionLocal() as db:
             stored = await AnalyticsRepository(db).get_watermark(_WATERMARK_KEY)
@@ -46,6 +67,8 @@ async def _load_cutoff() -> datetime | None:
             return _last_cutoff
     except Exception:
         pass
+    if _last_cutoff is not None:
+        return _last_cutoff
     # Fallback: the pre-migration Redis cursor.
     try:
         raw = await redis_client.get(_CUTOFF_KEY)
@@ -65,7 +88,46 @@ async def _save_cutoff(cutoff: datetime) -> None:
         pass
 
 
+async def _try_claim() -> bool:
+    """Attempt to take the one-at-a-time rollup claim.
+
+    Fails OPEN: a Redis outage must not stall analytics. Deployments run one
+    worker instance, analytics is best-effort, and the claim only matters when
+    scaled past one instance — with Redis up.
+    """
+    try:
+        return await redis_client.setnx(_CLAIM_KEY, _CLAIM_TTL_SECONDS, "1")
+    except Exception as e:
+        logger.warning("Rollup claim unavailable (Redis down); proceeding without it: %s", e)
+        return True
+
+
+async def _release_claim() -> None:
+    try:
+        await redis_client.delete(_CLAIM_KEY)
+    except Exception as e:
+        logger.warning("Could not release rollup claim: %s", e)
+
+
 async def run_aggregation_rollup(logger):
+    # Claim the window BEFORE reading the cursor — claim-then-read is the only
+    # order that works. A worker that reads the watermark first and decides
+    # after could read the same value as a concurrent instance and both apply
+    # the same window, double-counting the totals.
+    if not await _try_claim():
+        logger.info("Rollup claim held by another worker; skipping this cycle.")
+        return
+    try:
+        await _run_rollup(logger)
+    finally:
+        # Always release, even on failure: the window was never committed (the
+        # watermark is written in the same transaction as the rollups), so the
+        # next cycle re-does it from the still-old watermark. Releasing here
+        # also keeps container tests unblocked.
+        await _release_claim()
+
+
+async def _run_rollup(logger):
     match: dict[str, object] = {}
     cutoff = await _load_cutoff()
     if cutoff:

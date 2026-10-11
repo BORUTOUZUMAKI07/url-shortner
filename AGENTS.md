@@ -79,6 +79,21 @@ Fix: `_send_background` retries with a short backoff (0.5s/1s/2s) and, when the 
 
 The redirect path had zero load coverage. Locust scenario hammers **real** short codes with an 80/20 hot/cold mix (Pareto-shaped, matching real redirect share), measures the 302 itself (`allow_redirects=False`), and fails loudly on 404/410/429/unexpected. A `SpikeShape` ramps to N users in 10s to reproduce a viral-link moment (and can exercise singleflight by invalidating a hot code at peak). Runs via `uvx locust` — nothing added to `backend/pyproject.toml`; the scripts are dev artifacts.
 
+## Backend Batch 2026-10-11 — Aggregation Rollup Single-Worker Claim
+
+Follow-up to the concurrency review: the rollup was the one worker with no built-in coordination. It is a **polling** worker (60s loop), not a Kafka consumer, so nothing partitions its work — and `upsert_rollup` **ADDS** to totals, so two instances reading the same watermark would both apply the same Mongo window and permanently double-count.
+
+**File:** `backend/src/analytics/workers/aggregation_worker.py`
+
+Two changes, both needed together:
+
+- **`setnx` claim before reading the cursor.** `run_aggregation_rollup` now tries `_CLAIM_KEY` (`aggregation:rollup:claim`, TTL 300s) first — the webhook consumer's trick — and a loser skips its cycle. Claim-**then**-read is the only safe order: a worker that reads the watermark first, then decides, could read the same value as a concurrent instance. The TTL only matters for a hard kill mid-window, and it is safe because the watermark is written in the **same transaction** as the rollups — a killed window was never committed, so re-processing it after the claim expires re-counts nothing. The claim is released in a `finally`, so an exception never leaves the next cycle blocked for the full TTL. Fails **open** (Redis down → proceed without a claim): deployments run one instance and analytics is best-effort.
+- **The watermark is read authoritatively every cycle.** `_load_cutoff` used to cache Postgres into a process-global and never re-read it — the comment even claimed per-cycle reads while the code queried once per process lifetime. After a skipped cycle, a stale local cursor could predate the winner's committed watermark and re-apply the winner's window (the double-count the claim exists to prevent). Postgres is now read every cycle (one PK row / 60s); the in-memory cursor and Redis key remain as DB-down fallbacks.
+
+Also corrects a latent miss in the old empty-window path: an empty cycle advanced only the in-process/Redis cursor, so events arriving *after* that cycle's scan but with timestamps *before* its `now - 1s` were never aggregated by the old global-first logic; the per-cycle authoritative read picks them up.
+
+Tests: `tests/test_core/test_aggregation_claim.py` (claim-held skips without reading the cursor, success/error/empty paths release the claim, claim primitive fail-open + TTL args, authoritative per-cycle read + DB-down fallback) — 11 tests in the no-Docker core suite. The container rollup tests (`tests/test_workers.py`) are unaffected: the claim is released after every call and the per-cycle Postgres read equals or advances the previous cursor.
+
 ## Audit Batch 3 — Idempotency, Cache Eviction, Rotation Ordering, Verification Lockout
 
 Four lowered-value audit items plus readiness work for the `REQUIRE_EMAIL_VERIFICATION` flag. The recurring theme this batch: **a control implemented as two dependent steps** (check-then-set, evict-in-a-loop, revoke-then-create, pre-check-then-INSERT) whose failure mode is a silent duplicate, a silent latency tax, a silent lockout, or a 500 where a 409 belongs.
