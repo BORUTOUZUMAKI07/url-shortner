@@ -236,8 +236,8 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        {/* Upgrade / Verify cards */}
-        <div className="grid gap-4 sm:grid-cols-2">
+        {/* Email verification card */}
+        <div className="grid gap-4">
           {!user.is_verified && (
             <Card>
               <CardContent className="pt-6">

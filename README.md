@@ -59,7 +59,7 @@ Enterprise URL shortener with multi-tenant workspaces, click analytics, QR codes
 ### Security
 - Argon2 password hashing
 - JWT access + refresh token pair with Redis blacklisting
-- Rate limiting — Token-bucket (IP-level + user-level, tiered by plan)
+- Rate limiting — Token-bucket (IP-level + user-level)
 - RBAC middleware — Write-permission enforcement
 
 ---
@@ -125,7 +125,7 @@ All routes live under `/api/v1/` — the only exception is the redirect at `GET 
 | **API Keys** | `POST/GET /api-keys`, `DELETE /api-keys/{id}`, `POST /api-keys/{id}/rotate` |
 | **Bulk** | `POST /urls/bulk/create`, `GET /urls/bulk/export`, `GET /urls/bulk/qr` |
 | **Admin** | `POST /admin/seed` (bootstrap-token gated), `GET /admin/users`, `GET /admin/stats`, `PATCH /admin/users/{id}/toggle-superadmin`, `PATCH /admin/users/{id}/toggle-active` |
-| **Other** | `GET/POST /folders`, `GET/POST /tags`, `GET/POST /favorites`, `GET /audit-logs/...`, `POST /billing/upgrade` |
+| **Other** | `GET/POST /folders`, `GET/POST /tags`, `GET/POST /favorites`, `GET /audit-logs/...` |
 
 Redirect: `GET /{short_code}` — 302 redirect with support for password protection, A/B testing, and device-specific URLs.
 

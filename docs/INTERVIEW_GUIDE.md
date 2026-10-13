@@ -475,7 +475,7 @@ Every story follows **Situation → Task → Action → Result**. These are your
 **Task:** Actually enforce the daily quota without blocking API requests.
 
 **Action:**
-- Wired `verify_api_key_quota(api_key_id, user_plan)` into the API-key branch of `get_current_user`, so every API-key request checks quota.
+- Wired `verify_api_key_quota(api_key_id)` into the API-key branch of `get_current_user`, so every API-key request checks quota.
 - Implemented it with an **atomic Redis Lua script** (`CHECK_AND_INCREMENT`) — increment the counter, compare to `daily_limit`, return over/under in one round-trip (no check-then-set race).
 - Added an in-process `dict` fallback for when Redis is unavailable, so the API degrades gracefully instead of erroring.
 - Chose a non-blocking counter (increment-and-compare) rather than a token bucket per request — burst limits are still enforced, but we don't maintain per-key token state.
@@ -678,7 +678,6 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `core/client_ip.py` | The single X-Forwarded-For resolver used by rate limiting, audit, redirects, and the webhook receiver — rightmost entry when `TRUST_PROXY` is on, socket peer otherwise (Story 27). |
 | `core/api_key_auth.py` | API-key auth + quota helpers (`authenticate_api_key`, `verify_api_key_quota`) — standalone, not a FastAPI dependency. |
 | `core/geo_service.py` | IP → location resolution (ipinfo.io), Redis-cached. `_is_public_ip()` rejects private/loopback/link-local/reserved IPs and unwraps IPv4-mapped IPv6 — resolved **async in the analytics worker**, off the redirect hot path (Story 23). |
-| `core/user_plan.py` | `UserPlanResolver` abstraction + `DatabaseUserPlanResolver` (opens a session at call time, caches the user's plan for 60s). |
 | `core/base62.py` | Base62 encoding used for short codes. |
 | `core/metrics.py`, `core/tracing.py` | OpenTelemetry metrics + tracing init/instrumentation (OTel API, not the Prometheus client). |
 | `events/dispatcher.py`, `events/schemas.py` | Event publishing plumbing (`EventDispatcher`) + Avro schema serialize/deserialize/register. The `.avsc` files live in `backend/schemas/avro` and are force-included into the wheel (`pyproject.toml`) + copied in the Dockerfile, so serialization works in the installed image. |
@@ -687,7 +686,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `logging.py` | `setup_logging()` — console + file handler with graceful fallback (Story 4). |
 | `middleware/audit.py` | `AuditContextMiddleware` — attaches audit context (and the resolved client IP, Story 27) to requests. |
 | `middleware/metrics.py` | `MetricsMiddleware` — request metrics. |
-| `middleware/rate_limit.py` | `RateLimitMiddleware` — Redis-based rate limiting keyed on the shared client-IP resolver (Story 27); the user-plan lookup goes through an injected `UserPlanResolver` (sessions opened at call time, Story 2 fix). |
+| `middleware/rate_limit.py` | `RateLimitMiddleware` — Redis-based rate limiting keyed on the shared client-IP resolver (Story 27), with flat per-user limits for everyone. |
 | `middleware/tracing.py` | `TracingMiddleware` — OTel request tracing (Story 9). |
 | `workers/_sni_patch.py` | SNI monkey-patch for Python 3.13 Windows Kafka TLS — patches `wrap_socket` AND `wrap_bio` (Story 6). |
 | `workers/kafka_consumer_pool.py` | Kafka consumer pool with connection backoff. |
@@ -744,8 +743,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `models/analytics.py`, `models/audit_log.py`, `models/dead_letter.py` | Analytics summary, audit log, and Postgres DLQ table (`dead_letter_events`). |
 | `services/analytics_service.py` | Dashboard queries — summary from Postgres, breakdowns (browser/OS/device/geo/UTM/referrers) from Mongo aggregation. `days` (1–90) scopes the device/UTM/referrer breakdowns; device breakdown fetches total/unique/devices via `asyncio.gather`. |
 | `services/audit_service.py` | Audit logging. |
-| `services/billing_service.py` | Plan upgrade/downgrade — validates the target plan against `PlanEnum`, persists via `UserRepository`, invalidates the rate-limit plan cache. |
-| `routes/analytics.py`, `routes/audit_logs.py`, `routes/billing.py` | HTTP endpoints (note: `billing.py` is **plan upgrade only** — no payments/Stripe; handlers call `BillingService`). |
+| `routes/analytics.py`, `routes/audit_logs.py` | HTTP endpoints. |
 | `workers/analytics_worker.py` | Consumes `url-clicked` → parses user-agent → writes Mongo `ClickEvent` + upserts Postgres summary counters (Story 8). |
 | `workers/aggregation_worker.py` | Periodic 60s loop — aggregates Mongo click events → `URLAnalyticsSummary` in Postgres (the cross-DB write from Story 15). **Single writer** for click counters (Story 22); watermark = `max(clicked_at)` of the window persisted *after* DB writes so a crash re-runs the window instead of dropping it; uses shared shutdown helpers (Story 24). |
 | `repositories/analytics_repository.py`, `audit_log_repository.py` | DB queries for summaries/audit logs. |
@@ -769,7 +767,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `lib/utils.ts` | `cn()` helper (clsx + tailwind-merge). |
 | `store/auth.ts` | Zustand auth store (user, isLoading, setUser, logout). Re-exports the API's `User` type rather than redeclaring it — the hand-copied duplicate had already drifted (Story 29). |
 | `queries/index.ts` | TanStack Query hooks for a subset of resources — auth, urls, workspaces, folders, tags, api-keys, favorites, webhooks, audit-logs (18 hooks). |
-| `hooks/useDashboard.ts` | Dashboard data aggregation hook. "Active" stat uses a separate `status=active&limit=1` query's `total` (the 50-item list undercounts); API-key quota aggregated across the user's active keys against the plan limit. |
+| `hooks/useDashboard.ts` | Dashboard data aggregation hook. "Active" stat uses a separate `status=active&limit=1` query's `total` (the 50-item list undercounts); API-key quota aggregated across the user's active keys against the flat daily limit. |
 | `components/layout/sidebar.tsx` | App navigation sidebar. |
 | `components/ui/*` | Reusable UI kit (button, card, dialog, dropdown, input, select, table, tabs, etc.). |
 
@@ -785,7 +783,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `app/(authenticated)/urls/new/page.tsx` | Create URL form. |
 | `app/(authenticated)/urls/[id]/page.tsx` | URL detail. |
 | `app/(authenticated)/urls/[id]/analytics/page.tsx` | Per-URL click analytics charts. |
-| `app/(authenticated)/favorites`, `folders`, `tags`, `bulk`, `workspaces`, `webhooks`, `webhooks/receiver`, `api-keys`, `billing`, `audit-logs`, `admin`, `profile` | The rest of the feature pages. |
+| `app/(authenticated)/favorites`, `folders`, `tags`, `bulk`, `workspaces`, `webhooks`, `webhooks/receiver`, `api-keys`, `audit-logs`, `admin`, `profile` | The rest of the feature pages. |
 | Each folder's `loading.tsx` / `error.tsx` | Next.js loading and error UI states (note: `profile` and `login` have `loading.tsx` but no `error.tsx`). |
 
 ### Tests
