@@ -76,7 +76,6 @@ Every tool we used, why we picked it, and the plain-words explanation.
 | **TypeScript** | Type safety across the whole frontend. |
 | **Tailwind CSS** | Fast utility-first styling. |
 | **react-hook-form + zod** | Form state management + schema validation. |
-| **zustand** | Tiny, fast global state store (auth state). |
 | **motion (framer-motion)** | Animations. |
 | **lucide-react** | Icons. |
 | **vitest** | Fast unit tests for the frontend. |
@@ -600,7 +599,7 @@ Every story follows **Situation → Task → Action → Result**. These are your
 - **`SECRET_KEY` was allowed to be blank in production.** Every JWT and every webhook HMAC would be signed with a publicly known key. Added a pydantic validator that *hard-fails* when `ENVIRONMENT == "production"` and only warns otherwise, so tests and local dev keep working.
 - Turning that on immediately broke CI, and the reason was itself a finding: **`ENVIRONMENT` was never set in CI, so every test run booted as `production`** (the config default). CI and the nightly workflow now set `ENVIRONMENT=test` explicitly.
 - The refresh cookie outlived the refresh JWT by 23 days: the cookie TTL was hard-coded while the token expiry was separate. Both are now config-driven (`REFRESH_TOKEN_EXPIRE_DAYS`, `REFRESH_COOKIE_MAX_AGE`), with a validator forbidding the cookie outliving the token. The *access* cookie deliberately outlives the access token — that is what makes silent refresh work — so it is not aligned.
-- `users.role` was a global permission column with **zero readers**; real authorization runs off `workspace_members.role`. Removed the column, its enum, the `core/rbac.py` helper, the `middleware/rbac.py` shim, the dead `core/event_dispatcher.py` alias, and their tests. The frontend had a second, hand-copied `User` interface that had already drifted — it now re-exports the API type.
+- `users.role` was a global permission column with **zero readers**; real authorization runs off `workspace_members.role`. Removed the column, its enum, the `core/rbac.py` helper, the `middleware/rbac.py` shim, the dead `core/event_dispatcher.py` alias, and their tests. The frontend had a second, hand-copied `User` interface that had already drifted — it was made to re-export the API type. (The store itself was removed outright in a later pass; `useMe()` is now the single auth source of truth.)
 
 **Result:** Production cannot boot with a blank signing key, CI runs in the environment it believes it does, and a misleading column that displayed a fake "Role" in the profile UI is gone. Lesson: **a column with no readers is a lie your UI tells your users.** And when a guard you just added fires in CI, ask *why it was asleep* before you relax it.
 
@@ -761,12 +760,10 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 |---|---|
 | `proxy.ts` | Next.js proxy (replaced middleware.ts, Next 16 convention) — validates tokens, manages cookies on the server side. |
 | `lib/api.ts` | API client — fetch wrapper, `auth.refresh` via HttpOnly cookie, `auth.exchangeOauth` (Story 20), `csvEscape` for bulk CSV, error handling. |
-| `lib/auth-prefetcher.tsx` | Prefetches the `me` auth query into the React Query cache on mount (renders null); used in the authenticated layout. |
 | `lib/providers.tsx` | React Query provider wrapper. |
 | `lib/schemas.ts` | Zod validation schemas shared by forms. |
 | `lib/utils.ts` | `cn()` helper (clsx + tailwind-merge). |
-| `store/auth.ts` | Zustand auth store (user, isLoading, setUser, logout). Re-exports the API's `User` type rather than redeclaring it — the hand-copied duplicate had already drifted (Story 29). |
-| `queries/index.ts` | TanStack Query hooks for a subset of resources — auth, urls, workspaces, folders, tags, api-keys, favorites, webhooks, audit-logs (18 hooks). |
+| `queries/index.ts` | TanStack Query hooks for a subset of resources — auth, urls, workspaces, folders, tags, api-keys, favorites, webhooks, audit-logs (16 hooks). `useMe()` (the shared `["me"]` query) is the single auth source of truth; there is no separate auth store. |
 | `hooks/useDashboard.ts` | Dashboard data aggregation hook. "Active" stat uses a separate `status=active&limit=1` query's `total` (the 50-item list undercounts); API-key quota aggregated across the user's active keys against the flat daily limit. |
 | `components/layout/sidebar.tsx` | App navigation sidebar. |
 | `components/ui/*` | Reusable UI kit (button, card, dialog, dropdown, input, select, table, tabs, etc.). |
@@ -777,7 +774,7 @@ The pattern everywhere is: **routes → services → repositories → models**. 
 | `app/layout.tsx` | Root layout + providers. |
 | `app/page.tsx` | Public landing page (marketing). |
 | `app/login/page.tsx`, `register`, `forgot-password`, `reset-password`, `verify-email` | Auth pages (Story 12 for the cookie/OAuth flow). |
-| `app/(authenticated)/layout.tsx` | Protected app shell — `<Sidebar>` + `<AuthPrefetcher>` (the auth guard is per-page via `auth.me()`). |
+| `app/(authenticated)/layout.tsx` | Protected app shell — `<Sidebar>`; the auth guard is per-page via `useMe()`. |
 | `app/(authenticated)/dashboard/page.tsx` | Overview analytics. |
 | `app/(authenticated)/urls/page.tsx` | URL list + search/filters. |
 | `app/(authenticated)/urls/new/page.tsx` | Create URL form. |
