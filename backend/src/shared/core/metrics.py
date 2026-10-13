@@ -18,7 +18,6 @@ class URLShortenerMetrics:
     url_redirects_total: Counter
     cache_hits_total: Counter
     cache_misses_total: Counter
-    api_key_requests_total: Counter
     analytics_events_processed_total: Counter
     kafka_messages_produced_total: Counter
     kafka_messages_consumed_total: Counter
@@ -70,12 +69,6 @@ class URLShortenerMetrics:
         self.cache_misses_total = meter.create_counter(
             name="cache_misses_total",
             description="Total Redis cache misses",
-            unit="1",
-        )
-
-        self.api_key_requests_total = meter.create_counter(
-            name="api_key_requests_total",
-            description="Total API key authenticated requests",
             unit="1",
         )
 
@@ -200,15 +193,6 @@ def record_cache_operation(operation: str, hit: bool, duration_seconds: float):
     else:
         m.cache_misses_total.add(1, attributes=attributes)
     m.cache_lookup_duration_seconds.record(duration_seconds, attributes=attributes)
-
-
-def record_api_key_request(api_key_id: int, user_plan: str):
-    """Record API key authenticated request."""
-    m = get_metrics()
-    m.api_key_requests_total.add(1, attributes={
-        "api_key_id": str(api_key_id),
-        "user_plan": user_plan,
-    })
 
 
 def record_analytics_event(event_type: str, topic: str):

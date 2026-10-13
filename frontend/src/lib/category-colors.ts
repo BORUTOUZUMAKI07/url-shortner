@@ -16,7 +16,6 @@ export const CATEGORY_COLORS = {
   webhooks: { chip: "bg-cyan-500/10 text-cyan-600", active: "bg-cyan-500/10 text-cyan-600", dot: "bg-cyan-500" },
   bulk: { chip: "bg-teal-500/10 text-teal-600", active: "bg-teal-500/10 text-teal-600", dot: "bg-teal-500" },
   auditLogs: { chip: "bg-slate-500/10 text-slate-600", active: "bg-slate-500/10 text-slate-600", dot: "bg-slate-500" },
-  billing: { chip: "bg-amber-500/10 text-amber-600", active: "bg-amber-500/10 text-amber-600", dot: "bg-amber-500" },
   profile: { chip: "bg-slate-500/10 text-slate-600", active: "bg-slate-500/10 text-slate-600", dot: "bg-slate-500" },
   admin: { chip: "bg-fuchsia-500/10 text-fuchsia-600", active: "bg-fuchsia-500/10 text-fuchsia-600", dot: "bg-fuchsia-500" },
   analytics: { chip: "bg-rose-500/10 text-rose-600", active: "bg-rose-500/10 text-rose-600", dot: "bg-rose-500" },
@@ -36,7 +35,6 @@ export function categoryForPath(pathname: string): CategoryKey {
   if (pathname.startsWith("/webhooks")) return "webhooks"
   if (pathname.startsWith("/bulk")) return "bulk"
   if (pathname.startsWith("/audit-logs")) return "auditLogs"
-  if (pathname.startsWith("/billing")) return "billing"
   if (pathname.startsWith("/profile")) return "profile"
   if (pathname.startsWith("/admin")) return "admin"
   return "urls"

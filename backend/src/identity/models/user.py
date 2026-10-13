@@ -1,16 +1,10 @@
-import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, String
+from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.shared.core.base import Base
 
-
-class PlanEnum(str, enum.Enum):
-    free = "free"
-    premium = "premium"
-    enterprise = "enterprise"
 
 class User(Base):
     __tablename__ = "users"
@@ -24,7 +18,6 @@ class User(Base):
     # instead of waiting out their access token. Previously users could only be
     # hard-deleted, which cascades away all their workspaces and audit links.
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", index=True)
-    plan: Mapped[PlanEnum] = mapped_column(Enum(PlanEnum), default=PlanEnum.free)
     is_superadmin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 

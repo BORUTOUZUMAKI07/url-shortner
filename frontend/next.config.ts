@@ -24,7 +24,7 @@ const nextConfig: NextConfig = {
         destination: `${BACKEND_URL}/api/:path*`,
       },
       {
-        source: "/:short_code((?!login|register|forgot-password|reset-password|verify-email|dashboard|urls|workspaces|folders|tags|favorites|api-keys|webhooks|bulk|audit-logs|billing|profile|admin|_next|favicon).*)",
+        source: "/:short_code((?!login|register|forgot-password|reset-password|verify-email|dashboard|urls|workspaces|folders|tags|favorites|api-keys|webhooks|bulk|audit-logs|profile|admin|_next|favicon).*)",
         destination: `${BACKEND_URL}/:short_code`,
       },
     ]

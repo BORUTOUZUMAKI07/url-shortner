@@ -126,11 +126,11 @@ async def main(keep_email: str, execute: bool, assume_yes: bool) -> int:
         # this would break outright whenever the app is ahead of the schema
         # (e.g. a migration from this same batch not yet applied).
         keep_row = (await session.execute(
-            text("SELECT id, email, plan, is_superadmin FROM users WHERE email = :e"),
+            text("SELECT id, email, is_superadmin FROM users WHERE email = :e"),
             {"e": keep_email},
         )).first()
         keep = SimpleNamespace(
-            id=int(keep_row[0]), email=keep_row[1], plan=keep_row[2], is_superadmin=keep_row[3]
+            id=int(keep_row[0]), email=keep_row[1], is_superadmin=keep_row[2]
         ) if keep_row else None
         if keep is None:
             print(f"ERROR: no user with email {keep_email!r}. Nothing deleted.")
@@ -164,7 +164,7 @@ async def main(keep_email: str, execute: bool, assume_yes: bool) -> int:
         }
         victims = len(doomed_users)
 
-        print(f"KEEPING  {keep.email}  (id={keep.id}, plan={keep.plan}, superadmin={keep.is_superadmin})")
+        print(f"KEEPING  {keep.email}  (id={keep.id}, superadmin={keep.is_superadmin})")
         print(f"DELETING {victims} other user(s)\n")
         print("Rows to be deleted, by table:")
         print("-" * 58)

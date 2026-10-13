@@ -5,8 +5,8 @@ import Link from "next/link"
 import { motion, useInView } from "motion/react"
 import {
   Link2, BarChart3, Users, Upload, Key, Shield,
-  Check, ChevronDown,
-  ArrowRight, Sparkles, Zap, Code,
+  ChevronDown,
+  ArrowRight, Sparkles, Code,
 } from "lucide-react"
 
 const features = [
@@ -22,25 +22,9 @@ const features = [
 
 
 
-const plans = [
-  {
-    name: "Free", price: "$0", desc: "Perfect for getting started",
-    features: ["100 URLs/month", "Basic analytics", "5 custom aliases", "QR codes"],
-  },
-  {
-    name: "Pro", price: "$9", desc: "For professionals and teams",
-    features: ["10,000 URLs/month", "Advanced analytics", "Unlimited aliases", "Team workspaces", "API access", "Priority support"],
-    popular: true,
-  },
-  {
-    name: "Enterprise", price: "$29", desc: "For large organizations",
-    features: ["Unlimited URLs", "Real-time analytics", "SSO & SAML", "Audit logs", "Dedicated support", "Custom integrations"],
-  },
-]
-
 const faqs = [
-  { q: "Is there a free plan?", a: "Yes! Our Free plan includes 100 URLs per month with basic analytics and QR codes." },
-  { q: "Can I use my own domain?", a: "Custom domains are available on Pro and Enterprise plans." },
+  { q: "How much does LinkForge cost?", a: "LinkForge is free — create unlimited short links, workspaces, QR codes, and more." },
+  { q: "Can I use my own domain?", a: "Yes — custom aliases and link domains are supported." },
   { q: "How does team collaboration work?", a: "Create workspaces, invite team members, and manage roles and permissions." },
   { q: "Is there an API?", a: "Yes, we have a full REST API with auto-generated API keys and rate limiting." },
   { q: "What kind of analytics do you provide?", a: "Track clicks, devices, browsers, geographic locations, and referrer data in real-time." },
@@ -205,60 +189,6 @@ export default function Home() {
       </section>
 
 
-
-      <section id="pricing" className="border-t border-stone-200/50 px-6 py-24">
-        <div className="mx-auto max-w-6xl">
-          <AnimatedSection>
-            <p className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Pricing</p>
-            <h2 className="mt-3 text-center text-3xl font-heading font-semibold text-stone-900 sm:text-4xl">
-              Simple, transparent pricing
-            </h2>
-            <p className="mx-auto mt-4 max-w-xl text-center text-stone-500">
-              Start free, upgrade as you grow.
-            </p>
-          </AnimatedSection>
-          <div className="mt-16 grid gap-8 lg:grid-cols-3">
-            {plans.map((plan, i) => (
-              <motion.div
-                key={plan.name}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: i * 0.15 }}
-                className={`relative rounded-xl border p-8 transition-all hover:-translate-y-1 ${plan.popular ? "border-emerald-500/50 bg-white shadow-lg shadow-emerald-900/5" : "border-stone-200 bg-white hover:shadow-sm"}`}
-              >
-                {plan.popular && (
-                  <div className="absolute -top-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-emerald-600 px-4 py-1 text-xs font-medium text-white shadow-sm">
-                    <Zap className="size-3" /> Most Popular
-                  </div>
-                )}
-                <h3 className="text-lg font-semibold text-stone-900">{plan.name}</h3>
-                <div className="mt-4 flex items-baseline gap-1">
-                  <span className="font-heading text-4xl font-semibold text-stone-900">{plan.price}</span>
-                  <span className="text-sm text-stone-500">/month</span>
-                </div>
-                <p className="mt-2 text-sm text-stone-500">{plan.desc}</p>
-                <ul className="mt-6 space-y-3">
-                  {plan.features.map((f) => (
-                    <li key={f} className="flex items-start gap-2.5 text-sm text-stone-600">
-                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
-                        <Check className="size-2.5" strokeWidth={3} />
-                      </span>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <Link
-                  href="/register"
-                  className={`mt-8 flex h-11 w-full items-center justify-center rounded-lg text-sm font-medium transition-colors ${plan.popular ? "bg-emerald-600 text-white hover:bg-emerald-700" : "border border-stone-300 bg-stone-50 text-stone-700 hover:bg-stone-100"}`}
-                >
-                  Get Started
-                </Link>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
 
       <section className="border-t border-stone-200/50 px-6 py-24">
         <div className="mx-auto max-w-3xl">

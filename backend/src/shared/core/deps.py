@@ -23,7 +23,6 @@ from src.analytics.repositories.analytics_repository import AnalyticsRepository
 from src.analytics.repositories.audit_log_repository import AuditLogRepository
 from src.analytics.services.analytics_service import AnalyticsService
 from src.analytics.services.audit_service import AuditService
-from src.analytics.services.billing_service import BillingService
 from src.identity.models.api_key import APIKeyStatus
 from src.identity.repositories.api_key_repository import APIKeyRepository
 from src.identity.repositories.user_repository import UserRepository
@@ -99,7 +98,7 @@ async def get_current_user(
         if not user.is_active:
             raise UnauthorizedError("Account is deactivated")
         # Enforce the daily per-key quota (previously defined but never wired in).
-        await verify_api_key_quota(key_record.id, user.plan)
+        await verify_api_key_quota(key_record.id)
         return user
 
     # JWT auth
@@ -153,10 +152,6 @@ async def get_profile_service(
     audit: AuditService = Depends(get_audit_service),
 ) -> ProfileService:
     return ProfileService(repo=UserRepository(db), audit=audit)
-
-
-async def get_billing_service(db: AsyncSession = Depends(get_db)) -> BillingService:
-    return BillingService(repo=UserRepository(db))
 
 
 async def get_admin_service(db: AsyncSession = Depends(get_db)) -> AdminService:
@@ -247,10 +242,7 @@ async def get_analytics_service(db: AsyncSession = Depends(get_db)) -> Analytics
 
 
 async def get_api_key_service(db: AsyncSession = Depends(get_db)) -> APIKeyService:
-    return APIKeyService(
-        repo=APIKeyRepository(db),
-        user_repo=UserRepository(db),
-    )
+    return APIKeyService(repo=APIKeyRepository(db))
 
 
 async def get_bulk_service(db: AsyncSession = Depends(get_db)) -> BulkService:

@@ -167,8 +167,8 @@ class TestSettingsEdgeCases:
 
     def test_rate_limit_user_defaults(self):
         s = _settings()
-        assert s.RATE_LIMIT_USER_FREE_CAPACITY == 100
-        assert s.RATE_LIMIT_USER_PREMIUM_CAPACITY == 1000
+        assert s.RATE_LIMIT_USER_CAPACITY == 100
+        assert s.RATE_LIMIT_USER_REFILL == 1.67
 
     def test_smtp_password_default_empty(self):
         s = _settings()

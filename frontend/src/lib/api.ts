@@ -139,7 +139,7 @@ export async function apiFetchBlob(path: string, options: RequestInit = {}): Pro
   return res.blob()
 }
 export interface User {
-  id: number; email: string; is_verified: boolean; is_active: boolean; plan: string; is_superadmin: boolean; avatar_url: string | null; created_at: string
+  id: number; email: string; is_verified: boolean; is_active: boolean; is_superadmin: boolean; avatar_url: string | null; created_at: string
 }
 export interface Token { access_token: string; refresh_token?: string; token_type: string }
 /** Bulk create reports per-row failures alongside the success count.
@@ -415,11 +415,6 @@ export const profileApi = {
     apiFetch<{ detail: string }>("/profile/email", { method: "PUT", body: JSON.stringify({ new_email, current_password }) }),
   uploadAvatar: (avatar: string) =>
     apiFetch<{ detail: string; avatar_url: string }>("/profile/avatar", { method: "POST", body: JSON.stringify({ avatar }) }),
-}
-
-export const billingApi = {
-  upgrade: (plan: string) =>
-    apiFetch<{ detail: string; plan: string }>("/billing/upgrade", { method: "POST", body: JSON.stringify({ plan }) }),
 }
 
 export const webhookReceiverApi = {

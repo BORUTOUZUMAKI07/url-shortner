@@ -3,7 +3,7 @@ import { render, screen } from "@/test/test-utils"
 import ProfilePage from "@/app/(authenticated)/profile/page"
 
 const { mockUser } = vi.hoisted(() => {
-  const mockUser = { id: 1, email: "test@test.com", is_verified: true, is_active: true, plan: "free", is_superadmin: false, avatar_url: null, created_at: "2024-01-01" }
+  const mockUser = { id: 1, email: "test@test.com", is_verified: true, is_active: true, is_superadmin: false, avatar_url: null, created_at: "2024-01-01" }
   return { mockUser }
 })
 
@@ -38,17 +38,13 @@ describe("ProfilePage", () => {
 
   it("renders user details", async () => {
     render(<ProfilePage />)
-    expect(await screen.findByText("free")).toBeDefined()
     expect(await screen.findByText("Yes")).toBeDefined()
     // The global-role row was removed: users.role had no readers and workspace
     // authorisation actually runs off workspace_members.role, so displaying it
-    // here as "Role" was misleading.
+    // here as "Role" was misleading. The plan row went the same way when the
+    // tier system was removed.
     expect(screen.queryByText("Role")).toBeNull()
-  })
-
-  it("renders upgrade plan card", async () => {
-    render(<ProfilePage />)
-    expect(await screen.findByText("Upgrade Plan")).toBeDefined()
+    expect(screen.queryByText(/plan/i)).toBeNull()
   })
 
   it("renders upload avatar button", async () => {

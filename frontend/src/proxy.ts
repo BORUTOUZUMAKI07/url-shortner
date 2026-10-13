@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server"
 const protectedPaths = [
   "/dashboard", "/urls", "/favorites", "/workspaces",
   "/folders", "/tags", "/api-keys", "/webhooks",
-  "/bulk", "/audit-logs", "/billing", "/profile", "/admin",
+  "/bulk", "/audit-logs", "/profile", "/admin",
 ]
 
 const authPaths = ["/login", "/forgot-password", "/reset-password"]

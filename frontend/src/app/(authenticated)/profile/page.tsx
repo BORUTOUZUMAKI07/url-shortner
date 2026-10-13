@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { auth, getErrorMessage, profileApi } from "@/lib/api"
 import { useMe } from "@/queries"
-import { User, Mail, Crown, CalendarDays, CheckCircle, XCircle, ExternalLink, Lock, Camera, Loader2, AlertCircle, Check } from "lucide-react"
+import { User, Mail, CalendarDays, CheckCircle, XCircle, Lock, Camera, Loader2, AlertCircle, Check } from "lucide-react"
 
 const passwordSchema = z.object({
   pwCurrent: z.string().min(1, "Current password is required"),
@@ -124,7 +124,6 @@ export default function ProfilePage() {
   const details = [
     { label: "Email", value: user.email, icon: Mail },
     { label: "User ID", value: `#${user.id}`, icon: User },
-    { label: "Plan", value: user.plan, icon: Crown, badge: true, badgeColor: user.plan === "free" ? "secondary" as const : "success" as const },
     { label: "Joined", value: new Date(user.created_at).toLocaleDateString(), icon: CalendarDays },
     { label: "Verified", value: user.is_verified ? "Yes" : "No", icon: user.is_verified ? CheckCircle : XCircle, badge: true, badgeColor: user.is_verified ? "success" as const : "warning" as const },
   ]
@@ -270,16 +269,6 @@ export default function ProfilePage() {
               </CardContent>
             </Card>
           )}
-          <Card className="cursor-pointer hover:bg-muted/30" onClick={() => router.push("/billing")}>
-            <CardContent className="flex items-center gap-4 pt-6">
-              <Crown className="size-6 text-amber-600" />
-              <div className="flex-1">
-                <p className="text-sm font-medium">Upgrade Plan</p>
-                <p className="text-xs text-muted-foreground">You&apos;re on the {user.plan} plan</p>
-              </div>
-              <ExternalLink className="size-4 text-muted-foreground" />
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>

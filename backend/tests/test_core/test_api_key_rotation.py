@@ -5,7 +5,6 @@ one. Any failure in that second half — a DB blip on create, a crash between th
 two statements — left the user with no working key at all until they generated
 one manually. The Argon2 hash is deliberately computed before any DB write.
 """
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -56,7 +55,7 @@ class RecordingKeyRepo:
 
 
 async def _rotate(repo):
-    return await APIKeyService(repo=repo, user_repo=AsyncMock()).rotate(5, 7)
+    return await APIKeyService(repo=repo).rotate(5, 7)
 
 
 async def test_rotation_creates_new_key_before_revoking_old():

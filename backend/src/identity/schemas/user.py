@@ -3,8 +3,6 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from src.identity.models.user import PlanEnum
-
 
 class UserCreate(BaseModel):
     email: EmailStr = Field(description="User email address")
@@ -25,7 +23,6 @@ class UserResponse(BaseModel):
     email: EmailStr
     is_verified: bool
     is_active: bool
-    plan: PlanEnum
     is_superadmin: bool
     avatar_url: str | None = None
     created_at: datetime

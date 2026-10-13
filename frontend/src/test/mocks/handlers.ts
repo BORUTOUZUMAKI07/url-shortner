@@ -7,7 +7,6 @@ export const mockUser = {
   email: "test@test.com",
   is_verified: true,
   is_active: true,
-  plan: "free",
   is_superadmin: false,
   avatar_url: null,
   created_at: "2024-01-01T00:00:00Z",
@@ -269,10 +268,6 @@ export const handlers = [
 
   http.post(`${API}/profile/avatar`, () =>
     HttpResponse.json({ detail: "Avatar uploaded", avatar_url: "https://cdn.example.com/avatar.png" })
-  ),
-
-  http.post(`${API}/billing/upgrade`, () =>
-    HttpResponse.json({ detail: "Upgraded", plan: "pro" })
   ),
 
   http.get(`${API}/audit-logs/workspace/:workspaceId`, () =>

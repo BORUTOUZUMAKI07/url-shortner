@@ -21,8 +21,9 @@ logger = get_logger(__name__)
 class APIKeyQuotaManager:
     """Manages API key quota tracking and enforcement."""
 
-    QUOTA_FREE = 1_000  # 1,000 requests/day for free tier
-    QUOTA_PREMIUM = 100_000  # 100,000 requests/day for premium tier
+    # One flat daily budget for every user — the free/premium split that used to
+    # live here is gone (see AGENTS.md, tier removal).
+    DAILY_QUOTA = 1_000  # requests/day
 
     # Atomic check-and-increment: returns 1 and increments when the quota is
     # available, otherwise 0 without incrementing. Eliminates the race between
@@ -41,16 +42,9 @@ return 1
 """
 
     @staticmethod
-    def get_quota_for_user(user_plan: str) -> int:
-        """Get daily quota based on user's plan."""
-        if user_plan in ("premium", "enterprise"):
-            return APIKeyQuotaManager.QUOTA_PREMIUM
-        return APIKeyQuotaManager.QUOTA_FREE
-
-    @staticmethod
-    async def get_remaining_quota(api_key_id: int, user_plan: str) -> int:
+    async def get_remaining_quota(api_key_id: int) -> int:
         """Get remaining quota for today."""
-        quota = APIKeyQuotaManager.get_quota_for_user(user_plan)
+        quota = APIKeyQuotaManager.DAILY_QUOTA
         redis_key = f"api_key_quota:{api_key_id}:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
 
         current_usage = await redis_client.get(redis_key)
@@ -102,13 +96,13 @@ async def authenticate_api_key(request: Request) -> tuple[User, APIKey]:
         return user, api_key
 
 
-async def verify_api_key_quota(api_key_id: int, user_plan: str) -> None:
+async def verify_api_key_quota(api_key_id: int) -> None:
     """
     Verify that API key has remaining quota, atomically consuming one request.
     Raises RateLimitError when the daily quota is exhausted.
     Falls back to a process-local counter when Redis is unreachable.
     """
-    quota = APIKeyQuotaManager.get_quota_for_user(user_plan)
+    quota = APIKeyQuotaManager.DAILY_QUOTA
     redis_key = f"api_key_quota:{api_key_id}:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
     try:
         allowed = await redis_client.eval(
@@ -123,7 +117,7 @@ async def verify_api_key_quota(api_key_id: int, user_plan: str) -> None:
         allowed = await in_process_consume_quota(f"api_key_quota:{api_key_id}", quota)
     if allowed != 1:
         try:
-            remaining = await APIKeyQuotaManager.get_remaining_quota(api_key_id, user_plan)
+            remaining = await APIKeyQuotaManager.get_remaining_quota(api_key_id)
         except Exception:
             remaining = 0
         raise RateLimitError(f"API key quota exceeded. Limit: {quota} requests/day. Remaining: {remaining}")

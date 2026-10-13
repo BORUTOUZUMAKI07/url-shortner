@@ -3,7 +3,6 @@ from datetime import datetime, timedelta, timezone
 
 from src.identity.models.api_key import APIKeyStatus
 from src.identity.repositories.api_key_repository import APIKeyRepository
-from src.identity.repositories.user_repository import UserRepository
 from src.shared.core.api_key_auth import APIKeyQuotaManager
 from src.shared.core.redis import redis_client
 from src.shared.core.security import hash_password_async
@@ -11,9 +10,8 @@ from src.shared.errors import NotFoundError
 
 
 class APIKeyService:
-    def __init__(self, repo: APIKeyRepository, user_repo: UserRepository):
+    def __init__(self, repo: APIKeyRepository):
         self.repo = repo
-        self.user_repo = user_repo
 
     def _generate_raw_key(self) -> str:
         return "lf_" + secrets.token_urlsafe(32)
@@ -71,11 +69,8 @@ class APIKeyService:
         key = await self.repo.get(id)
         if not key or key.user_id != user_id:
             raise NotFoundError("API key not found.")
-        user = await self.user_repo.get(user_id)
-        if not user:
-            raise NotFoundError("User not found.")
-        daily_limit = APIKeyQuotaManager.get_quota_for_user(user.plan)
-        remaining = await APIKeyQuotaManager.get_remaining_quota(key.id, user.plan)
+        daily_limit = APIKeyQuotaManager.DAILY_QUOTA
+        remaining = await APIKeyQuotaManager.get_remaining_quota(key.id)
         tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         return {
             "api_key_id": key.id,
@@ -87,15 +82,13 @@ class APIKeyService:
     async def get_aggregate_quota(self, user_id: int):
         """Aggregate daily quota usage across the user's active keys.
 
-        The quota is enforced per-user (by plan) but tracked per key in Redis,
-        so the dashboard needs a single call that sums the per-key counters.
-        The counters are read in ONE MGET instead of one round trip per key.
+        The quota is a single flat daily budget for every user (the per-plan
+        split is gone) but is tracked per key in Redis, so the dashboard needs a
+        single call that sums the per-key counters. The counters are read in ONE
+        MGET instead of one round trip per key.
         """
         keys = await self.repo.get_user_keys(user_id)
-        user = await self.user_repo.get(user_id)
-        if not user:
-            raise NotFoundError("User not found.")
-        daily_limit = APIKeyQuotaManager.get_quota_for_user(user.plan)
+        daily_limit = APIKeyQuotaManager.DAILY_QUOTA
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         active_keys = [k for k in keys if k.status == APIKeyStatus.active]
         counters = []

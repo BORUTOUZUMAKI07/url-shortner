@@ -199,7 +199,6 @@ export default function DashboardPage() {
               <p className="text-sm font-medium text-amber-600">API rate limit nearly reached</p>
               <p className="text-xs text-amber-200/70">{quota.used} / {quota.limit} requests used</p>
             </div>
-            <Link href="/billing"><Button variant="outline" size="sm" className="border-amber-500/30 text-amber-600 hover:bg-amber-500/10">Upgrade</Button></Link>
           </CardContent>
         </Card>
       )}

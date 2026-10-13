@@ -7,7 +7,7 @@ vi.mock("next/navigation", () => ({
 }))
 
 const { mockSuperadmin } = vi.hoisted(() => {
-  const mockSuperadmin = { id: 1, email: "admin@test.com", is_superadmin: true, is_verified: true, is_active: true, plan: "enterprise", avatar_url: null, created_at: "2024-01-01" }
+  const mockSuperadmin = { id: 1, email: "admin@test.com", is_superadmin: true, is_verified: true, is_active: true, avatar_url: null, created_at: "2024-01-01" }
   return { mockSuperadmin }
 })
 

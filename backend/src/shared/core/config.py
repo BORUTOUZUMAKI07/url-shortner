@@ -57,10 +57,8 @@ class Settings(BaseSettings):
     # --- Rate Limiting Tiers ---
     RATE_LIMIT_IP_CAPACITY: int = 60
     RATE_LIMIT_IP_REFILL: float = 1.0
-    RATE_LIMIT_USER_FREE_CAPACITY: int = 100
-    RATE_LIMIT_USER_FREE_REFILL: float = 1.67
-    RATE_LIMIT_USER_PREMIUM_CAPACITY: int = 1000
-    RATE_LIMIT_USER_PREMIUM_REFILL: float = 16.67
+    RATE_LIMIT_USER_CAPACITY: int = 100
+    RATE_LIMIT_USER_REFILL: float = 1.67
 
     # --- Kafka (Aiven with SSL, or local Docker plain-text) ---
     KAFKA_BOOTSTRAP_SERVERS: str = "localhost:29092"

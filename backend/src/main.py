@@ -28,7 +28,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 import src.shared.events.kafka as kafka_module
 from src.admin.routes import admin
-from src.analytics.routes import analytics, audit_logs, billing
+from src.analytics.routes import analytics, audit_logs
 from src.analytics.workers.aggregation_worker import start_worker as start_aggregation_worker
 from src.analytics.workers.analytics_worker import consume_url_clicked_events
 from src.identity.routes import api_keys, auth, profile
@@ -50,7 +50,7 @@ from src.shared.errors.base import AppError
 from src.shared.events.kafka import close_kafka, init_kafka
 from src.shared.middleware.audit import AuditContextMiddleware
 from src.shared.middleware.metrics import MetricsMiddleware
-from src.shared.middleware.rate_limit import RateLimitMiddleware, _default_plan_resolver
+from src.shared.middleware.rate_limit import RateLimitMiddleware
 from src.shared.middleware.tracing import TracingMiddleware
 from src.webhooks.routes import webhook_receiver, webhooks
 from src.webhooks.workers.dlq_replay_worker import consume_dlq_replay
@@ -93,7 +93,7 @@ def create_app(lifespan_override=None):
 
     # Configure middleware (order matters)
     app.add_middleware(MetricsMiddleware)
-    app.add_middleware(RateLimitMiddleware, plan_resolver=_default_plan_resolver)
+    app.add_middleware(RateLimitMiddleware)
     app.add_middleware(AuditContextMiddleware)
     app.add_middleware(TracingMiddleware)
 
@@ -164,7 +164,6 @@ def create_app(lifespan_override=None):
     app.include_router(analytics.router, prefix="/api/v1")
     app.include_router(api_keys.router, prefix="/api/v1")
     app.include_router(audit_logs.router, prefix="/api/v1")
-    app.include_router(billing.router, prefix="/api/v1")
     app.include_router(webhook_receiver.router, prefix="/api/v1")
     app.include_router(webhooks.router, prefix="/api/v1")
     app.include_router(redirect.router, tags=["redirect"])

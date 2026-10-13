@@ -17,7 +17,7 @@ import {
 // Writing: never mutate this hook's result by hand — write to the cache entry
 // instead, so every reader re-renders from one place:
 //   - new session (login / oauth handoff): `qc.setQueryData(["me"], user)`
-//   - user fields change (profile email/avatar, billing plan): either
+//   - user fields change (profile email/avatar): either
 //     `qc.setQueryData(["me"], { ...user, field: value })` (optimistic, from a
 //     mutation response) or `qc.invalidateQueries({ queryKey: ["me"] })`
 //     (refetch server truth — enable-admin uses this).

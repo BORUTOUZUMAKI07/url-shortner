@@ -20,9 +20,10 @@ export function useDashboard() {
   const { data: activeData } = useUrls(wsId, { status: "active", limit: 1 })
   const activeUrlsCount = activeData?.total || 0
 
-  // The daily API-key quota is enforced per-user (by plan) but tracked per key
-  // in Redis; the backend now exposes an aggregate endpoint that sums the
-  // per-key counters in a single round trip instead of one call per key.
+  // The daily API-key quota is a single flat budget for every user (the per-plan
+  // split is gone) tracked per key in Redis; the backend now exposes an aggregate
+  // endpoint that sums the per-key counters in a single round trip instead of one
+  // call per key.
   const { data: quota } = useQuery({
     queryKey: ["api-key-quota-summary"],
     queryFn: async () => {

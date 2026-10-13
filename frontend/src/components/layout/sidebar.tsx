@@ -46,7 +46,6 @@ const sections: { label: string; items: NavItem[] }[] = [
     label: "Settings",
     items: [
       { href: "/audit-logs", label: "Audit Logs", icon: History },
-      { href: "/billing", label: "Billing", icon: Crown },
       { href: "/profile", label: "Profile", icon: Settings },
     ],
   },

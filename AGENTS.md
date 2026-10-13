@@ -1,5 +1,48 @@
 # Critical Fixes
 
+## Product Batch 2026-10-13 — Tier Plan System Removed End to End
+
+The tier/plan concept is gone from the product: no `users.plan`, no billing endpoint or page, no plan-aware rate limits or quotas. Two things made this more than a delete: plan was **load-bearing for two limits**, and the **Postgres enum type** could not be dropped until the column that used it was.
+
+### What "remove the plan" had to decide: the limits it drove
+
+`plan` was read in exactly two enforcement paths, so removing it forced a product decision: **collapse to flat values and keep enforcement** (the non-breaking choice — removing enforcement entirely would silently lift a limit every API-key user is subject to today).
+
+- **API-key daily quota** — `APIKeyQuotaManager.get_quota_for_user(user.plan)` returned `QUOTA_FREE` (1,000/day) or `QUOTA_PREMIUM` (100,000/day). Now `APIKeyQuotaManager.DAILY_QUOTA = 1_000` for everyone. The free-tier value was already the floor, so every current free user sees **no change**; premium/enterprise users lose the elevated cap (intended — there are no tiers). The quota endpoints (`/api-keys/{id}/quota`, `/quota-summary`) and the dashboard meter are kept, so the feature survives as a flat daily budget.
+- **Per-user rate limit** — the middleware resolved `premium`/`enterprise` vs `free` to `RATE_LIMIT_USER_PREMIUM_CAPACITY/REFILL` (1000 / 16.67) vs `RATE_LIMIT_USER_FREE_*` (100 / 1.67). The four settings are now two: `RATE_LIMIT_USER_CAPACITY = 100`, `RATE_LIMIT_USER_REFILL = 1.67`. Nothing in `render.yaml`/`docker-compose`/`.env.example` set the old names, so the rename is not a deploy break.
+
+### Backend
+
+- **`identity/models/user.py`** — `PlanEnum` and the `plan` column deleted. **`models/__init__.py`** no longer exports `PlanEnum`. **`identity/schemas/user.py`** — `UserResponse.plan` removed (this is why the admin list and `/auth/me` responses stop carrying it).
+- **Deleted:** `shared/core/user_plan.py` (the `DatabaseUserPlanResolver` + its TTL cache), `analytics/routes/billing.py`, `analytics/services/billing_service.py`, `analytics/schemas/billing.py`. **`deps.py`** loses `get_billing_service` and its `BillingService` import; the API-key branch now calls `verify_api_key_quota(key_record.id)`.
+- **`shared/middleware/rate_limit.py`** — the `plan_resolver` constructor arg, `_default_plan_resolver`, and `invalidate_user_plan_cache()` are gone. `request.state.plan` was **written and never read**, so it is gone too (the tracing middleware's own `state.*` writes are unrelated and remain).
+- **`main.py`** — billing router import/include removed; `app.add_middleware(RateLimitMiddleware)` with no kwarg.
+- **`shared/core/api_key_auth.py`** — `get_quota_for_user` deleted; `get_remaining_quota`/`verify_api_key_quota` lost their `user_plan` parameter.
+- **`identity/services/api_key_service.py`** — `get_quota`/`get_aggregate_quota` no longer fetch the user (their only reason to was `user.plan`), and the now-unused `user_repo` constructor dependency was removed along with the import.
+- **`shared/core/metrics.py`** — `record_api_key_request(api_key_id, user_plan)` and its `api_key_requests_total` counter were **dead** (zero callers). Removed rather than left pointing at a deleted instrument.
+- **`scripts/purge_users.py`** — its raw `SELECT ... plan ... FROM users` and the `keep.plan` print would break once the column drops; the column was removed from both.
+
+### Migration — order matters
+
+New revision `f9e8d7c6b5a4` (down_revision `e5f6a7b8c9d0`) drops `users.plan` **then** `DROP TYPE IF EXISTS planenum` — Postgres refuses to drop a type a column still uses. The type is consumed only by `users.plan` (created in `1fc05da58a8c`, extended with `'enterprise'` in `c3d4e5f6a7b8`), so dropping both is safe. The downgrade recreates the three-value enum and re-adds the column with `server_default='free'` so existing rows get a value.
+
+### Frontend
+
+- **Deleted:** the whole `app/(authenticated)/billing/` route (page/loading/error) and `test/billing-page.test.tsx`.
+- **`lib/api.ts`** — `plan` dropped from the `User` interface; the `billingApi` export deleted.
+- **`components/layout/sidebar.tsx`** — the Billing nav item is gone (Crown still used by the seed-admin button, so the import stays). **`proxy.ts`** — `/billing` removed from `protectedPaths`. **`next.config.ts`** — `billing` removed from the short-code rewrite exclusion regex. **`lib/category-colors.ts`** — the `billing` colour and its path branch removed.
+- **`dashboard/page.tsx`** — the "nearly reached" quota banner keeps its warning text but loses the **Upgrade** button (there is nothing to upgrade to). **`profile/page.tsx`** — the Plan detail row and the "Upgrade Plan" card are gone, and the now-unused `Crown`/`ExternalLink` imports with them. **`admin/page.tsx`** — the `Plan: {u.plan}` fragment removed from the user row.
+- **`app/page.tsx`** — the marketing pricing section and its `plans` array are gone (they sold tiers that no longer exist), the two plan-named FAQ entries were rewritten ("LinkForge is free"), and the now-unused `Check`/`Zap` icon imports removed.
+- **Tests:** `handlers.ts` mock user loses `plan` and the `/billing/upgrade` handler; `admin-page.test.tsx` and `profile-page.test.tsx` mocks lose `plan`; `profile-page.test.tsx` drops the "Upgrade Plan" test and its `findByText("free")` assertion, replaced by `queryByText(/plan/i) === null`.
+
+### Note
+
+The quota shape (`used`/`limit`/`remaining`/`resets_at`) is unchanged, so the dashboard and the integration test's `quota.limit > 0` assertion still hold — only the value is now constant. **Do not reintroduce a plan column/store**: the frontend `User` type has no `plan`, the middleware has no resolver, and the enum type is dropped. If tiers are ever needed again, that is a new schema, not a revival of this one.
+
+### Verification
+
+`uv run ruff check src/ tests/ scripts/`, `uv run mypy src/`, and the no-Docker suite `uv run pytest tests/test_core tests/test_events -q -o addopts=''` (327 passed, 5 skipped) are green; frontend `npm run lint`, `npx tsc --noEmit`, `npm test` (150 passed) and `npm run build` are green (`/billing` absent from the route table).
+
 ## Frontend Audit 2026-09-30 — `isLoading` on Gated Queries Still Rendered False Empty States
 
 A pass over every list page. The **same bug class as Frontend Batch 2** had survived in two files that batch never touched, and regressed in a third that claimed to fix it.
