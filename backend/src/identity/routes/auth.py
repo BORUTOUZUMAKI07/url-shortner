@@ -194,9 +194,12 @@ async def get_me(current_user: User = Depends(get_current_user)):
 
 
 @router.get("/providers",
-    summary="List SSO providers")
+    summary="List configured SSO providers")
 async def list_providers():
-    return {"providers": SSOProviderRegistry.list_providers()}
+    # Only providers with a full config (id + secret): advertising an
+    # id-only provider would render a login button whose consent round trip
+    # can only fail at token exchange.
+    return {"providers": SSOProviderRegistry.configured_providers()}
 
 
 @router.post("/oauth/exchange", response_model=TokenWithUser,

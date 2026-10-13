@@ -15,7 +15,9 @@ class GoogleOAuthProvider:
     USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
     def is_configured(self) -> bool:
-        return bool(settings.GOOGLE_OAUTH_CLIENT_ID)
+        # The secret must be set too: an id-only provider renders a sign-in
+        # button whose consent round trip can only fail at token exchange.
+        return bool(settings.GOOGLE_OAUTH_CLIENT_ID and settings.GOOGLE_OAUTH_CLIENT_SECRET)
 
     def get_authorization_url(self, state: str, code_challenge: str | None = None) -> str:
         params = {

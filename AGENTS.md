@@ -617,6 +617,22 @@ Tests: `tests/test_core/test_email_delivery.py`. The stall test releases via `th
 
 ---
 
+## Code Review Batch — OAuth "Configured" Check Was a Half-Truth (id-only)
+
+A code review flagged that `is_configured()` on both OAuth providers checked only the client **id**, never the secret. All of it verified in source before fixing.
+
+**Files:** `backend/src/identity/services/sso/{google_oauth,github_oauth}.py`, `backend/src/identity/services/sso/__init__.py`, `backend/src/identity/routes/auth.py`, `frontend/src/app/login/page.tsx`
+
+- **The lie:** with the id set but the secret unset, `oauth_init` passed its `is_configured()` gate, the user completed a full consent round trip, and the flow failed only at token exchange (the secret posted as `None`). Fails closed — no session, no security impact — but a dead UI path whose error surfaced two provider trips later.
+- **The fix, end to end:**
+  1. `is_configured()` now requires the id **and** the secret. (`EmailService.is_configured` already enforced this shape; the OAuth providers were the laggards.)
+  2. New `SSOProviderRegistry.configured_providers()`; `GET /auth/providers` now serves that, so the API advertises only providers that can actually complete an exchange.
+  3. The login page's Google/GitHub buttons were **hardcoded** — `GET /auth/providers` existed but was never consulted. The page now fetches it on mount and renders a button for exactly the configured providers: the whole "Or continue with" section is hidden while the check is in flight, when none are configured, or when the lookup fails — a hidden button is never a lie.
+
+**Note:** `oauth_init` / `oauth_callback` already treated "not configured" as a 400; they were just basing it on the half-truth. The buttons were the only place the gap leaked — but it leaked a full round trip per misconfigured provider.
+
+Tests: `tests/test_core/test_oauth_provider_config.py` (id-only → unconfigured, id+secret → configured, registry filters unconfigured) and `frontend/src/test/login-page.test.tsx` (buttons render for configured providers only; section absent when none; nothing claims a working flow while the lookup is in flight).
+
 ## Auth — Logout Reload Loop + OAuth Sign-In Failing/Slow
 
 **Symptom:** Logout made the dashboard reload forever; Google sign-in could hang/fail silently after "continue" and felt slow (forced Google consent screen every time).
