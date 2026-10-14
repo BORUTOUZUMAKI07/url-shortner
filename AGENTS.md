@@ -1076,20 +1076,21 @@ GET /api/v1/auth/me
 ## Keeping Render Warm (free-tier cold starts)
 
 Render's free tier spins the backend down after ~15 min idle; the next request pays a
-30–60s cold start (Neon wakes too). `.github/workflows/keepalive.yml` pings
-`/api/v1/ping` every 10 minutes (`workflow_dispatch` also) to keep it warm — this is
-also why the login page's Google/GitHub buttons can appear several seconds late: they
-render only after `GET /auth/providers` (which advertises only providers whose id **and**
-secret are set) returns.
+30–60s cold start (Neon wakes too). This is also why the login page's Google/GitHub
+buttons can appear several seconds late: they render only after `GET /auth/providers`
+(which advertises only providers whose id **and** secret are set) returns.
 
-It targets `/api/v1/ping`, not `/health`: ping is best-effort and **always 200** while
-still touching Postgres + Redis, so a transient Redis/Kafka blip must not fail the
-keepalive. Use `/health` when you want real uptime alerting.
+The keep-warm ping is an **external** cron — **cron-job.org** (free, 1-minute interval)
+hitting `GET /api/v1/ping`. It targets `/api/v1/ping`, not `/health`: ping is best-effort
+and **always 200** while still touching Postgres + Redis, so a transient Redis/Kafka blip
+cannot surface as a false outage. Use `/health` when you want real uptime alerting
+(UptimeRobot, free, is a good 5-min-interval alternative if you also want alerts).
 
-Caveats: GitHub's scheduler is best-effort (runs can be delayed minutes under load), it
-disables scheduled workflows after 60 days of repo inactivity, and on a **private** repo
-each run spends Actions minutes. An external pinger (UptimeRobot / cron-job.org, free)
-is more reliable and spends no Actions minutes.
+Deliberately **not** a GitHub Actions scheduled workflow: GitHub floors cron at 5 minutes
+and is best-effort (runs delayed under load, and scheduled workflows auto-disable after 60
+days of repo inactivity) — too loose to stop a 15-minute idle timer from expiring. A
+scheduled workflow was added and then removed for exactly this reason; prefer the external
+pinger.
 
 # When Free Trials Expire — Create New Accounts
 
