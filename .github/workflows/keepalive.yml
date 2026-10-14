@@ -1,0 +1,55 @@
+name: Keepalive
+
+# Render's free tier spins a service down after ~15 minutes with no traffic;
+# the next request then pays a 30-60s cold start (and wakes sleepy Neon). A
+# scheduled ping *inside* that window keeps the API warm, so the first real
+# visitor — and the login page's `GET /auth/providers` fetch that gates the
+# Google/GitHub buttons — gets an instant response instead of buttons that
+# appear several seconds late.
+#
+# Caveats (GitHub's scheduler is best-effort, not a guarantee):
+#   - Runs can be delayed several minutes under load. `*/10` leaves ~5 min of
+#     margin under Render's 15-minute idle timer, but a heavy delay can still
+#     let the instance sleep.
+#   - GitHub disables scheduled workflows after 60 days of repository
+#     inactivity. Any push re-enables them.
+#   - On a PRIVATE repo each run consumes Actions minutes (rounded up to 1).
+#     For anything production-critical, an external pinger (UptimeRobot or
+#     cron-job.org, both free) is more reliable and spends no Actions minutes.
+#
+# Target is `/api/v1/ping`, not `/health`: ping is best-effort and always 200
+# (it still touches Postgres + Redis), so a transient Kafka/Redis blip does not
+# fail this job. Use `/health` when you want real uptime alerting.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+env:
+  PING_URL: "https://linkforge-backend-v46v.onrender.com/api/v1/ping"
+
+jobs:
+  ping:
+    name: Ping backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Warm the backend
+        run: |
+          # A cold start can easily take longer than curl's default patience,
+          # so retry with a generous per-attempt timeout.
+          for attempt in $(seq 1 6); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 "$PING_URL" || echo 000)
+            echo "attempt $attempt -> HTTP $code"
+            if [ "$code" = "200" ]; then
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "backend did not return 200 after 6 attempts" >&2
+          exit 1

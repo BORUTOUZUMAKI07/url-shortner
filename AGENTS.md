@@ -1073,6 +1073,24 @@ GET /health
 GET /api/v1/auth/me
 ```
 
+## Keeping Render Warm (free-tier cold starts)
+
+Render's free tier spins the backend down after ~15 min idle; the next request pays a
+30–60s cold start (Neon wakes too). `.github/workflows/keepalive.yml` pings
+`/api/v1/ping` every 10 minutes (`workflow_dispatch` also) to keep it warm — this is
+also why the login page's Google/GitHub buttons can appear several seconds late: they
+render only after `GET /auth/providers` (which advertises only providers whose id **and**
+secret are set) returns.
+
+It targets `/api/v1/ping`, not `/health`: ping is best-effort and **always 200** while
+still touching Postgres + Redis, so a transient Redis/Kafka blip must not fail the
+keepalive. Use `/health` when you want real uptime alerting.
+
+Caveats: GitHub's scheduler is best-effort (runs can be delayed minutes under load), it
+disables scheduled workflows after 60 days of repo inactivity, and on a **private** repo
+each run spends Actions minutes. An external pinger (UptimeRobot / cron-job.org, free)
+is more reliable and spends no Actions minutes.
+
 # When Free Trials Expire — Create New Accounts
 
 ## Aiven Kafka (30-day trial)
