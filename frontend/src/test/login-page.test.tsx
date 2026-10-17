@@ -63,4 +63,22 @@ describe("LoginPage OAuth buttons", () => {
     expect(screen.queryByRole("button", { name: "Google" })).toBeNull()
     expect(await screen.findByRole("button", { name: "Google" })).toBeDefined()
   })
+
+  // The page is vertically centred, so the section appearing late (a free-tier
+  // cold start makes the lookup slow) would jump the whole card. A skeleton
+  // holds the space instead — and, per the test above, without promising a
+  // provider that may not exist.
+  it("holds the social section's space with a skeleton while the check is in flight", async () => {
+    server.use(
+      http.get(`${API}/auth/providers`, async () => {
+        await delay(50)
+        return HttpResponse.json({ providers: ["google", "github"] })
+      })
+    )
+    render(<LoginPage />)
+    expect(screen.getByRole("status")).toBeDefined()
+    expect(screen.queryByText("Or continue with")).toBeNull()
+    expect(await screen.findByRole("button", { name: "Google" })).toBeDefined()
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull())
+  })
 })

@@ -201,6 +201,26 @@ function LoginForm() {
           </div>
         </form>
 
+        {/* Reserve the social section's space while the configured-provider
+            lookup is in flight. The page is vertically centred, so without a
+            placeholder the whole card jumps the moment the buttons arrive — and
+            on a free-tier cold start that is seconds after first paint, while
+            the user is already typing. The real section (and its "Or continue
+            with" header) still waits for the answer, so a hidden button is
+            never a lie. */}
+        {oauthProviders === null && (
+          <div className="glass rounded-xl p-8 shadow-lg">
+            <div role="status">
+              <span className="sr-only">Loading sign-in options</span>
+              <div aria-hidden="true" className="mx-auto mb-6 h-4 w-32 animate-pulse rounded bg-stone-200/50" />
+              <div className="grid gap-3">
+                <div aria-hidden="true" className="h-[42px] animate-pulse rounded-lg bg-stone-200/50" />
+                <div aria-hidden="true" className="h-[42px] animate-pulse rounded-lg bg-stone-200/50" />
+              </div>
+            </div>
+          </div>
+        )}
+
         {oauthProviders && oauthProviders.length > 0 && (
           <div className="glass rounded-xl p-8 shadow-lg">
             <div className="relative mb-6">
