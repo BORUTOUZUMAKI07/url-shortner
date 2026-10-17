@@ -11,6 +11,7 @@ from src.links.repositories import URLRepository
 from src.shared import get_logger, setup_logging
 from src.shared.core.click_event import ClickEvent
 from src.shared.core.database import AsyncSessionLocal
+from src.shared.core.metrics import track_worker
 from src.shared.core.mongodb import init_mongodb
 from src.shared.core.redis import redis_client
 from src.shared.workers.shutdown import install_signal_handlers, wait_for_shutdown
@@ -242,6 +243,7 @@ async def run_purge_soft_deleted(logger):
     logger.info("Soft-delete purge complete.")
 
 
+@track_worker
 async def start_worker():
     setup_logging()
     from src.shared.core.tracing import init_metrics, init_tracing

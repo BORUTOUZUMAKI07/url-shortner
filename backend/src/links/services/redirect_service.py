@@ -6,6 +6,7 @@ from typing import Optional
 
 from src.links.repositories.url_repository import URLRepository
 from src.links.services.utm_service import parse_utm
+from src.shared.core.metrics import record_url_redirect
 from src.shared.core.redis import check_rate_limit, delete_url_cache, get_url_cache, rate_limit_headers, set_url_cache
 from src.shared.core.security import verify_password_async
 from src.shared.errors.common import RateLimitError
@@ -58,7 +59,7 @@ class RedirectService:
         if rate_result.limited:
             raise RateLimitError(headers=rate_limit_headers(rate_result, 100))
 
-        url_data = await self._fetch_url(short_code)
+        url_data, cache_hit = await self._fetch_url(short_code)
         self._validate(url_data)
         await self._check_password(url_data, pwd)
         destination = self._apply_deep_link(url_data, user_agent)
@@ -83,6 +84,10 @@ class RedirectService:
             "clicked_at": datetime.now(timezone.utc).isoformat(),
         }, key=short_code)
 
+        # Count only *served* redirects: anything that raised above (disabled,
+        # expired, deleted, wrong password, rate-limited) is not a click.
+        record_url_redirect(cache_hit)
+
         return RedirectResult(
             destination=destination,
             url_id=url_data["id"],
@@ -91,10 +96,11 @@ class RedirectService:
             is_one_time=url_data.get("is_one_time", False),
         )
 
-    async def _fetch_url(self, short_code: str) -> dict:
+    async def _fetch_url(self, short_code: str) -> tuple[dict, bool]:
+        """Return ``(url_data, cache_hit)`` — hit means no DB round trip."""
         url_data = await get_url_cache(short_code)
         if url_data:
-            return url_data
+            return url_data, True
 
         # Coalesce concurrent cold misses: one DB fetch serves every waiter.
         # done() tasks are replaced with a fresh fetch; a running one is shared.
@@ -106,7 +112,7 @@ class RedirectService:
         # shield: a cancelled caller must not cancel the shared fetch — that
         # would fail every other in-flight requester with CancelledError. Only
         # the awaiting caller absorbs the cancellation.
-        return await asyncio.shield(task)
+        return await asyncio.shield(task), False
 
     async def _load_url_and_cache(self, short_code: str) -> dict:
         url_obj = await self.url_repo.get_by_short_code(short_code)

@@ -8,6 +8,7 @@ from sqlalchemy import select
 from src.analytics.models.dead_letter import DeadLetterEvent
 from src.shared import get_logger, setup_logging
 from src.shared.core.database import AsyncSessionLocal
+from src.shared.core.metrics import track_worker
 from src.shared.core.redis import redis_client
 from src.shared.workers.shutdown import install_signal_handlers, wait_for_shutdown
 from src.webhooks.models.webhook import Webhook
@@ -176,6 +177,7 @@ async def _purge_old_dlq(logger):
         logger.warning("DLQ purge failed: %s", e)
 
 
+@track_worker
 async def start_worker():
     setup_logging()
     from src.shared.core.tracing import init_metrics, init_tracing

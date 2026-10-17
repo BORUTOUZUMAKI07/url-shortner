@@ -6,6 +6,7 @@ from sqlalchemy import select
 from src.shared import get_logger, setup_logging
 from src.shared.core.config import settings
 from src.shared.core.database import AsyncSessionLocal
+from src.shared.core.metrics import record_kafka_consume, track_worker
 from src.shared.core.redis import redis_client
 from src.shared.events.kafka import publish_raw
 from src.shared.events.schemas import deserialize
@@ -17,6 +18,7 @@ from src.webhooks.models.webhook_subscription import WebhookSubscription
 from src.webhooks.services.webhook_service import deliver_single_webhook
 
 
+@track_worker
 async def consume_url_clicked_webhooks():
     setup_logging()
     from src.shared.core.tracing import init_metrics, init_tracing
@@ -167,6 +169,7 @@ async def deliver_click_webhooks(event_data: dict, logger):
 
 
 async def handle_webhook_click_message(msg, consumer, logger):
+    record_kafka_consume(msg.topic, msg.timestamp)
     try:
         try:
             event_data = deserialize("url-clicked", msg.value)

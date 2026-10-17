@@ -40,6 +40,12 @@ services:
         sync: false
       - key: OTEL_EXPORTER_OTLP_ENDPOINT
         sync: false
+      # No `value:` on purpose. The collector's basicauth fallback is the dev
+      # credential, so committing it here would pin a known password to a
+      # public receiver. Left blank, Render prompts for the real Basic header;
+      # if it is never set the app falls back to its config default (the same
+      # dev credential) and warn_if_default_otlp_credential() says so at
+      # startup — it still works, but it is no longer silent.
       - key: OTEL_EXPORTER_OTLP_HEADERS
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_ID
@@ -86,8 +92,18 @@ services:
   # next OTLP push (fail-open — the backend never blocks on telemetry, so a few
   # spans at wake-up are dropped by design). No Render health check: the agent's
   # /healthz lives on:13133, which Render can't reach through the single public
-  # port. Enable basicauth on the receiver (see docker/otel-collector-config.yaml)
-  # before pointing real traffic at the public URL.
+  # port. Basicauth is already ON (docker/otel-collector-config.yaml) — but
+  # both sides fall back to the same shipped dev credential `linkforge:linkforge`
+  # (the collector's `${env:...}` default, and the app's config default once
+  # OTEL_EXPORTER_OTLP_HEADERS is left blank below), so while neither is
+  # overridden anyone reading this repo can authenticate to the public receiver
+  # and push junk (burning the NR free quota). Neither side commits a value
+  # now — both are prompted. Before real traffic: set OTLP_HTTP_AUTH_HTPASSWD on
+  # this service to an htpasswd entry (plaintext "user:pass" or bcrypt) and set
+  # the backend's OTEL_EXPORTER_OTLP_HEADERS to
+  # `Authorization=Basic <base64(user:pass)>` for the same pair. The backend
+  # logs a startup warning while the shipped credential (or an empty header) is
+  # paired with a non-local endpoint.
   - type: web
     name: linkforge-otel-collector
     runtime: docker
@@ -97,6 +113,12 @@ services:
     dockerfilePath: otel-collector.Dockerfile
     envVars:
       - key: NEW_RELIC_LICENSE_KEY
+        sync: false
+      # Receiver credential (htpasswd entry). Prompted, never committed: the
+      # config's `${env:OTLP_HTTP_AUTH_HTPASSWD:-linkforge:linkforge}` fallback
+      # is a published dev password — fine on localhost, not on a public URL.
+      # Must match the backend's OTEL_EXPORTER_OTLP_HEADERS Basic header.
+      - key: OTLP_HTTP_AUTH_HTPASSWD
         sync: false
       - key: ENVIRONMENT
         value: production

@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.shared.core.config import settings
+from src.shared.core.metrics import install_db_query_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,11 @@ engine = create_async_engine(
     pool_recycle=300,
     connect_args={"statement_cache_size": 0},
 )
+
+# Query-duration metrics, one install per process: the app and every worker
+# create their sessions from this same module, so this is the single place
+# that covers all of them (idempotent, best-effort).
+install_db_query_metrics(engine)
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,

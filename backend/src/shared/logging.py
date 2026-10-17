@@ -6,13 +6,39 @@ Exports logs via OTLP to New Relic.
 import logging
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from contextvars import ContextVar, Token
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from opentelemetry import trace
 from pythonjsonlogger import jsonlogger
 
 from src.shared.core.config import settings
+from src.shared.core.redaction import RedactionFilter
+
+# Correlation ids live in a ContextVar, not on the logger. `setup_logging()` is
+# called exactly once per process (main.py / each run_worker_*.py), so a value
+# captured at setup time can never describe a *request*. A ContextVar is
+# request-scoped: the tracing middleware sets it before `call_next`, and every
+# log record emitted downstream (including from spawned tasks, which inherit a
+# copy of the context) picks it up.
+_correlation_id_var: ContextVar[Optional[str]] = ContextVar("correlation_id", default=None)
+
+
+def set_correlation_id(correlation_id: str) -> Token:
+    """Bind a correlation id to the current (request) context."""
+    return _correlation_id_var.set(correlation_id)
+
+
+def reset_correlation_id(token: Token) -> None:
+    """Restore the previous context value (call in a ``finally``)."""
+    _correlation_id_var.reset(token)
+
+
+def get_correlation_id() -> Optional[str]:
+    """Return the correlation id bound to the current context, if any."""
+    return _correlation_id_var.get()
 
 
 class CorrelationIdFilter(logging.Filter):
@@ -21,18 +47,28 @@ class CorrelationIdFilter(logging.Filter):
         self.correlation_id = correlation_id
 
     def filter(self, record):
-        if not hasattr(record, 'correlation_id'):
-            record.correlation_id = self.correlation_id or "no-correlation-id"
+        if not getattr(record, "correlation_id", None):
+            record.correlation_id = (
+                get_correlation_id() or self.correlation_id or "no-correlation-id"
+            )
         return True
 
 
 class JSONFormatter(jsonlogger.JsonFormatter):
     def add_fields(self, log_record, record, message_dict):
         super().add_fields(log_record, record, message_dict)
-        log_record['timestamp'] = datetime.now(timezone(timedelta(hours=5, minutes=30))).isoformat()
+        # UTC everywhere: the old fixed +05:30 offset made every log line
+        # disagree with the UTC timestamps in traces, metrics and New Relic.
+        log_record['timestamp'] = datetime.now(timezone.utc).isoformat()
         log_record['service'] = settings.PROJECT_NAME
         log_record['environment'] = settings.ENVIRONMENT
         log_record['version'] = "1.0.0"
+        # Join logs to traces: when a span is active, stamp its ids so a log
+        # line can be found from the trace (and vice versa) in New Relic.
+        span_context = trace.get_current_span().get_span_context()
+        if span_context is not None and span_context.is_valid:
+            log_record.setdefault('trace_id', format(span_context.trace_id, '032x'))
+            log_record.setdefault('span_id', format(span_context.span_id, '016x'))
         if hasattr(record, 'correlation_id'):
             log_record['correlation_id'] = record.correlation_id
         for attr in ('trace_id', 'span_id', 'user_id', 'workspace_id', 'url_id'):
@@ -47,19 +83,31 @@ def setup_logging(correlation_id: Optional[str] = None):
     logger.setLevel(log_level)
     logger.handlers.clear()
     formatter = JSONFormatter(fmt='%(timestamp)s %(level)s %(name)s %(message)s', timestamp=True)
-    correlation_filter: logging.Filter = CorrelationIdFilter(correlation_id)
 
-    # Drop DEBUG in production
+    # Handler-level filters, applied in order. They live on the *handlers*
+    # because a logger's own filters are not consulted for records logged on
+    # its children (url-shortener.redirect_service, …) — which is why the old
+    # logger-level CorrelationIdFilter only ever saw records logged on the base
+    # logger.
+    handler_filters: list[logging.Filter] = []
     if is_prod:
+        # Drop DEBUG in production.
         class ProdFilter(logging.Filter):
             def filter(self, record):
                 return record.levelno >= logging.INFO
-        correlation_filter = ProdFilter()
+        handler_filters.append(ProdFilter())
+    handler_filters.append(CorrelationIdFilter(correlation_id))
+    if settings.PII_REDACTION_ENABLED:
+        handler_filters.append(RedactionFilter())
+
+    def _attach(handler: logging.Handler) -> None:
+        for handler_filter in handler_filters:
+            handler.addFilter(handler_filter)
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(log_level)
     console_handler.setFormatter(formatter)
-    console_handler.addFilter(correlation_filter)
+    _attach(console_handler)
     logger.addHandler(console_handler)
 
     log_dir = Path(os.getenv("LOG_DIR", "logs"))
@@ -69,7 +117,7 @@ def setup_logging(correlation_id: Optional[str] = None):
         file_handler = logging.FileHandler(filename=log_file, encoding="utf-8")
         file_handler.setLevel(log_level)
         file_handler.setFormatter(formatter)
-        file_handler.addFilter(correlation_filter)
+        _attach(file_handler)
         logger.addHandler(file_handler)
     except OSError as e:
         # e.g. read-only filesystem in a container running as non-root.
@@ -105,11 +153,14 @@ def setup_logging(correlation_id: Optional[str] = None):
             log_provider = OTLPLoggerProvider(resource=log_resource)
             log_provider.add_log_record_processor(BatchLogRecordProcessor(otlp_log_exporter))
             otlp_handler = OTLPLoggingHandler(logger_provider=log_provider, level=logging.INFO)
+            _attach(otlp_handler)
             logger.addHandler(otlp_handler)
         except Exception as e:
             logger.warning("OTLP log handler not available: %s", e)
 
-    logger.addFilter(correlation_filter)
+    # Belt-and-braces: also tag records logged directly on the base logger, so
+    # `logger.info(...)` on the package logger carries the id before handlers.
+    logger.addFilter(CorrelationIdFilter(correlation_id))
     return logger
 
 
@@ -133,4 +184,12 @@ def log_request_end(logger: logging.Logger, method: str, path: str, status_code:
     )
 
 
-__all__ = ["setup_logging", "get_logger", "log_request_start", "log_request_end"]
+__all__ = [
+    "setup_logging",
+    "get_logger",
+    "log_request_start",
+    "log_request_end",
+    "get_correlation_id",
+    "set_correlation_id",
+    "reset_correlation_id",
+]

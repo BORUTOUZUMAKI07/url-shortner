@@ -5,6 +5,7 @@ from aiokafka import AIOKafkaProducer
 
 from src.shared import get_logger
 from src.shared.core.config import settings
+from src.shared.core.metrics import record_kafka_message
 from src.shared.events.schemas import serialize
 from src.shared.workers._sni_patch import _make_sni_context
 
@@ -93,6 +94,7 @@ async def _send_background(topic, value, key):
     for attempt, delay in enumerate(_SEND_RETRY_DELAYS):
         try:
             await producer.send_and_wait(topic, value=value, key=key)  # type: ignore[union-attr]
+            record_kafka_message("produced", topic)
             return
         except Exception as e:
             last_error = e
@@ -148,6 +150,7 @@ async def _send_and_stop(topic: str, value: bytes, key: Optional[bytes] = None):
         p = AIOKafkaProducer(**kwargs)
         await p.start()
         await p.send_and_wait(topic, value=value, key=key)
+        record_kafka_message("produced", topic)
     except Exception as e:
         logger.error("Failed to publish raw event to %s: %s", topic, e)
     finally:

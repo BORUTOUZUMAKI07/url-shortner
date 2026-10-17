@@ -1,0 +1,108 @@
+---
+# LinkForge Alerting Rules (New Relic)
+# These are intended to be imported into New Relic Alert Conditions/NRQL.
+# Values reflect SLOs in docs/slo.md and are tuned for a hobby deployment.
+# All alerts fire when the condition holds for the specified duration.
+
+groups:
+  - name: linkforge-sli
+    rules:
+      - name: high_http_5xx_error_rate
+        description: HTTP 5xx rate > 1.0% (rolling 5m)
+        nrql:
+          query: |
+            SELECT 100 * rate(sum(http.server.requests_count) - sum(http.server.requests_count) FILTER (WHERE http.response.status_code < 500), 1 MINUTE)
+            FROM Metric
+            WHERE service.name = 'linkforge-backend'
+            TIMESERIES AUTO SLIDE BY 1m
+            LIMIT 1
+        condition:
+          threshold: 1.0
+          operator: ABOVE
+          duration_minutes: 5
+        severity: CRITICAL
+        links:
+          runbook: ../runbooks/high-error-rate.md
+
+      - name: redirect_latency_p95_high
+        description: Redirect p95 latency > 150ms (rolling 5m)
+        nrql:
+          query: |
+            SELECT percentile(http.server.duration, 95) / 1000000 as ms
+            FROM Metric
+            WHERE service.name = 'linkforge-backend'
+            AND http.route = '/{short_code}'
+            TIMESERIES AUTO SLIDE BY 1m
+            LIMIT 1
+        condition:
+          threshold: 150
+          operator: ABOVE
+          duration_minutes: 5
+        severity: CRITICAL
+        links:
+          runbook: ../runbooks/latency-sli-burn.md
+
+      - name: http_latency_p95_high
+        description: General HTTP p95 latency > 300ms (rolling 10m)
+        nrql:
+          query: |
+            SELECT percentile(http.server.duration, 95) / 1000000 as ms
+            FROM Metric
+            WHERE service.name = 'linkforge-backend'
+            AND http.route NOT IN ('/{short_code}', '/health', '/api/v1/ping')
+            TIMESERIES AUTO SLIDE BY 1m
+            LIMIT 1
+        condition:
+          threshold: 300
+          operator: ABOVE
+          duration_minutes: 10
+        severity: WARNING
+        links:
+          runbook: ../runbooks/latency-sli-burn.md
+
+      - name: redirect_success_rate_low
+        description: Redirect 3xx success rate < 99.9% (rolling 10m)
+        nrql:
+          query: |
+            SELECT 100 * sum(http.server.requests_count) FILTER (WHERE http.response.status_code BETWEEN 300 AND 399) / sum(http.server.requests_count) AS pct
+            FROM Metric
+            WHERE service.name = 'linkforge-backend'
+            AND http.route = '/{short_code}'
+            TIMESERIES AUTO SLIDE BY 1m
+            LIMIT 1
+        condition:
+          threshold: 99.9
+          operator: BELOW
+          duration_minutes: 10
+        severity: CRITICAL
+        links:
+          runbook: ../runbooks/high-error-rate.md
+
+  # Account-scoped, not per-service. Telemetry ingest is billed to the New Relic
+  # account, and the free grant (~100 GB/month) is shared by every service that
+  # pushes to it, so the first wall at 10x traffic is this quota rather than the
+  # app — and the failure is silent, because every exporter is fail-open
+  # (telemetry simply stops arriving while the app keeps serving 3xx). This is
+  # also the one condition that cannot be evaluated from the app's own /metrics
+  # endpoint: `NrConsumption` is New Relic's own usage event, so it only exists
+  # inside the New Relic account. See docs/slo.md § Telemetry Volume & Quota.
+  # Field names follow New Relic's usage docs — confirm against the account's
+  # NrConsumption schema (and data region) before importing.
+  - name: linkforge-telemetry-budget
+    rules:
+      - name: telemetry_data_usage_high
+        description: New Relic data ingest > 70 GB in the current month (free grant ~100 GB)
+        nrql:
+          query: |
+            SELECT sum(GigabytesIngested) AS gb
+            FROM NrConsumption
+            WHERE productLine = 'DataPlatform'
+            SINCE this month
+            LIMIT 1
+        condition:
+          threshold: 70
+          operator: ABOVE
+          duration_minutes: 15
+        severity: WARNING
+        links:
+          runbook: ../runbooks/index.md

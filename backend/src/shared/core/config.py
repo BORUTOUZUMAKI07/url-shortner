@@ -219,11 +219,33 @@ class Settings(BaseSettings):
     # app never blocks or crashes on telemetry.
     OTLP_ENABLED: bool = True
     OTEL_EXPORTER_OTLP_ENDPOINT: Optional[str] = None
-    OTEL_EXPORTER_OTLP_HEADERS: Optional[str] = None
+    # Default header matches the collector's default basicauth (linkforge:linkforge).
+    # This is a dev-only default: if you enable basicauth on the collector with a
+    # different OTLP_HTTP_AUTH_HTPASSWD, you MUST change this to match, or
+    # telemetry will return 401s (fail-open → silently dropped).
+    _DEFAULT_OTLP_BASIC = "Authorization=Basic bGlua2ZvcmdlOmxpbmtmb3JnZQ=="
+    OTEL_EXPORTER_OTLP_HEADERS: Optional[str] = _DEFAULT_OTLP_BASIC
     # Fraction of spans the app emits. 1.0 = send everything and let the
     # Layer-2 collector tail-sample (keeps 100% of errors, trims the rest).
     # Lower this only when pushing straight to a vendor with no collector.
     OTEL_TRACES_SAMPLE_RATIO: float = 1.0
+
+    # --- Sentry (error tracking; opt-in) ---
+    # Error *grouping* (one issue per distinct stack trace, with breadcrumbs and
+    # a release) is what Sentry adds over OTLP logs/traces. Unset DSN = disabled,
+    # so tests and local dev never ship exceptions to a third party.
+    SENTRY_DSN: Optional[str] = None
+    # Sentry performance tracing is off by default: traces already flow through
+    # OTel → collector → New Relic, and enabling both double-collects spans.
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
+
+    # --- Log PII/secret redaction ---
+    # Every log record is shipped off-box (OTLP → New Relic) and may also be
+    # captured by Sentry, so scrubbing happens at the handler boundary rather
+    # than at each call site. Turn off only if the regexes mangle something you
+    # genuinely need in the log stream.
+    PII_REDACTION_ENABLED: bool = True
+    PII_REDACTION_REPLACEMENT: str = "***"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -233,4 +255,68 @@ class Settings(BaseSettings):
     )
 
 
+# base64("linkforge:linkforge") — the basicauth credential shipped as the
+# collector's dev fallback (docker/otel-collector-config.yaml) and as this
+# app's default OTEL_EXPORTER_OTLP_HEADERS. Matching by construction so that
+# `docker compose up` works with zero config; the flip side is that a
+# deployment overriding neither exposes a receiver guarded by a password
+# published in this repo.
+_DEV_OTLP_BASIC_CREDENTIAL = "bGlua2ZvcmdlOmxpbmtmb3JnZQ=="
+_LOCAL_OTLP_HOSTS = frozenset(
+    {"localhost", "127.0.0.1", "otel-collector", "host.docker.internal"}
+)
+
+
+def warn_if_default_otlp_credential(
+    endpoint: Optional[str] = None,
+    headers: Optional[str] = None,
+) -> None:
+    """Warn when a non-local OTLP endpoint is paired with unusable auth.
+
+    Two cases, both silent by default and both fixed the same way (set a real
+    ``OTLP_HTTP_AUTH_HTPASSWD`` on the collector and the matching
+    ``Authorization=Basic`` header here):
+
+    * the header carries the shipped dev credential ``linkforge:linkforge`` —
+      render.yaml deploys the receiver publicly, so until overridden it is
+      guarded by a password anyone reading the repo knows, and junk pushes burn
+      the New Relic free quota;
+    * the header is empty (a blueprint var left blank) — the receiver's
+      basicauth then rejects every push with 401, which costs *all* telemetry
+      while the app keeps serving normally.
+
+    Warns once at startup, on stderr: a signal, never a refusal, because
+    telemetry stays fail-open (it must not block boot).
+    """
+    ep = (settings.OTEL_EXPORTER_OTLP_ENDPOINT if endpoint is None else endpoint) or ""
+    hdr = (settings.OTEL_EXPORTER_OTLP_HEADERS if headers is None else headers) or ""
+    host = ep.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0].lower()
+    if not host or host in _LOCAL_OTLP_HOSTS:
+        return
+    if not hdr.strip():
+        warnings.warn(
+            f"OTEL_EXPORTER_OTLP_ENDPOINT points at non-local host '{host}' but "
+            f"OTEL_EXPORTER_OTLP_HEADERS is empty: the collector's basicauth "
+            f"will reject every push (401) and no telemetry will arrive. Set "
+            f"Authorization=Basic <base64(user:pass)> here to match the "
+            f"collector's OTLP_HTTP_AUTH_HTPASSWD.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return
+    if _DEV_OTLP_BASIC_CREDENTIAL not in hdr:
+        return
+    warnings.warn(
+        f"OTEL_EXPORTER_OTLP_HEADERS carries the shipped dev credential "
+        f"(linkforge:linkforge) while OTEL_EXPORTER_OTLP_ENDPOINT points at "
+        f"non-local host '{host}': the OTLP receiver is protected by a "
+        f"password published in this repo. Set a real "
+        f"OTLP_HTTP_AUTH_HTPASSWD on the collector and the matching "
+        f"Authorization=Basic header here.",
+        UserWarning,
+        stacklevel=2,
+    )
+
+
 settings = Settings()
+warn_if_default_otlp_credential()

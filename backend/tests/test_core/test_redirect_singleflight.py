@@ -65,7 +65,7 @@ class TestSingleflightFetch:
 
         assert calls["n"] == 1
         assert len(results) == 5
-        assert all(r["short_code"] == "hot" for r in results)
+        assert all(r[0]["short_code"] == "hot" for r in results)
         set_cache.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -114,7 +114,7 @@ class TestSingleflightFetch:
             release.set()
             result = await first
 
-        assert result["short_code"] == "hot"
+        assert result[0]["short_code"] == "hot"
         assert repo.get_by_short_code.await_count == 1
 
     @pytest.mark.asyncio
@@ -133,8 +133,8 @@ class TestSingleflightFetch:
             first = await svc._fetch_url("hot")
             second = await svc._fetch_url("hot")
 
-        assert first["short_code"] == "hot"
-        assert second["short_code"] == "hot"
+        assert first[0]["short_code"] == "hot"
+        assert second[0]["short_code"] == "hot"
         # A completed fetch is never reused: the next miss runs a fresh,
         # authoritative DB lookup (the cache may have been invalidated again).
         assert calls["n"] == 2

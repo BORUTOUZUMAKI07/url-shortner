@@ -113,6 +113,7 @@ def init_metrics():
         _metrics_reader = InMemoryMetricReader()
         resource = Resource.create({
             "service.name": settings.PROJECT_NAME,
+            "service.version": "1.0.0",
             "environment": settings.ENVIRONMENT,
         })
         meter_provider = MeterProvider(metric_readers=[otlp_reader, _metrics_reader], resource=resource)

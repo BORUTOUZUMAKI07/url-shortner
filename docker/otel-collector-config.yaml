@@ -4,8 +4,6 @@
 # The local agent between the app (Layer 1) and the sinks (Layer 3).
 #
 #   App (OTel SDK) ──OTLP──▶ otel-collector ──OTLP──▶ New Relic
-#       │                       │
-#       └──/metrics─────────────┤ (scrape → debug, local view only)
 #
 # * Runs in `docker compose up otel-collector` (dev) or as a Render free web
 #   service (production, see backend/render.yaml).
@@ -13,11 +11,23 @@
 #   (set in compose's environment or the Render blueprint) — it never lives in
 #   a committed file.
 # * Everything is fail-open: if a sink is unreachable the exporter retries
-#   with backoff; the collector keeps serving and never blocks the app.
+#   (in-memory queue) and the collector keeps serving; it never blocks the app.
 #
-# Set NEW_RELIC_LICENSE_KEY (or OTEL_HTTP_AUTH_HTPASSWD) by exporting it in
-# the shell before `docker compose up`, e.g. on PowerShell:
+# The OTLP/HTTP receiver REQUIRES basic auth. The app must therefore send an
+# `Authorization: Basic <base64(user:pass)>` header — it is the default of
+# OTEL_EXPORTER_OTLP_HEADERS in backend/src/shared/core/config.py, and is set
+# explicitly in docker-compose.yml and backend/render.yaml.
+#
+#   ⚠️  Deployment coordination: if you change OTLP_HTTP_AUTH_HTPASSWD here
+#   (compose/Render env), you MUST change the app's
+#   OTEL_EXPORTER_OTLP_HEADERS to the matching Basic value in the same deploy,
+#   or telemetry starts failing with 401 (fail-open: the app keeps serving,
+#   you just stop seeing data — look for exporter errors in the app logs).
+#
+# Set the secrets by exporting them in the shell before `docker compose up`
+# (PowerShell):
 #   $env:NEW_RELIC_LICENSE_KEY = "xxxxxxxx"
+#   $env:OTLP_HTTP_AUTH_HTPASSWD = "user:$(htpasswd -nbB user pass | cut -d: -f2)"
 # ============================================================================
 
 receivers:
@@ -28,40 +38,34 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
-        # SECURITY: on a free-tier Render service this endpoint is PUBLIC (a
-        # random person could POST junk and burn your New Relic free tier).
-        # To lock it down, replace the two lines under `http:` with:
-        #   http:
-        #     endpoint: 0.0.0.0:4318
-        #     auth:
-        #       authenticator: basicauth/server
-        # and uncomment the basicauth extension below, then set the app's
-        # OTEL_EXPORTER_OTLP_HEADERS to
-        #   Authorization: Basic <base64(user:pass)>
-        # (compose's `backend` service can pass it via env, e.g. the
-        # LinkForge default: Authorization: Basic bGlua2ZvcmdlOmxpbmtaZvcmdl).
-
-  # Scrapes the app's /metrics (Prometheus text). This is the /metrics path
-  # exercising the collector as a scraper. Output goes to the `debug` exporter
-  # ONLY — the app already streams the same instruments over OTLP, so scraping
-  # them into New Relic too would double-count every metric.
-  prometheus:
-    config:
-      scrape_configs:
-        - job_name: linkforge-app
-          scrape_interval: 30s
-          metrics_path: /metrics
-          static_configs:
-            - targets: ["backend:8000"]
-              labels:
-                service.name: linkforge
+        # SECURITY: on a free-tier Render service this endpoint is PUBLIC. Any
+        # anonymous caller could POST junk and burn the New Relic free tier
+        # (or evict real telemetry from the queue). Basic auth is a speed bump,
+        # not real auth — the credential lives in this repo — but it stops
+        # scanners and casual abuse. For real protection set a bcrypt
+        # OTLP_HTTP_AUTH_HTPASSWD (see the header comment) and rotate it.
+        #
+        # NOTE: this requires a client-side header. The app, docker-compose and
+        # render.yaml all set it; a bare `curl`/throwaway client must too.
+        auth:
+          authenticator: basicauth/server
 
 processors:
+  # Percentage, not a fixed MiB cap. 75% of the 512 MB Render free instance
+  # lands on the same ~384 the old limit_mib: 384 hard-coded, so production
+  # behaviour is essentially unchanged — but the limit now tracks the memory
+  # actually available to the process (the container's cgroup limit) instead of
+  # one machine's RAM, which is what lets a single file be correct at every
+  # instance size. spike is the burst headroom above the soft limit; past it the
+  # collector refuses more data rather than growing until the OOM killer fires.
   memory_limiter:
     check_interval: 5s
-    limit_mib: 384
-    spike_limit_mib: 128
+    limit_percentage: 75
+    spike_limit_percentage: 15
 
+  # Traces only. tail_sampling must buffer every span of a trace until the
+  # decision is made, and metrics/logs have no equivalent "trace" to keep
+  # coherent — attaching it to those pipelines is a configuration error.
   tail_sampling:
     decision_wait: 10s
     num_traces: 10000
@@ -90,17 +94,24 @@ processors:
         value: linkforge
         action: upsert
       - key: deployment.environment
-        value: ${env:ENVIRONMENT}
+        value: ${env:ENVIRONMENT:-production}
+        action: upsert
+      # Stamp a version so New Relic can split "before/after this deploy".
+      # The app also sets it; upsert keeps the two in sync.
+      - key: service.version
+        value: ${env:SERVICE_VERSION:-1.0.0}
         action: upsert
 
 extensions:
   health_check:
     endpoint: 0.0.0.0:13133
-  # Uncomment to protect the public OTLP endpoint. htpasswd string is either
-  # plain "user:pass" or a bcrypt hash from `htpasswd -nbB user pass`.
-  # basicauth/server:
-  #   htpasswd:
-  #     inline: ${env:OTLP_HTTP_AUTH_HTPASSWD:linkforge:linkforge}
+  # Protects the OTLP/HTTP receiver (see the header comment). `inline` is
+  # htpasswd-formatted: either plaintext "user:pass" or a bcrypt hash. The
+  # local/dev default matches the app's default header so `docker compose up`
+  # works with zero configuration; override BOTH for anything real.
+  basicauth/server:
+    htpasswd:
+      inline: "${env:OTLP_HTTP_AUTH_HTPASSWD:-linkforge:linkforge}"
 
 exporters:
   otlphttp/newrelic:
@@ -114,6 +125,20 @@ exporters:
       initial_interval: 1s
       max_interval: 30s
       max_elapsed_time: 300s
+    # In-memory queue: absorbs bursts and short New Relic blips without
+    # dropping data or blocking the receiver.
+    #
+    # Deliberately NOT file_storage-backed. The official image is `scratch`
+    # with USER 10001 and no writable directory (so the extension would fail
+    # to create its bbolt file unless the image is changed or run as root),
+    # and a Render free-tier disk is ephemeral — it does not survive a
+    # redeploy, which is when a durable queue would matter. "Nothing is ever
+    # dropped" is not a claim this deployment can make; the queue is a
+    # smoothing buffer, not durable delivery.
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
 
   # 1-line JSON view of everything flowing through the agent — great for
   # confirming the pipeline locally with zero vendor involvement.
@@ -138,7 +163,7 @@ exporters:
 #       password: ${env:GRAFANA_MT_PASSWORD}
 
 service:
-  extensions: [health_check]
+  extensions: [health_check, basicauth/server]
   pipelines:
     traces:
       receivers: [otlp]
@@ -152,8 +177,7 @@ service:
       receivers: [otlp]
       processors: [memory_limiter, batch, resource]
       exporters: [otlphttp/newrelic, debug]
-    # App /metrics scrape → local debug only (see receiver comment).
-    metrics/scrape:
-      receivers: [prometheus]
-      processors: [memory_limiter, batch]
-      exporters: [debug]
+    # NOTE: there is intentionally no `metrics/scrape` pipeline. The app is the
+    # only source of truth for its instruments and already pushes them here
+    # over OTLP; scraping its /metrics endpoint as well would duplicate every
+    # series (and the duplicate went nowhere but `debug`).

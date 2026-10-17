@@ -11,6 +11,7 @@ from upstash_redis.asyncio import Redis as UpstashRedis
 
 from src.shared import get_logger
 from src.shared.core.config import settings
+from src.shared.core.metrics import record_cache_operation
 
 logger = get_logger(__name__)
 
@@ -361,18 +362,23 @@ _url_l1_cache = _InProcessUrlCache()
 
 
 async def get_url_cache(short_code: str) -> dict | None:
+    started = time.perf_counter()
     hit = _url_l1_cache.get(short_code)
     if hit is not None:
+        record_cache_operation("get", True, time.perf_counter() - started, layer="l1")
         return hit
     try:
         data = await redis_client.get(f"url:{short_code}")
         if data:
             parsed: dict = json.loads(data)
             _url_l1_cache.set(short_code, parsed)
+            record_cache_operation("get", True, time.perf_counter() - started, layer="redis")
             return parsed
+        record_cache_operation("get", False, time.perf_counter() - started, layer="redis")
         return None
     except Exception as e:
         logger.debug("Cache read failed for %s: %s", short_code, e)
+        record_cache_operation("get", False, time.perf_counter() - started, layer="redis")
         return None
 
 

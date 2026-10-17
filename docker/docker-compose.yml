@@ -101,10 +101,14 @@ services:
 
   # ── Observability (Layer 2: collection & transport) ──────
   # In-process OTel SDK (Layer 1) pushes metrics/traces/logs here over OTLP;
-  # the agent tail-samples, batches, and forwards to New Relic (Layer 3) via
-  # OTEL_EXPORTER_OTLP_ENDPOINT_HEADERS — the NR ingest key lives on the
-  # agent, not the app. It also scrapes the app's /metrics to exercise the
-  # scrape path (output is local/debug only — see otel-collector-config.yaml).
+  # the agent tail-samples traces, batches, and forwards to New Relic (Layer 3)
+  # using NEW_RELIC_LICENSE_KEY — the NR ingest key lives on the agent, not the
+  # app. No /metrics scrape: the app serves its own Prometheus endpoint (L1)
+  # and every collector pipeline here is OTLP-only (otel-collector-config.yaml).
+  # The OTLP receiver requires basicauth; the backend's
+  # OTEL_EXPORTER_OTLP_HEADERS below matches this service's
+  # OTLP_HTTP_AUTH_HTPASSWD (dev default linkforge:linkforge — override both
+  # for anything reachable beyond localhost).
   #
   # Set the ingest key before starting (PowerShell):
   #   $env:NEW_RELIC_LICENSE_KEY = "xxxx"
@@ -117,6 +121,10 @@ services:
     environment:
       # not-set keeps the config loadable without a key; NR export fails open.
       - NEW_RELIC_LICENSE_KEY=${NEW_RELIC_LICENSE_KEY:-not-set}
+      # Receiver credential (htpasswd entry); default mirrors the config's
+      # `${env:OTLP_HTTP_AUTH_HTPASSWD:-linkforge:linkforge}` so compose works
+      # out of the box while staying overridable per-environment.
+      - OTLP_HTTP_AUTH_HTPASSWD=${OTLP_HTTP_AUTH_HTPASSWD:-linkforge:linkforge}
       - ENVIRONMENT=development
     ports:
       - "4317:4317"   # OTLP/gRPC (optional)
@@ -145,7 +153,7 @@ services:
       # Layer-1 → Layer-2: push all three signals to the local collector.
       # The collector owns the New Relic API key (adds it as api-key header).
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
-      - OTEL_EXPORTER_OTLP_HEADERS=
+      - OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic bGlua2ZvcmdlOmxpbmtmb3JnZQ==
       # 1.0 = send every span; the collector tail-samples (keeps all errors).
       - OTEL_TRACES_SAMPLE_RATIO=1.0
     depends_on:

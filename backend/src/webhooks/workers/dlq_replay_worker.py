@@ -2,6 +2,7 @@ import asyncio
 
 from src.shared import get_logger, setup_logging
 from src.shared.core.config import settings
+from src.shared.core.metrics import record_kafka_consume, track_worker
 from src.shared.events.kafka import init_kafka, publish_raw
 from src.shared.workers._sni_patch import _make_sni_context
 from src.shared.workers.kafka_consumer_pool import KafkaConnectionPool
@@ -13,6 +14,7 @@ DLQ_TOPIC_MAP = {
 
 
 async def handle_dlq_message(msg, consumer, logger):
+    record_kafka_consume(msg.topic, msg.timestamp)
     original_topic = DLQ_TOPIC_MAP.get(msg.topic)
     if not original_topic:
         logger.warning("Unknown DLQ topic: %s", msg.topic)
@@ -29,6 +31,7 @@ async def handle_dlq_message(msg, consumer, logger):
         await asyncio.sleep(5)
 
 
+@track_worker
 async def consume_dlq_replay():
     setup_logging()
     from src.shared.core.tracing import init_metrics, init_tracing

@@ -36,6 +36,7 @@ from src.links.routes import bulk, favorites, folders, redirect, tags, urls
 from src.shared import get_logger, setup_logging
 from src.shared.core.config import settings
 from src.shared.core.database import check_db_health, engine, init_db
+from src.shared.core.error_tracking import init_sentry
 from src.shared.core.mongodb import init_mongodb
 from src.shared.core.redis import init_redis, redis_client
 from src.shared.core.tracing import (
@@ -176,6 +177,10 @@ async def lifespan(app: FastAPI):
     """Application lifespan management"""
     setup_logging()
     logger = get_logger()
+
+    # Sentry first: everything below (including init failures) should be
+    # capturable. No-op unless SENTRY_DSN is set.
+    init_sentry()
 
     # Silence noisy aiokafka reconnection retry logs (these are automatic retries, not real errors)
     import logging as _logging

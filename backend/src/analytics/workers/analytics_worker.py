@@ -11,6 +11,7 @@ from src.shared.core.click_event import ClickEvent
 from src.shared.core.config import settings
 from src.shared.core.database import AsyncSessionLocal
 from src.shared.core.geo_service import GeoService
+from src.shared.core.metrics import record_analytics_event, record_kafka_consume, track_worker
 from src.shared.core.mongodb import init_mongodb
 from src.shared.events.kafka import publish_raw
 from src.shared.events.schemas import deserialize
@@ -30,6 +31,7 @@ def _get_clicked_at(event_data: dict) -> datetime:
     return datetime.now(timezone.utc)
 
 
+@track_worker
 async def consume_url_clicked_events():
     setup_logging()
     from src.shared.core.tracing import init_metrics, init_tracing
@@ -76,6 +78,7 @@ async def consume_url_clicked_events():
 
 
 async def handle_analytics_message(msg, consumer, logger):
+    record_kafka_consume(msg.topic, msg.timestamp)
     try:
         try:
             event_data = deserialize("url-clicked", msg.value)
@@ -141,6 +144,10 @@ async def process_event(event_data: dict, logger):
             logger.warning("URL not found for short_code: %s", event_data["short_code"])
             return
         await analytics_repo.upsert_click(url_id, click_event.clicked_at)
+
+    # Only counted once the event is persisted (both sinks), so the metric
+    # tracks successfully processed clicks, not merely delivered messages.
+    record_analytics_event("url-clicked", "url-clicked")
 
 
 if __name__ == "__main__":

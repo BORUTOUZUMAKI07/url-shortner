@@ -7,6 +7,7 @@ from src.links.repositories.tag_repository import TagRepository
 from src.links.repositories.url_repository import URLRepository
 from src.shared import get_logger
 from src.shared.core.config import settings
+from src.shared.core.metrics import record_url_creation
 from src.shared.core.redis import delete_url_cache
 from src.shared.core.security import hash_password_async
 from src.shared.errors import (
@@ -141,6 +142,8 @@ class URLService:
             "short_code": url.short_code, "original_url": url.original_url,
             "workspace_id": url.workspace_id, "user_id": user_id,
         })
+
+        record_url_creation(custom_alias=bool(payload.custom_alias))
 
         return url
 

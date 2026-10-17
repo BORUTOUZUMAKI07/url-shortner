@@ -8,6 +8,7 @@ from src.links.repositories.url_repository import URLRepository
 from src.shared import get_logger, setup_logging
 from src.shared.core.config import settings
 from src.shared.core.database import AsyncSessionLocal
+from src.shared.core.metrics import record_kafka_consume, track_worker
 from src.shared.core.safe_url import safe_fetch
 from src.shared.events.kafka import publish_raw
 from src.shared.events.schemas import deserialize
@@ -59,6 +60,7 @@ async def extract_metadata(url: str, logger) -> dict[str, str | None]:
     return result
 
 
+@track_worker
 async def consume_url_created():
     setup_logging()
     from src.shared.core.tracing import init_metrics, init_tracing
@@ -99,6 +101,7 @@ async def consume_url_created():
 
 
 async def handle_metadata_message(msg, consumer, logger):
+    record_kafka_consume(msg.topic, msg.timestamp)
     try:
         try:
             event_data = deserialize("url-created", msg.value)
