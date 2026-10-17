@@ -1,5 +1,22 @@
 # Critical Fixes
 
+## Redirect Batch 2026-10-17 — Password Links 404'd From the Frontend Origin (the One the App Copies)
+
+**Files:** `backend/src/links/routes/redirect.py` (`_check_same_origin`), `backend/tests/test_core/test_redirect_same_origin.py` (new), `backend/tests/test_routes/test_redirect_routes.py`
+
+A password-protected short link is served by whichever origin the visitor opened it on, and its `<form method="POST">` has **no `action`**, so it posts back to that **same** origin. Two origins can serve it:
+
+- the backend directly (`BACKEND_URL`) — what QR codes encode (`links/routes/urls.py` `get_qr_code`);
+- the frontend (`FRONTEND_URL`) — `frontend/next.config.ts` rewrites `/:short_code` to the backend, and the app **copies short links at `window.location.origin`** (`frontend/src/lib/utils.ts` `buildShareableShortUrl`, and `favorites/page.tsx`), so this is the common case.
+
+`_check_same_origin` accepted **only** `BACKEND_URL`'s host, so unlocking a protected link opened from the copied URL raised `URLNotFound` → **404**. Verified against the live deployment before the fix: `Referer: <backend host>` → 302, `Referer: <frontend host>` → 404. Non-password links and QR codes were unaffected (plain GETs run no origin check).
+
+**Fix:** the guard accepts the hostname of **both** `BACKEND_URL` and `FRONTEND_URL` (host-only, so scheme/port/path are ignored — the form is served over http locally and https deployed). A missing `Referer` is still allowed (browsers omit it and a direct form post must work), and an unrecognised referer still raises `URLNotFound` (404, not 403) so the guard is not an existence oracle for other tenants' short codes. The redundant local `from src.shared.errors import URLNotFound as _CSRFError` is gone; the module-level import is used. Only one caller (the password-unlock POST).
+
+**Note:** `ALLOWED_ORIGINS` is **not** a `Settings` field — `main.py` reads it via `os.getenv("ALLOWED_ORIGINS", settings.FRONTEND_URL)` for CORS. The guard keys off `FRONTEND_URL` (CORS's own default), so fixing `FRONTEND_URL` fixes both; do not "simplify" this to a bare `request.client.host`, which is the proxy address behind Render.
+
+Tests: `test_redirect_same_origin.py` (no DB, no server) pins host extraction — missing referer allowed, backend/frontend hosts allowed, port/path ignored, foreign host and lookalike host (`app.linkforge.test.evil.invalid`) rejected, rejection is a 404. `test_redirect_routes.py` adds the end-to-end pair (frontend referer ≠ 404, foreign referer = 404). Frontend unchanged.
+
 ## Product Batch 2026-10-13 — Tier Plan System Removed End to End
 
 The tier/plan concept is gone from the product: no `users.plan`, no billing endpoint or page, no plan-aware rate limits or quotas. Two things made this more than a delete: plan was **load-bearing for two limits**, and the **Postgres enum type** could not be dropped until the column that used it was.

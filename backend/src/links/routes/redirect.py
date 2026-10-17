@@ -86,18 +86,37 @@ def _validate_short_code(short_code: str) -> None:
 
 
 def _check_same_origin(request: Request) -> None:
-    """Reject requests whose ``Referer`` does not match the backend origin."""
-    from urllib.parse import urlparse
+    """Reject a password-unlock POST whose ``Referer`` is some other site.
 
+    The protected-link page is served by whichever origin the visitor opened the
+    short link on, and its ``<form>`` has no ``action``, so it posts back to that
+    same origin. Two origins are therefore legitimate:
+
+    * ``BACKEND_URL`` — a short link opened directly against the backend (and the
+      origin QR codes point at);
+    * ``FRONTEND_URL`` — ``next.config.ts`` proxies ``/{short_code}`` to the
+      backend, and the app copies short links at ``window.location.origin`` (the
+      frontend), so this is in fact the common case. Accepting only the backend
+      made every protected link opened from the copied URL answer 404.
+
+    A missing ``Referer`` is allowed (some browsers/privacy settings omit it and a
+    direct form post must still work). An unrecognised referer raises
+    ``URLNotFound`` (a 404, not a 403) so the guard is not an existence oracle for
+    short codes belonging to other tenants. Only the host is compared, so scheme,
+    port and path on the referer are ignored.
+    """
     referer = request.headers.get("Referer")
     if not referer:
         return
-    backend_url = settings.BACKEND_URL.rstrip("/")
-    backend_origin = urlparse(backend_url).hostname or ""
+    from urllib.parse import urlparse
+
+    allowed_hosts = {
+        urlparse(settings.BACKEND_URL).hostname or "",
+        urlparse(settings.FRONTEND_URL).hostname or "",
+    }
     referer_host = urlparse(referer).hostname or ""
-    if referer_host and referer_host != backend_origin:
-        from src.shared.errors import URLNotFound as _CSRFError
-        raise _CSRFError()
+    if referer_host and referer_host not in allowed_hosts:
+        raise URLNotFound()
 
 
 async def _resolve_and_redirect(
