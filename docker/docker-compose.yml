@@ -131,8 +131,10 @@ services:
       - "4318:4318"   # OTLP/HTTP — what the app pushes to
       - "8888:8888"   # collector self-metrics
       - "13133:13133" # /healthz
-    depends_on:
-      - backend
+    # No depends_on: the collector is stateless and the app pushes to it, so the
+    # edge points `backend -> otel-collector`, not the reverse. A `backend`
+    # dependency here closes the loop and `docker compose config` refuses the
+    # file with "dependency cycle detected: backend -> otel-collector -> backend".
 
   # ── Application ──────────────────────────────────────────
   backend:
