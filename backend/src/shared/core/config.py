@@ -230,20 +230,10 @@ class Settings(BaseSettings):
     # Lower this only when pushing straight to a vendor with no collector.
     OTEL_TRACES_SAMPLE_RATIO: float = 1.0
 
-    # --- Sentry (error tracking; opt-in) ---
-    # Error *grouping* (one issue per distinct stack trace, with breadcrumbs and
-    # a release) is what Sentry adds over OTLP logs/traces. Unset DSN = disabled,
-    # so tests and local dev never ship exceptions to a third party.
-    SENTRY_DSN: Optional[str] = None
-    # Sentry performance tracing is off by default: traces already flow through
-    # OTel → collector → New Relic, and enabling both double-collects spans.
-    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
-
     # --- Log PII/secret redaction ---
-    # Every log record is shipped off-box (OTLP → New Relic) and may also be
-    # captured by Sentry, so scrubbing happens at the handler boundary rather
-    # than at each call site. Turn off only if the regexes mangle something you
-    # genuinely need in the log stream.
+    # Every log record is shipped off-box (OTLP → New Relic), so scrubbing
+    # happens at the handler boundary rather than at each call site. Turn off
+    # only if the regexes mangle something you genuinely need in the log stream.
     PII_REDACTION_ENABLED: bool = True
     PII_REDACTION_REPLACEMENT: str = "***"
 

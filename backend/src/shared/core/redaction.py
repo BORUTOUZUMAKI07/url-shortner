@@ -5,8 +5,8 @@ high-value secrets (emails, phone numbers, SSNs, IP addresses, cloud keys,
 bearer tokens, private-key blocks, home-directory paths, and the credentials
 inside a database DSN).
 
-Why this exists: every log record is shipped off-box over OTLP to New Relic
-(and can additionally be captured by Sentry). A stray DSN, an ``Authorization``
+Why this exists: every log record is shipped off-box over OTLP to New Relic.
+A stray DSN, an ``Authorization``
 header, or a user's email address in an application log is a data leak to a
 third party. Redaction is therefore applied at the *log handler* boundary —
 see :class:`RedactionFilter` — so it cannot be forgotten at a call site.
