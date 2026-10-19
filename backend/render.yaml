@@ -83,6 +83,12 @@ services:
         sync: false
       - key: REQUIRE_EMAIL_VERIFICATION
         value: "false"
+      # Optional geo token (ipinfo.io/signup). Anonymous calls still work, but a
+      # free token lifts the quota to 50k req/month. Geo is resolved async in the
+      # analytics worker — never on the redirect hot path — is fail-open, and
+      # each IP is cached for 24h, so leaving it unset is safe.
+      - key: IPINFO_TOKEN
+        sync: false
 
   # ── Layer-2: OpenTelemetry Collector (collection & transport) ──────────────
   # Public HTTPS :443 is proxied to $PORT (4318) — the OTLP/HTTP receiver the
