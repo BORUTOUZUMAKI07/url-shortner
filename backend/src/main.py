@@ -51,6 +51,7 @@ from src.shared.events.kafka import close_kafka, init_kafka
 from src.shared.middleware.audit import AuditContextMiddleware
 from src.shared.middleware.metrics import MetricsMiddleware
 from src.shared.middleware.rate_limit import RateLimitMiddleware
+from src.shared.middleware.security_headers import SecurityHeadersMiddleware
 from src.shared.middleware.tracing import TracingMiddleware
 from src.webhooks.routes import webhook_receiver, webhooks
 from src.webhooks.workers.dlq_replay_worker import consume_dlq_replay
@@ -96,6 +97,9 @@ def create_app(lifespan_override=None):
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(AuditContextMiddleware)
     app.add_middleware(TracingMiddleware)
+    # Outermost: headers must also be present on error/429 responses produced
+    # by the other middleware, not just on successful route responses.
+    app.add_middleware(SecurityHeadersMiddleware)
 
     # Exception handlers
     @app.exception_handler(AppError)

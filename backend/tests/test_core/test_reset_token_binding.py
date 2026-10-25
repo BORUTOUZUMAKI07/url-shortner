@@ -16,8 +16,8 @@ same second were byte-identical, so "resend" could not produce a genuinely new
 link.
 """
 
+import jwt
 import pytest
-from jose import jwt
 
 from src.identity.services import auth_service as auth_module
 from src.identity.services.auth_service import AuthService
@@ -57,6 +57,13 @@ class _Repo:
         for k, v in values.items():
             setattr(self._user, k, v)
         return self._user
+
+    async def update_password_if_current(self, user_id, current_hash, new_hash):
+        if self._user.password_hash != current_hash:
+            return False
+        self.updates.append({"password_hash": new_hash})
+        self._user.password_hash = new_hash
+        return True
 
 
 class _Unused:
@@ -134,6 +141,37 @@ class TestResetTokenIsBound:
             await svc.reset_password(token, "AttackerPassword999!")
         assert user.password_hash.endswith("OwnerPassword123!")
 
+    async def test_two_concurrent_resets_have_exactly_one_winner(self):
+        """The read-then-update race the pfp binding alone could not close.
+
+        Both requests can read the same old hash before either commits. The
+        UPDATE must compare-and-swap, so the second writer loses even though its
+        pre-flight fingerprint check passed.
+        """
+
+        class _RacyRepo(_Repo):
+            def __init__(self, user):
+                super().__init__(user)
+                self.stored_hash = user.password_hash
+
+            async def update_password_if_current(self, user_id, current_hash, new_hash):
+                if self.stored_hash != current_hash:
+                    return False
+                self.stored_hash = new_hash
+                self.updates.append({"password_hash": new_hash})
+                return True
+
+        user = _User()
+        repo = _RacyRepo(user)
+        svc = AuthService(user_repo=repo, workspace_repo=_Unused(), audit=_Unused())
+        token = create_password_reset_token(user.email, HASH_A)
+
+        await svc.reset_password(token, "OwnerPassword123!")
+        with pytest.raises(InvalidResetToken):
+            await svc.reset_password(token, "AttackerPassword999!")
+        assert repo.stored_hash.endswith("OwnerPassword123!")
+        assert not repo.stored_hash.endswith("AttackerPassword999!")
+
     async def test_legacy_token_without_a_binding_is_rejected(self):
         """Tokens minted before this change carry no `pfp`.
 
@@ -144,7 +182,8 @@ class TestResetTokenIsBound:
         svc, repo = _service(_User())
         legacy = jwt.encode(
             {"sub": "me@example.com", "type": "reset",
-             "exp": 9999999999, "jti": "old"},
+             "exp": 9999999999, "jti": "old",
+             "iss": settings.JWT_ISSUER, "aud": settings.JWT_AUDIENCE},
             settings.SECRET_KEY,
             algorithm=settings.ALGORITHM,
         )

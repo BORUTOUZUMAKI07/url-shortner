@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from jose import JWTError
+from jwt import InvalidTokenError
 from sqlalchemy.exc import IntegrityError
 
 from src.identity.models.user import User
@@ -18,6 +18,7 @@ from src.identity.services.email_service import EmailService
 from src.identity.services.session_revocation import (
     is_family_revoked,
     revoke_refresh_family,
+    upgrade_legacy_revocation_marker,
 )
 from src.shared.core.config import settings
 from src.shared.core.redis import redis_client
@@ -206,6 +207,7 @@ class AuthService:
             raise UnauthorizedError("Account is deactivated")
         if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
             raise UnauthorizedError("Email address is not verified")
+        await upgrade_legacy_revocation_marker(user.id)
         access_token = create_access_token(data={"sub": str(user.id)})
         refresh_token = create_refresh_token(data={"sub": str(user.id)})
         await self._store_refresh_session(refresh_token, user.id)
@@ -245,12 +247,16 @@ class AuthService:
 
         new_access = create_access_token(data={"sub": str(user.id)})
 
+        # Family-wide revocation must be checked for every refresh token, not
+        # only tokens that carry sid/jti. Legacy tokens predate session metadata
+        # and would otherwise survive a password reset entirely.
+        if await is_family_revoked(user.id, payload.get("iat")):
+            raise TokenRevoked()
+
         if sid and jti:
             # Tokens minted with session metadata get reuse detection: if the
             # presented token's jti no longer matches the session record, it was
             # already rotated out — someone is replaying it.
-            if await is_family_revoked(user.id):
-                raise TokenRevoked()
             new_refresh = create_refresh_token(data={"sub": str(user.id)}, sid=sid)
             new_payload = decode_token(new_refresh)
             result = await redis_client.eval(
@@ -357,7 +363,7 @@ class AuthService:
             sid = payload.get("sid")
             if sid:
                 await redis_client.delete(f"{_REFRESH_SESSION_PREFIX}{sid}")
-        except JWTError:
+        except InvalidTokenError:
             pass
         if actor_id is not None:
             await self._audit.log(
@@ -405,7 +411,14 @@ class AuthService:
             str(token_payload.get("pfp", "")), reset_fingerprint(user.password_hash)
         ):
             raise InvalidResetToken()
-        await self.user_repo.update(user.id, password_hash=await hash_password_async(new_password))
+        new_hash = await hash_password_async(new_password)
+        # Compare-and-swap: the pre-check above is advisory, and two concurrent
+        # resets can both pass it. Only one UPDATE can match the old hash, so
+        # the captured-link race cannot overwrite the owner's new password.
+        if not await self.user_repo.update_password_if_current(
+            user.id, user.password_hash, new_hash
+        ):
+            raise InvalidResetToken()
         # Changing the password must invalidate every existing session. Without
         # this, a stolen refresh token keeps working after the owner has
         # explicitly reset their credentials, which defeats the reset entirely.
@@ -706,6 +719,7 @@ class AuthService:
                 resource_id=user.id,
             )
             _lap("db_audit_log")
+            await upgrade_legacy_revocation_marker(user.id)
             access_token = create_access_token(data={"sub": str(user.id)})
             refresh_token = create_refresh_token(data={"sub": str(user.id)})
             _lap("mint_tokens")

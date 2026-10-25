@@ -1,4 +1,4 @@
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from src.identity.models.user import User
 from src.shared.core.base_repository import BaseRepository
@@ -10,6 +10,27 @@ class UserRepository(BaseRepository[User]):
 
     async def get_by_email(self, email: str) -> User | None:
         return await self.get_by(email=email)
+
+    async def update_password_if_current(
+        self, user_id: int, current_hash: str, new_hash: str
+    ) -> bool:
+        """Atomically replace a password only if it still has the old hash.
+
+        Reset tokens are bound to the password they were issued against (see
+        `reset_fingerprint`), but a plain read-then-update is still racy: two
+        requests can both read the old hash and both write, so the last writer
+        wins. That is the one window a captured reset link could use to beat its
+        owner. Doing the comparison in the UPDATE makes exactly one writer win;
+        the loser sees rowcount 0 and treats the token as already spent.
+        """
+        stmt = (
+            update(User)
+            .where(User.id == user_id, User.password_hash == current_hash)
+            .values(password_hash=new_hash)
+        )
+        result = await self.db.execute(stmt)
+        await self.db.commit()
+        return bool(result.rowcount)  # type: ignore[attr-defined]
 
     # Provider-subject lookups. These are the ONLY safe way to map an OAuth
     # identity onto a local account - the provider's "sub" is immutable,

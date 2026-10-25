@@ -4,17 +4,22 @@ import time
 from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 
+import jwt
 import pytest
-from jose import jwt
 from passlib.hash import sha256_crypt
 
 from src.identity.services.auth_service import AuthService
+from src.identity.services.session_revocation import (
+    is_family_revoked,
+    revoke_refresh_family,
+)
 from src.identity.services.sso.github_oauth import GitHubOAuthProvider
 from src.identity.services.sso.google_oauth import GoogleOAuthProvider
+from src.shared.core.config import settings
 from src.shared.core.security import create_refresh_token
 from src.shared.errors import TokenRevoked, UnauthorizedError
 
-SECRET = "test-secret-key-for-testing"
+SECRET = "test-secret-key-for-testing-32-bytes!!"
 
 
 class FakeUser:
@@ -143,12 +148,12 @@ class TestRefreshReuseDetection:
         redis = FakeRedis()
         svc = _svc(FakeUser())
         old = create_refresh_token({"sub": "1"})
-        old_sid = jwt.decode(old, SECRET, algorithms=["HS256"])["sid"]
+        old_sid = jwt.decode(old, SECRET, algorithms=["HS256"], audience=settings.JWT_AUDIENCE)["sid"]
         with fake_redis(redis):
             result = await svc.refresh(old)
-        new = jwt.decode(result.refresh_token, SECRET, algorithms=["HS256"])
+        new = jwt.decode(result.refresh_token, SECRET, algorithms=["HS256"], audience=settings.JWT_AUDIENCE)
         assert new["sid"] == old_sid
-        assert new["jti"] != jwt.decode(old, SECRET, algorithms=["HS256"])["jti"]
+        assert new["jti"] != jwt.decode(old, SECRET, algorithms=["HS256"], audience=settings.JWT_AUDIENCE)["jti"]
         # old token is blacklisted so it can never be used again
         assert f"jwt:blacklist:{old}" in redis.data
 
@@ -158,13 +163,13 @@ class TestRefreshReuseDetection:
         redis = FakeRedis()
         svc = _svc(FakeUser())
         token = create_refresh_token({"sub": "1"})
-        sid = jwt.decode(token, SECRET, algorithms=["HS256"])["sid"]
+        sid = jwt.decode(token, SECRET, algorithms=["HS256"], audience=settings.JWT_AUDIENCE)["sid"]
         redis.data[f"refresh:session:{sid}"] = "{}"
         redis.eval_result = 0  # Lua says: presented jti matches neither current nor grace prev
         with fake_redis(redis):
             with pytest.raises(TokenRevoked):
                 await svc.refresh(token)
-        assert redis.data.get("refresh:revoked:1") == "1"
+        assert float(redis.data.get("refresh:revoked:1", 0)) > 0
 
     @patch("src.shared.core.security.settings.SECRET_KEY", SECRET)
     @patch("src.shared.core.security.settings.ALGORITHM", "HS256")
@@ -185,13 +190,19 @@ class TestRefreshReuseDetection:
         svc = _svc(FakeUser())
         # A pre-session-metadata token (issued by the old code) must still rotate.
         legacy = jwt.encode(
-            {"sub": "1", "type": "refresh", "exp": int(time.time()) + 3600},
+            {
+                "sub": "1",
+                "type": "refresh",
+                "exp": int(time.time()) + 3600,
+                "iss": settings.JWT_ISSUER,
+                "aud": settings.JWT_AUDIENCE,
+            },
             SECRET,
             algorithm="HS256",
         )
         with fake_redis(redis):
             result = await svc.refresh(legacy)
-        new = jwt.decode(result.refresh_token, SECRET, algorithms=["HS256"])
+        new = jwt.decode(result.refresh_token, SECRET, algorithms=["HS256"], audience=settings.JWT_AUDIENCE)
         assert new["sid"] and new["jti"]
         assert any(k.startswith("refresh:session:") for k in redis.data)
 
@@ -202,7 +213,7 @@ class TestRefreshReuseDetection:
         svc = _svc(FakeUser())
         with fake_redis(redis):
             token = await svc.login("test@example.com", "testpass123")
-        sid = jwt.decode(token.refresh_token, SECRET, algorithms=["HS256"])["sid"]
+        sid = jwt.decode(token.refresh_token, SECRET, algorithms=["HS256"], audience=settings.JWT_AUDIENCE)["sid"]
         assert f"refresh:session:{sid}" in redis.data
 
     @patch("src.shared.core.security.settings.SECRET_KEY", SECRET)
@@ -217,6 +228,111 @@ class TestRefreshReuseDetection:
         with fake_redis(redis):
             with pytest.raises(UnauthorizedError):
                 await svc.refresh(token)
+
+
+class TestRefreshFamilyRevocation:
+    """A reset/replay marker must kill old tokens without locking out a new login.
+
+    The stored value is the instant of revocation; a token is valid only if its
+    `iat` is strictly after it. This is what replaces a clear-on-login step: the
+    marker cannot simply be deleted, because the repo has no per-session family
+    registry to invalidate and deleting it would re-arm every pre-reset token.
+    """
+
+    @patch("src.shared.core.security.settings.SECRET_KEY", SECRET)
+    @patch("src.shared.core.security.settings.ALGORITHM", "HS256")
+    async def test_fresh_login_refreshes_after_revocation_marker(self):
+        redis = FakeRedis()
+        svc = _svc(FakeUser())
+        redis.data["refresh:revoked:1"] = str(time.time() - 10)
+        with fake_redis(redis):
+            token = await svc.login("test@example.com", "testpass123")
+            rotated = await svc.refresh(token.refresh_token)
+        assert rotated.access_token
+        assert rotated.refresh_token
+
+    @patch("src.shared.core.security.settings.SECRET_KEY", SECRET)
+    @patch("src.shared.core.security.settings.ALGORITHM", "HS256")
+    async def test_token_issued_before_revocation_is_rejected(self):
+        redis = FakeRedis()
+        svc = _svc(FakeUser())
+        token = create_refresh_token({"sub": "1"})
+        # Marker is later than the token's iat: this token was killed.
+        redis.data["refresh:revoked:1"] = str(time.time() + 5)
+        with fake_redis(redis):
+            with pytest.raises(TokenRevoked):
+                await svc.refresh(token)
+
+    @patch("src.shared.core.security.settings.SECRET_KEY", SECRET)
+    @patch("src.shared.core.security.settings.ALGORITHM", "HS256")
+    async def test_legacy_token_without_iat_is_rejected_while_revoked(self):
+        redis = FakeRedis()
+        svc = _svc(FakeUser())
+        legacy = jwt.encode(
+            {
+                "sub": "1",
+                "type": "refresh",
+                "exp": int(time.time()) + 3600,
+                "iss": settings.JWT_ISSUER,
+                "aud": settings.JWT_AUDIENCE,
+            },
+            SECRET,
+            algorithm="HS256",
+        )
+        redis.data["refresh:revoked:1"] = str(time.time() - 10)
+        with fake_redis(redis):
+            with pytest.raises(TokenRevoked):
+                await svc.refresh(legacy)
+
+    @patch("src.shared.core.security.settings.SECRET_KEY", SECRET)
+    @patch("src.shared.core.security.settings.ALGORITHM", "HS256")
+    async def test_login_rearms_a_legacy_marker_instead_of_clearing_it(self):
+        redis = FakeRedis()
+        svc = _svc(FakeUser())
+        old = create_refresh_token({"sub": "1"})
+        old_iat = jwt.decode(
+            old, SECRET, algorithms=["HS256"], audience=settings.JWT_AUDIENCE
+        )["iat"]
+        redis.data["refresh:revoked:1"] = "1"
+
+        with fake_redis(redis):
+            token = await svc.login("test@example.com", "testpass123")
+            raw = redis.data["refresh:revoked:1"]
+            # Converted to an instant, not deleted: the pre-login token stays
+            # dead, the freshly-minted one is newer than the marker.
+            assert raw != "1"
+            assert float(raw) > old_iat
+            with pytest.raises(TokenRevoked):
+                await svc.refresh(old)
+            rotated = await svc.refresh(token.refresh_token)
+        assert rotated.access_token
+
+    async def test_revoke_writes_a_timestamp_not_a_boolean(self):
+        redis = FakeRedis()
+        with fake_redis(redis):
+            await revoke_refresh_family(1)
+        raw = redis.data["refresh:revoked:1"]
+        assert raw != "1"
+        assert float(raw) > 0
+
+    async def test_legacy_boolean_marker_still_revokes_everything(self):
+        redis = FakeRedis()
+        redis.data["refresh:revoked:1"] = "1"
+        with fake_redis(redis):
+            assert await is_family_revoked(1, time.time()) is True
+
+    async def test_missing_marker_is_not_revoked(self):
+        redis = FakeRedis()
+        with fake_redis(redis):
+            assert await is_family_revoked(1, time.time()) is False
+
+    async def test_revocation_read_fails_open(self):
+        class BrokenRedis:
+            async def get(self, key):
+                raise RuntimeError("redis down")
+
+        with patch("src.identity.services.session_revocation.redis_client", BrokenRedis()):
+            assert await is_family_revoked(1, time.time()) is False
 
 
 class TestOAuthPKCE:

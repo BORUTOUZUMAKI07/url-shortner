@@ -171,6 +171,10 @@ class Settings(BaseSettings):
     # --- JWT ---
     SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
+    # Token audience/issuer prevent a token minted for one service (or one
+    # environment, if it ever shares a key) from being accepted by another.
+    JWT_ISSUER: str = "linkforge"
+    JWT_AUDIENCE: str = "linkforge-api"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     # Refresh token lifetime. Also drives the refresh session record TTL in
     # Redis, the reuse-detection grace window budget, and the refresh cookie.

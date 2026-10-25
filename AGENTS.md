@@ -1,5 +1,49 @@
 # Critical Fixes
 
+## Security Batch 2026-10-21 — Revocation Epoch, JWT Claims, Login Bucket, CAS Reset
+
+### Refresh-family revocation was a boolean; clearing it on login would re-arm stolen tokens
+
+**Files:** `backend/src/identity/services/session_revocation.py`, `backend/src/identity/services/auth_service.py`, `backend/tests/test_core/test_auth_reuse_pkce.py`
+
+`refresh:revoked:{user_id}` was a boolean kill switch. Once set (password reset, replay detected), every refresh failed — including a brand-new login — for the full 7-day TTL. The tempting fix (delete the key on login) is **unsafe here**: this repo has no per-user session registry to invalidate, and the individual `refresh:session:{sid}` records are not deleted on reset, so clearing the key would make every pre-reset refresh token valid again.
+
+The marker now stores the **instant of revocation** (`time.time()`), and `is_family_revoked(user_id, issued_at)` rejects a token only when `issued_at < revoked_before`. Refresh tokens carry `iat` (float NumericDate) for exactly this check. Consequences:
+
+- a fresh login mints a token newer than the marker, so it works;
+- every token minted before the reset/replay stays dead;
+- tokens without `iat` are treated as revoked while a marker exists;
+- the old `"1"` marker is treated as “all tokens revoked”. On a successful login, `upgrade_legacy_revocation_marker()` rewrites it to `now` — **not** delete it — so old tokens stay dead and the new login works. Without this migration, an existing boolean marker would keep rejecting new logins for its full TTL.
+- the revocation check moved **outside** the `if sid and jti` branch: legacy tokens used to bypass family revocation entirely.
+
+Tests pin: fresh login refreshes after a marker, pre-marker token rejected, legacy no-`iat` token rejected, legacy marker upgraded (not cleared) on login, old token still rejected after upgrade, fail-open on Redis read errors.
+
+### Password reset is compare-and-swap, not read-then-update
+
+**Files:** `backend/src/identity/repositories/user_repository.py` (`update_password_if_current`), `auth_service.reset_password`, `backend/tests/test_core/test_reset_token_binding.py`
+
+The reset token's `pfp` binding killed a link only *after* a successful reset; two concurrent requests could both pass the pre-check and both write, so a captured link could race the owner. The `UPDATE` now includes `WHERE password_hash = :old_hash`; exactly one writer sees `rowcount = 1`, the loser gets `InvalidResetToken`. This keeps the stateless design (no Redis record) and closes the TOCTOU.
+
+### PyJWT replaces python-jose; tokens carry `iss`/`aud`/`iat`
+
+**Files:** `backend/src/shared/core/security.py`, `backend/src/shared/core/config.py`, `backend/src/shared/middleware/rate_limit.py`, `backend/pyproject.toml`
+
+`python-jose` is a terminal dependency and was replaced with `PyJWT`. All tokens (access, refresh, verify, reset) now carry `iss=JWT_ISSUER` (`linkforge`), `aud=JWT_AUDIENCE` (`linkforge-api`) and `iat`; `decode_token()` validates issuer and audience. `rate_limit.py` uses `decode_token()` rather than its own unvalidated `jose.jwt.decode`.
+
+**Deploy note:** existing tokens (and pending email/reset links) do not carry the claims and are rejected — every session needs one re-login. That is the intended one-time cost; do not “grandfather” missing `aud`/`iss`.
+
+### Per-account login bucket
+
+**File:** `backend/src/identity/routes/auth.py`
+
+The per-IP login budget is bypassable by a distributed attacker. A second token bucket is keyed by `sha256(normalized email)` (Redis never stores the address): 50 attempts, refilling one per minute. A successful login deletes the key, so only failures accumulate. It is a backstop, not a hard lockout: a correct password still clears it.
+
+### Security headers
+
+**Files:** `backend/src/shared/middleware/security_headers.py` (new, registered outermost in `main.py`), `frontend/next.config.ts`
+
+Backend: `nosniff`, `DENY` framing, strict-origin referrer, Permissions-Policy, COOP, HSTS in production, `default-src 'none'` CSP on `/api/*`, and `Cache-Control: no-store` on `/api/v1/auth/*`. Frontend adds HSTS, Permissions-Policy, COOP and a deliberately narrow CSP (`frame-ancestors`/`base-uri`/`object-src` only — a full script CSP needs per-request nonces in Next.js and would otherwise be theatre).
+
 ## Redirect Batch 2026-10-17 — Password Links 404'd From the Frontend Origin (the One the App Copies)
 
 **Files:** `backend/src/links/routes/redirect.py` (`_check_same_origin`), `backend/tests/test_core/test_redirect_same_origin.py` (new), `backend/tests/test_routes/test_redirect_routes.py`

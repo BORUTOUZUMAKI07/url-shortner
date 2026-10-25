@@ -1,11 +1,12 @@
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
-from jose import JWTError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.shared.core.client_ip import get_client_ip
 from src.shared.core.config import settings
 from src.shared.core.redis import RateLimitResult, check_rate_limit, rate_limit_headers
+from src.shared.core.security import decode_token
+from src.shared.errors import InvalidToken, TokenExpired
 
 
 def _rate_limited_response(result: RateLimitResult, limit: int) -> JSONResponse:
@@ -43,10 +44,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             try:
-                from jose import jwt as jose_jwt
-                payload = jose_jwt.decode(auth_header[7:], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+                payload = decode_token(auth_header[7:])
                 user_id = payload.get("sub")
-            except JWTError:
+            except (InvalidToken, TokenExpired):
                 pass
 
         if user_id:

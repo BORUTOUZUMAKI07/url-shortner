@@ -4,7 +4,8 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from jose import ExpiredSignatureError, JWTError, jwt
+import jwt
+from jwt import ExpiredSignatureError, InvalidTokenError
 from passlib.context import CryptContext
 
 from src.shared.core.config import settings
@@ -29,7 +30,7 @@ async def verify_password_async(plain: str, hashed: str) -> bool:
 # Claims this module owns. A caller passing them in would be silently ignored
 # (they were overwritten before, which hid bugs like a caller asking for a
 # 30-day token and getting the default), so now they raise.
-_RESERVED_CLAIMS = frozenset({"exp", "type", "jti", "sid"})
+_RESERVED_CLAIMS = frozenset({"aud", "exp", "iat", "iss", "type", "jti", "sid"})
 
 
 def _encode(data: dict, reserved: dict) -> str:
@@ -39,11 +40,23 @@ def _encode(data: dict, reserved: dict) -> str:
             "Reserved JWT claim(s) cannot be supplied by the caller: "
             + ", ".join(sorted(collisions))
         )
-    return jwt.encode({**data, **reserved}, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return jwt.encode(
+        {
+            **data,
+            "iss": settings.JWT_ISSUER,
+            "aud": settings.JWT_AUDIENCE,
+            "iat": datetime.now(timezone.utc).timestamp(),
+            **reserved,
+        },
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
     return _encode(data, {"exp": expire, "type": "access"})
 
 def create_refresh_token(data: dict, sid: Optional[str] = None) -> str:
@@ -51,6 +64,11 @@ def create_refresh_token(data: dict, sid: Optional[str] = None) -> str:
     # jti (unique per token) + sid (stable per session, survives rotation) enable
     # refresh-token reuse detection: a rotated-out token whose jti no longer
     # matches the session record means the token was replayed.
+    #
+    # `iat` is also load-bearing: refresh-family revocation records the instant
+    # of revocation, and a token is only valid if it was issued strictly after
+    # that instant. That is what lets a fresh login work after a password reset
+    # without re-arming every refresh token that existed before the reset.
     return _encode(data, {
         "exp": expire,
         "type": "refresh",
@@ -60,11 +78,17 @@ def create_refresh_token(data: dict, sid: Optional[str] = None) -> str:
 
 def decode_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            audience=settings.JWT_AUDIENCE,
+            issuer=settings.JWT_ISSUER,
+        )
         return payload
     except ExpiredSignatureError:
         raise TokenExpired()
-    except JWTError:
+    except InvalidTokenError:
         raise InvalidToken()
 
 def reset_fingerprint(password_hash: str) -> str:
@@ -87,23 +111,22 @@ def create_email_verification_token(email: str) -> str:
     # The jti is load-bearing for "resend": without a nonce the token is a pure
     # function of (email, current second), so two issuances in the same second are
     # byte-identical and a resend cannot produce a genuinely new link.
-    return jwt.encode(
-        {"sub": email, "exp": expire, "type": "verify", "jti": secrets.token_urlsafe(16)},
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM,
+    return _encode(
+        {"sub": email},
+        {"exp": expire, "type": "verify", "jti": secrets.token_urlsafe(16)},
     )
 
 
 def create_password_reset_token(email: str, password_hash: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(hours=1)
-    return jwt.encode(
+    return _encode(
         {
             "sub": email,
+            "pfp": reset_fingerprint(password_hash),
+        },
+        {
             "exp": expire,
             "type": "reset",
             "jti": secrets.token_urlsafe(16),
-            "pfp": reset_fingerprint(password_hash),
         },
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM,
     )

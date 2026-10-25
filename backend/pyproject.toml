@@ -42,7 +42,6 @@ dependencies = [
     "passlib>=1.7.4",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.1",
-    "python-jose>=3.5.0",
     "python-multipart>=0.0.32",
     "qrcode[pil]>=8.2",
     "redis>=8.0.0",
@@ -58,6 +57,7 @@ dependencies = [
     "opentelemetry-instrumentation-sqlalchemy>=0.46b0",
     "opentelemetry-instrumentation-redis>=0.46b0",
     "python-json-logger>=2.0.7",
+    "pyjwt>=2.10.0",
 ]
 
 [project.optional-dependencies]
@@ -73,7 +73,6 @@ dev = [
     "ruff>=0.4.0",
     "mongomock>=4.3.0",
     "mypy>=1.0.0",
-    "types-python-jose>=0.1.0",
     "types-passlib>=1.7.0",
     "types-qrcode>=7.4.0",
     "types-beautifulsoup4>=4.12.0",

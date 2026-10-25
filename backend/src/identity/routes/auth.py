@@ -1,3 +1,5 @@
+import hashlib
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -27,10 +29,12 @@ from src.shared.core.deps import (
     get_auth_service,
     get_current_user,
 )
-from src.shared.core.redis import check_rate_limit, rate_limit_headers
+from src.shared.core.redis import check_rate_limit, rate_limit_headers, redis_client
 from src.shared.core.security import create_access_token, decode_token
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+
+logger = logging.getLogger("url-shortener")
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED,
@@ -50,7 +54,12 @@ async def login(
     svc: AuthService = Depends(get_auth_service),
 ):
     await _enforce_auth_rate_limit(request, "login")
+    account_key = await _enforce_login_account_limit(request, payload.email)
     token = await svc.login(payload.email, payload.password)
+    # A successful sign-in clears the account's failure budget. Failed attempts
+    # are the only ones that accumulate, so a legitimate user is never left
+    # throttled by someone else's guessing once they prove the password.
+    await _clear_login_account_limit(account_key)
     _set_auth_cookies(response, token.access_token, token.refresh_token)
     return token
 
@@ -358,3 +367,45 @@ async def _enforce_auth_rate_limit(request: Request, action: str) -> None:
             detail="Too many attempts. Please wait and try again.",
             headers=rate_limit_headers(result, capacity),
         )
+
+
+# The per-IP login budget above is bypassed by a distributed attacker (one IP
+# each). A second bucket keyed by the *account* caps guesses across all source
+# IPs. It is failure-weighted in practice: a successful login deletes the key,
+# so only failed attempts remain. The key is a hash, not the address, so Redis
+# never stores user emails.
+#
+# Capacity is deliberately high enough that an attacker cannot cheaply lock a
+# known account out, while still capping a distributed guessing run. The
+# per-IP bucket remains the first line of defense; this is the backstop.
+_LOGIN_ACCOUNT_CAPACITY = 50
+_LOGIN_ACCOUNT_REFILL = 1.0 / 60.0
+
+
+def _login_account_key(email: str) -> str:
+    digest = hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()
+    return f"rl:login_account:{digest}"
+
+
+async def _enforce_login_account_limit(request: Request, email: str) -> str:
+    key = _login_account_key(email)
+    result = await check_rate_limit(
+        key,
+        capacity=_LOGIN_ACCOUNT_CAPACITY,
+        refill_rate_per_sec=_LOGIN_ACCOUNT_REFILL,
+    )
+    if result.limited:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts for this account. Please wait and try again.",
+            headers=rate_limit_headers(result, _LOGIN_ACCOUNT_CAPACITY),
+        )
+    return key
+
+
+async def _clear_login_account_limit(key: str) -> None:
+    """Best-effort: a Redis blip must not turn a valid login into a 500."""
+    try:
+        await redis_client.delete(key)
+    except Exception as e:
+        logger.warning("Failed to clear login account bucket: %s", e)
