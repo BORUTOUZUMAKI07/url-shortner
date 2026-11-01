@@ -174,7 +174,10 @@ class TestSettingsEdgeCases:
         s = _settings()
         assert s.SMTP_PASSWORD == ""
 
-    def test_secret_key_default_empty(self):
+    def test_secret_key_default_empty(self, monkeypatch):
+        # testcontainers exports a deterministic test key into this process;
+        # this test is about the class default, not the harness value.
+        monkeypatch.delenv("SECRET_KEY", raising=False)
         s = _settings()
         assert s.SECRET_KEY == ""
 
@@ -205,7 +208,8 @@ class TestProductionSecretKeyGuard:
     WEBHOOK_SECRET_KEY, so a deploy that forgot the env var booted healthy and
     signed every JWT (and webhook HMAC) with a publicly known key."""
 
-    def test_production_rejects_empty_secret_key(self):
+    def test_production_rejects_empty_secret_key(self, monkeypatch):
+        monkeypatch.delenv("SECRET_KEY", raising=False)
         with pytest.raises(ValueError, match="SECRET_KEY is required"):
             Settings(ENVIRONMENT="production", _env_file=None)
 
@@ -217,7 +221,8 @@ class TestProductionSecretKeyGuard:
         s = Settings(ENVIRONMENT="production", SECRET_KEY="a" * 64, _env_file=None)
         assert len(s.SECRET_KEY) == 64
 
-    def test_non_production_allows_empty_but_warns(self):
+    def test_non_production_allows_empty_but_warns(self, monkeypatch):
+        monkeypatch.delenv("SECRET_KEY", raising=False)
         with pytest.warns(UserWarning, match="SECRET_KEY is empty"):
             s = Settings(ENVIRONMENT="development", _env_file=None)
         assert s.SECRET_KEY == ""
