@@ -18,7 +18,13 @@ _redis = None
 _MANAGED_ENV = (
     "DATABASE_URL", "MONGODB_URI", "REDIS_URL", "ENVIRONMENT", "_USE_TESTCONTAINERS",
     "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN",
+    "SECRET_KEY", "WEBHOOK_SECRET_KEY",
 )
+
+# PyJWT rejects an empty HMAC key (python-jose did not). CI has no backend/.env,
+# so without this every route test that mints a JWT fails with
+# ``InvalidKeyError: HMAC key must not be empty``. Deterministic and >= 32 bytes.
+_TEST_SECRET_KEY = "test-secret-key-for-ci-0123456789abcdef"
 
 
 def start_containers() -> None:
@@ -101,6 +107,9 @@ def start_containers() -> None:
         # the plain-Redis adapter against the container above.
         os.environ["UPSTASH_REDIS_REST_URL"] = ""
         os.environ["UPSTASH_REDIS_REST_TOKEN"] = ""
+        # Tests must not inherit a developer's real key, and CI has none at all.
+        os.environ["SECRET_KEY"] = _TEST_SECRET_KEY
+        os.environ["WEBHOOK_SECRET_KEY"] = _TEST_SECRET_KEY
 
         os.environ["_USE_TESTCONTAINERS"] = "1"
 

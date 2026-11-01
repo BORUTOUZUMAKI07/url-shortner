@@ -9,6 +9,8 @@ env:
   PYTHON_VERSION: "3.13"
   # Not production — see the note in ci.yml.
   ENVIRONMENT: "test"
+  SECRET_KEY: "test-secret-key-for-ci-0123456789abcdef"
+  WEBHOOK_SECRET_KEY: "test-secret-key-for-ci-0123456789abcdef"
 
 jobs:
   nightly-tests:
@@ -24,6 +26,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: uv sync --extra dev --extra testcontainers
       - name: Run full test suite (incl. concurrency)
+        shell: bash
+        # Explicit bash: GitHub's default shell does not enable pipefail, so
+        # `pytest | tee` previously reported success even when pytest failed.
         run: uv run pytest tests/ -v --use-testcontainers 2>&1 | tee /tmp/nightly_output.log
         env:
           TESTCONTAINERS_RYUK_DISABLED: "true"

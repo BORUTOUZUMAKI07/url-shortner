@@ -12,6 +12,10 @@ env:
   # applies, which refuses to boot on a placeholder SECRET_KEY and would mark
   # auth cookies Secure — breaking every plain-HTTP E2E request.
   ENVIRONMENT: "test"
+  # PyJWT refuses an empty HMAC key. CI has no backend/.env, so set a
+  # deterministic test key here as well as in tests/testcontainers.py.
+  SECRET_KEY: "test-secret-key-for-ci-0123456789abcdef"
+  WEBHOOK_SECRET_KEY: "test-secret-key-for-ci-0123456789abcdef"
 
 jobs:
   backend-lint:
@@ -187,6 +191,15 @@ jobs:
       - name: Frontend E2E (real backend)
         working-directory: frontend
         run: npm run test:e2e:real
+      - name: Stop backend
+        if: always()
+        shell: bash
+        # The background e2e_server keeps a `uv` process alive. setup-uv's
+        # post-job cache prune then waits five minutes and fails the job even
+        # though every test passed. Terminate it before the post action runs.
+        run: |
+          pkill -f "scripts/e2e_server.py" || true
+          sleep 2
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
