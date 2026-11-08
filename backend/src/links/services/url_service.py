@@ -171,7 +171,8 @@ class URLService:
             url.original_url = str(payload.original_url)
         if payload.domain is not None:
             url.domain = payload.domain
-        if payload.password is not None:
+        # password: omitted => keep; explicit null => clear; explicit string => set.
+        if "password" in payload.model_fields_set:
             url.password_hash = await hash_password_async(payload.password) if payload.password else None
         if payload.is_ab_test is not None:
             url.is_ab_test = payload.is_ab_test
@@ -179,7 +180,8 @@ class URLService:
             url.ios_url = str(payload.ios_url) if payload.ios_url else None
         if payload.android_url is not None:
             url.android_url = str(payload.android_url) if payload.android_url else None
-        if payload.expires_at is not None:
+        # expires_at: omitted => keep; explicit null => clear; explicit value => set.
+        if "expires_at" in payload.model_fields_set:
             url.expires_at = payload.expires_at
         if payload.status is not None:
             url.status = payload.status

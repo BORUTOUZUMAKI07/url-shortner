@@ -31,6 +31,10 @@ export const mockUrl = {
   qr_code: null,
   created_at: "2024-01-01T00:00:00Z",
   tags: [],
+  title: null,
+  description: null,
+  og_image: null,
+  has_password: false,
 }
 
 export const handlers = [
@@ -251,7 +255,7 @@ export const handlers = [
   ),
 
   http.get(`${API}/admin/workspaces`, () =>
-    HttpResponse.json({ total: 1, items: [mockWorkspace] })
+    HttpResponse.json({ total: 1, workspaces: [mockWorkspace] })
   ),
 
   http.get(`${API}/admin/urls`, () =>
@@ -282,20 +286,37 @@ export const handlers = [
     HttpResponse.json([])
   ),
 
-  http.post(`${API}/urls/bulk/create`, () =>
-    HttpResponse.json({ created: 3 })
-  ),
+  http.post(`${API}/urls/bulk/create`, async ({ request }) => {
+    // Backend contract: multipart CSV upload at ?workspace_id=... returning
+    // { created, errors: [{row,error}], short_codes }. Accept JSON defensively
+    // so tests that post rows directly still get a valid response shape.
+    let created = 3
+    const ct = request.headers.get("content-type") || ""
+    if (ct.includes("application/json")) {
+      try {
+        const body = await request.json() as { urls?: unknown[] }
+        if (Array.isArray(body?.urls)) created = body.urls.length
+      } catch { /* ignore */ }
+    }
+    const short_codes = Array.from({ length: Math.max(1, created) }, (_, i) => `bulk${i + 1}`)
+    return HttpResponse.json({ created, errors: [], short_codes }, { status: 201 })
+  }),
 
-  http.post(`${API}/urls/bulk/update`, () =>
-    HttpResponse.json({ updated: 2 })
-  ),
+  http.post(`${API}/urls/bulk/update`, ({ request }) => {
+    const url = new URL(request.url)
+    if (!url.searchParams.get("expires_at")) {
+      return HttpResponse.json({ detail: "No update fields provided." }, { status: 400 })
+    }
+    const ids = url.searchParams.getAll("url_ids")
+    return HttpResponse.json({ updated: ids.length || 1 })
+  }),
 
   http.post(`${API}/urls/bulk/disable`, () =>
-    HttpResponse.json({ updated: 2 })
+    HttpResponse.json({ disabled: 2 })
   ),
 
   http.post(`${API}/urls/bulk/reactivate`, () =>
-    HttpResponse.json({ updated: 2 })
+    HttpResponse.json({ reactivated: 2 })
   ),
 
   http.post(`${API}/urls/bulk/delete`, () =>

@@ -21,7 +21,7 @@ export default function TagsPage() {
   // See folders/page.tsx: wsId is derived from this query, so a failure leaves
   // the tags query disabled — not loading, and unable to be in an error state.
   // Without surfacing this, an outage rendered as "No tags yet".
-  const { data: workspaces = [], isError: wsError, refetch: refetchWs } = useQuery({
+  const { data: workspaces = [], isPending: wsPending, isError: wsError, refetch: refetchWs } = useQuery({
     queryKey: ["workspaces"],
     queryFn: workspacesApi.list,
     enabled: !authLoading
@@ -93,6 +93,13 @@ export default function TagsPage() {
             Tags could not be listed because the workspace lookup failed.
           </p>
           <Button variant="outline" className="mt-4" onClick={() => refetchWs()}>Try again</Button>
+        </div>
+      ) : authLoading || wsPending ? null : !wsId ? (
+        <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
+          <TagsIcon className="mx-auto mb-3 size-10 text-muted-foreground" />
+          <p className="text-lg font-medium">No workspace yet</p>
+          <p className="mt-1 text-sm text-muted-foreground">Create a workspace before adding tags.</p>
+          <Button variant="outline" className="mt-4" onClick={() => (window.location.href = "/workspaces")}>Go to Workspaces</Button>
         </div>
       ) : tagsError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">

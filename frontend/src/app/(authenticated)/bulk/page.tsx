@@ -109,11 +109,25 @@ export default function BulkPage() {
     if (!wsId || !urlsInput.trim()) return
     setLoading(true)
     const tagsStr = selectedTags.length > 0 ? selectedTags.join(",") : ""
+    const parseLine = (line: string): string[] => {
+      const out: string[] = []
+      let cur = ""
+      let inQ = false
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i]
+        if (ch === '"') {
+          if (inQ && line[i + 1] === '"') { cur += '"'; i++ } else inQ = !inQ
+        } else if (ch === "," && !inQ) { out.push(cur.trim()); cur = "" }
+        else cur += ch
+      }
+      out.push(cur.trim())
+      return out
+    }
     const lines = urlsInput.split("\n").filter(Boolean).map((line) => {
-      const parts = line.split(",").map((s) => s.trim())
+      const parts = parseLine(line)
       return {
-        original_url: parts[0],
-        custom_alias: parts[1] || undefined,
+        original_url: (parts[0] ?? "").replace(/^"|"$/g, ""),
+        custom_alias: (parts[1] ?? "").replace(/^"|"$/g, "") || undefined,
         folder_id: folderId || undefined,
         tags: tagsStr || undefined,
         // `datetime-local` yields a bare local string like "2026-10-01T09:00",
@@ -137,9 +151,17 @@ export default function BulkPage() {
       // rejected, and the rejected rows were unrecoverable from the UI.
       const failed = res.errors ?? []
       if (failed.length > 0) {
+        const msgs = failed.slice(0, 3).map((e: unknown) => {
+          if (typeof e === "string") return e
+          if (e && typeof e === "object" && "error" in e) {
+            const row = "row" in e ? "row " + String((e as { row?: unknown }).row) + ": " : ""
+            return row + String((e as { error?: unknown }).error ?? "unknown error")
+          }
+          return "unknown error"
+        })
         setResult(
-          `Created ${res.created} URLs, ${failed.length} rejected. ` +
-            `First errors: ${failed.slice(0, 3).join("; ")}`
+          "Created " + res.created + " URLs, " + failed.length + " rejected. " +
+            "First errors: " + msgs.join("; ")
         )
       } else {
         setResult(`Created ${res.created} URLs successfully!`)

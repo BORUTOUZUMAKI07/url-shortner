@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_serializer, field_validator, model_validator
 
 from src.links.models.url import URLStatus
 
@@ -51,8 +51,29 @@ class URLResponse(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     og_image: Optional[str] = None
+    has_password: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def compute_has_password(cls, data: Any, handler):
+        # from_attributes/ORM: declared fields are read by the handler, but
+        # password_hash is intentionally not exposed; compute the flag.
+        if not isinstance(data, dict):
+            ph = bool(getattr(data, "password_hash", None))
+            values = {}
+            for name in cls.model_fields:
+                if name == "has_password":
+                    values[name] = ph
+                elif hasattr(data, name):
+                    values[name] = getattr(data, name)
+            return handler(values)
+        # Never expose the raw hash even if a dict accidentally includes it.
+        data = {k: v for k, v in data.items() if k != "password_hash"}
+        if "has_password" not in data:
+            data = {**data, "has_password": False}
+        return handler(data)
 
     @field_validator('status', mode='before')
     @classmethod
@@ -104,10 +125,14 @@ class URLUpdate(BaseModel):
     original_url: Optional[HttpUrl] = Field(None, description="New destination URL")
     folder_id: Optional[int] = Field(None, description="Move to a different folder")
     domain: Optional[str] = Field(None, description="Change custom domain")
-    password: Optional[str] = Field(None, min_length=1, max_length=128, description="Update password protection")
+    # Omit to keep the current password; send null to clear protection; send a
+    # non-empty string to set/replace it. The service distinguishes keep/clear
+    # via model_fields_set because `None` means "clear" here, not "unset".
+    password: Optional[str] = Field(None, min_length=1, max_length=128, description="Update password protection (omit keep, null clear)")
     is_ab_test: Optional[bool] = Field(None, description="Enable/disable A/B testing")
     ios_url: Optional[HttpUrl] = Field(None, description="Update iOS redirect URL")
     android_url: Optional[HttpUrl] = Field(None, description="Update Android redirect URL")
-    expires_at: Optional[datetime] = Field(None, description="Update expiration date")
+    # Omit to keep; send null to clear expiration; send a datetime to set it.
+    expires_at: Optional[datetime] = Field(None, description="Update expiration date (omit keep, null clear)")
     status: Optional[URLStatus] = Field(None, description="Change URL status (active/disabled)")
     tags: Optional[List[str]] = Field(None, description="Replace existing tags")

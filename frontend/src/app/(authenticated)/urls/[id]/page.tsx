@@ -31,7 +31,9 @@ export default function URLDetailPage() {
 
   const [originalUrl, setOriginalUrl] = useState("")
   const [password, setPassword] = useState("")
+  const [clearPassword, setClearPassword] = useState(false)
   const [expiresAt, setExpiresAt] = useState("")
+  const [clearExpires, setClearExpires] = useState(false)
   const [isAbTest, setIsAbTest] = useState(false)
   const [iosUrl, setIosUrl] = useState("")
   const [androidUrl, setAndroidUrl] = useState("")
@@ -67,6 +69,7 @@ export default function URLDetailPage() {
       setIsAbTest(url.is_ab_test)
       setIosUrl(url.ios_url || "")
       setAndroidUrl(url.android_url || "")
+      setClearExpires(false)
       if (url.expires_at) {
         // datetime-local inputs expect local wall-clock time, not UTC. Using
         // toISOString() here showed the UTC time (misleading when the browser
@@ -74,6 +77,8 @@ export default function URLDetailPage() {
         const d = new Date(url.expires_at)
         const pad = (n: number) => String(n).padStart(2, "0")
         setExpiresAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`)
+      } else {
+        setExpiresAt("")
       }
       setSelectedFolder(url.folder_id ? String(url.folder_id) : "")
       setSelectedTags(url.tags || [])
@@ -91,6 +96,8 @@ export default function URLDetailPage() {
       // a later visit to the list.
       queryClient.invalidateQueries({ queryKey: ["urls"] })
       setPassword("")
+      setClearPassword(false)
+      setClearExpires(false)
     },
     onError: (err: unknown) => {
       setError(getErrorMessage(err))
@@ -100,16 +107,22 @@ export default function URLDetailPage() {
   async function handleSave() {
     if (!url) return
     setError("")
-    updateMutation.mutate({
+    const data: UrlUpdateInput = {
       original_url: originalUrl,
       folder_id: selectedFolder ? Number(selectedFolder) : null,
-      password: password || undefined,
-      expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
       is_ab_test: isAbTest,
       ios_url: iosUrl || undefined,
       android_url: androidUrl || undefined,
       tags: selectedTags,
-    })
+    }
+    // Omit password to keep it unchanged. Send null only when the user
+    // explicitly clears protection; send a value to set/replace it.
+    if (clearPassword) data.password = null
+    else if (password) data.password = password
+    // expires_at: omit => keep; explicit null => clear; value => set.
+    if (clearExpires) data.expires_at = null
+    else if (expiresAt) data.expires_at = new Date(expiresAt).toISOString()
+    updateMutation.mutate(data)
   }
 
   async function handleDownloadQr() {
@@ -197,12 +210,45 @@ export default function URLDetailPage() {
             <p className="text-sm font-medium">Security & Expiration</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1.5 block text-sm font-medium">Password <span className="text-muted-foreground">(leave blank to keep)</span></label>
-                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="New password" />
+                <label className="mb-1.5 block text-sm font-medium">Password</label>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); if (e.target.value) setClearPassword(false) }}
+                  placeholder={url.has_password ? "New password (leave blank to keep)" : "Set password"}
+                  disabled={clearPassword}
+                />
+                {url.has_password && (
+                  <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={clearPassword}
+                      onChange={(e) => { setClearPassword(e.target.checked); if (e.target.checked) setPassword("") }}
+                      className="size-3.5 accent-emerald-500"
+                    />
+                    Clear existing password protection
+                  </label>
+                )}
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Expires At</label>
-                <Input type="datetime-local" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+                <Input
+                  type="datetime-local"
+                  value={expiresAt}
+                  onChange={(e) => { setExpiresAt(e.target.value); if (e.target.value) setClearExpires(false) }}
+                  disabled={clearExpires}
+                />
+                {url.expires_at && (
+                  <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={clearExpires}
+                      onChange={(e) => { setClearExpires(e.target.checked); if (e.target.checked) setExpiresAt("") }}
+                      className="size-3.5 accent-emerald-500"
+                    />
+                    Clear expiration
+                  </label>
+                )}
               </div>
             </div>
             <Separator />

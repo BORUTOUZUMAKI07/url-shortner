@@ -76,6 +76,13 @@ export default function AuditLogsPage() {
           </p>
           <Button variant="outline" className="mt-4" onClick={() => refetchWs()}>Try again</Button>
         </div>
+      ) : !wsId ? (
+        <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
+          <ShieldAlert className="mx-auto mb-3 size-10 text-muted-foreground" />
+          <p className="text-lg font-medium">No workspace yet</p>
+          <p className="mt-1 text-sm text-muted-foreground">Create a workspace to see audit logs.</p>
+          <Button variant="outline" className="mt-4" onClick={() => (window.location.href = "/workspaces")}>Go to Workspaces</Button>
+        </div>
       ) : logsError ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-12 text-center">
           <ShieldAlert className="mx-auto mb-3 size-10 text-red-600" />

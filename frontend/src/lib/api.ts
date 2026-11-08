@@ -1,8 +1,8 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
+﻿const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
 
 /** The backend's `limit` ceiling (`deps.py`: `Query(20, ge=1, le=100)`).
  *  Used as the default for list endpoints so a caller that omits `limit` gets
- *  everything a flat, unpaginated table can show — not the server's silent
+ *  everything a flat, unpaginated table can show â€” not the server's silent
  *  default of 20. */
 const MAX_LIST_LIMIT = 100
 
@@ -47,7 +47,7 @@ function tryRefresh(): Promise<boolean> {
  * The redirect below is what actually recovers the UX.
  */
 function clearTokens() {
-  // Intentionally empty — see above. Kept as the single call site so the
+  // Intentionally empty â€” see above. Kept as the single call site so the
   // explanation lives next to the call rather than being rediscovered.
 }
 
@@ -69,7 +69,7 @@ async function handleUnauthorized() {
  *
  *  - `/auth/oauth/exchange`: the one-time handoff code expired or was already
  *    redeemed. Recovery redirected to /login?expired=1, throwing away the code,
- *    the `redirect` deep link, and the page's own "OAuth login failed" message —
+ *    the `redirect` deep link, and the page's own "OAuth login failed" message â€”
  *    which could never render, because the document was already navigating. The
  *    user got a blank sign-in form and no explanation. The code is consumed
  *    server-side, so it cannot be retried either; it has to be reported.
@@ -144,11 +144,11 @@ export interface User {
 export interface Token { access_token: string; refresh_token?: string; token_type: string }
 /** Bulk create reports per-row failures alongside the success count.
  *  `errors` is one entry per rejected row (bad URL, duplicate alias, folder not
- *  in the workspace, ...) — omitting it reported a partial import as a clean
+ *  in the workspace, ...) â€” omitting it reported a partial import as a clean
  *  success. See `bulk_service.create`. */
 export interface BulkCreateResult {
   created: number
-  errors?: string[]
+  errors?: Array<string | { row?: number; error?: string }>
   short_codes?: string[]
 }
 /** The OAuth handoff exchange mints the session *and* returns the user, so the
@@ -160,7 +160,7 @@ export interface URLItem {
   is_ab_test: boolean; is_one_time: boolean; ios_url: string | null; android_url: string | null
   expires_at: string | null; status: string; qr_code: string | null; created_at: string
   tags?: string[]
-  title: string | null; description: string | null; og_image: string | null
+  title: string | null; description: string | null; og_image: string | null; has_password?: boolean
 }
 export interface Workspace { id: number; name: string; owner_id: number; created_at: string }
 export interface WorkspaceMember { id: number; workspace_id: number; user_id: number; email: string; role: string; joined_at: string }
@@ -218,7 +218,7 @@ export const auth = {
 export const urls = {
   create: (data: {
     original_url: string; workspace_id: number;
-    custom_alias?: string; folder_id?: number; password?: string;
+    custom_alias?: string; folder_id?: number; password?: string | null;
     expires_at?: string; tags?: string[]; is_one_time?: boolean;
     is_ab_test?: boolean; ios_url?: string; android_url?: string;
   }) => apiFetch<URLItem>("/urls", { method: "POST", body: JSON.stringify(data) }),
@@ -234,7 +234,7 @@ export const urls = {
     // Default to the server's maximum rather than letting it apply its own.
     //
     // The API's default `limit` is 20, and `if (params?.limit)` meant an
-    // omitted limit sent nothing at all — so the server's 20 applied silently.
+    // omitted limit sent nothing at all â€” so the server's 20 applied silently.
     // Every list view in the app renders one flat table with no pagination, so
     // a page asking for "this workspace's URLs" was getting the newest 20 and
     // presenting them as the whole set: the bulk Manage tab could not select
@@ -246,7 +246,7 @@ export const urls = {
   get: (id: number) => apiFetch<URLItem>(`/urls/${id}`),
   update: (id: number, data: {
     original_url?: string; folder_id?: number | null; status?: string;
-    expires_at?: string | null; password?: string;
+    expires_at?: string | null; password?: string | null;
     is_ab_test?: boolean; ios_url?: string; android_url?: string;
     tags?: string[];
   }) => apiFetch<URLItem>(`/urls/${id}`, { method: "PUT", body: JSON.stringify(data) }),
@@ -355,7 +355,7 @@ function csvEscape(value: string): string {
 export const bulkApi = {
   create: (workspace_id: number, urls: {
     original_url: string; custom_alias?: string; folder_id?: string; tags?: string;
-    expires_at?: string; password?: string; domain?: string; is_ab_test?: boolean;
+    expires_at?: string; password?: string | null; domain?: string; is_ab_test?: boolean;
     is_one_time?: boolean; ios_url?: string; android_url?: string
   }[]) => {
     const csvHeader = "original_url,custom_alias,folder_id,tags,expires_at,password,domain,is_ab_test,is_one_time,ios_url,android_url"

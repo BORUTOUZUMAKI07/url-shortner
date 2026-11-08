@@ -14,7 +14,7 @@ export default function WebhookReceiverPage() {
   const [copied, setCopied] = useState(false)
   const { isPending: authLoading } = useMe()
 
-  const { data: workspaces = [], isError: workspacesError, refetch: refetchWorkspaces } = useQuery({
+  const { data: workspaces = [], isPending: wsPending, isError: workspacesError, refetch: refetchWorkspaces } = useQuery({
     queryKey: ["workspaces"],
     queryFn: workspacesApi.list,
     enabled: !authLoading
@@ -68,7 +68,17 @@ export default function WebhookReceiverPage() {
     </div>
   )
 
-  if (!wsId) return <div className="p-6"><p>Loading workspace...</p></div>
+  if (authLoading || wsPending) return <div className="p-6"><p>Loading workspace...</p></div>
+  if (!wsId) return (
+    <div className="p-6">
+      <div className="rounded-xl border-2 border-dashed border-stone-300 p-16 text-center">
+        <Webhook className="mx-auto mb-3 size-10 text-muted-foreground" />
+        <p className="text-lg font-medium">No workspace yet</p>
+        <p className="mt-1 text-sm text-muted-foreground">Create a workspace before receiving webhook events.</p>
+        <Button variant="outline" className="mt-4" onClick={() => (window.location.href = "/workspaces")}>Go to Workspaces</Button>
+      </div>
+    </div>
+  )
 
   return (
     <div className="p-6">

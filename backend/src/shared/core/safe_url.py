@@ -54,6 +54,10 @@ async def is_safe_url(url: str) -> bool:
         return False
     if not parsed.hostname:
         return False
+    # Never send embedded basic-auth credentials to a resolved host — a
+    # user-supplied URL like http://attacker@internal/ would leak them.
+    if parsed.username or parsed.password:
+        return False
     # Block redirects/restart unless we resolve again inside safe_fetch/safe_post.
     return await _resolve_public(parsed.hostname)
 
