@@ -136,10 +136,13 @@ jobs:
         shell: bash
         run: |
           # Fail the job if any real secrets are committed.
+          # Excludes: redaction.py (contains secret detection regexes),
+          # ci.yml (contains the scan pattern itself)
           if grep -rE "(sk_live|AKIA|ghp_|github_pat_|glpat-)" \
              . --include="*.py" --include="*.ts" --include="*.tsx" \
              --include="*.env" --include="*.env.*" --include="*.json" \
-             --include="*.yaml" --include="*.yml" 2>/dev/null; then
+             --include="*.yaml" --include="*.yml" 2>/dev/null \
+             | grep -v "redaction.py" | grep -v "ci.yml"; then
             echo "::error::Potential secrets found in tracked files"
             exit 1
           fi
