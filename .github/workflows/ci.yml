@@ -65,6 +65,7 @@ jobs:
         run: |
           # Retry up to 3 times: GitHub shared runners occasionally race on
           # container startup. Genuine failures still fail after retries.
+          set +e
           log=/tmp/backend-tests.log
           for attempt in 1 2 3; do
             echo "== pytest attempt $attempt ==" | tee -a "$log"
@@ -164,6 +165,7 @@ jobs:
         run: |
           # The server boots a subprocess + 3 containers; retry once for the
           # same GitHub-runner startup races the main suite handles.
+          set +e
           log=/tmp/backend-e2e.log
           for attempt in 1 2 3; do
             echo "== pytest tests/test_e2e attempt $attempt ==" | tee -a "$log"
