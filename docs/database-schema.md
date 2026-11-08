@@ -7,94 +7,45 @@ schema (`backend/src/*/models/`). All tables are created and versioned by
 ## Entity Relationship Diagram
 
 ```mermaid
-graph TB
-    subgraph Users [Users]
-        U[users]
-    end
+erDiagram
+    users ||--o{ api_keys : owns
+    users ||--o{ workspaces : owns
+    users ||--o{ workspace_members : member_of
+    users ||--o{ favorites : favorited
+    users ||--o{ urls : creates
+    users ||--o{ audit_logs : actor
 
-    subgraph APIKeys [API Keys]
-        AK[api_keys]
-    end
+    workspaces ||--o{ urls : contains
+    workspaces ||--o{ folders : contains
+    workspaces ||--o{ tags : contains
+    workspaces ||--o{ webhooks : subscribes
+    workspaces ||--o{ workspace_members : members
+    workspaces ||--o{ workspace_invites : invites
+    workspaces ||--o{ audit_logs : scoped_to
 
-    subgraph Workspaces [Workspaces]
-        W[workspaces]
-        WM[workspace_members]
-        WI[workspace_invites]
-    end
+    folders ||--o{ urls : contains
+    tags ||--o{ url_tags : tagged
 
-    subgraph Links [Links]
-        URL[urls]
-        F[folders]
-        T[tags]
-        UT[url_tags]
-        FAV[favorites]
-    end
+    url_tags ||--|| urls : url
+    url_tags ||--|| tags : tag
 
-    subgraph Analytics [Analytics]
-        UAS[url_analytics_summary]
-        AW[aggregation_watermarks]
-    end
+    workspace_members }o--|| users : user
+    workspace_members }o--|| workspaces : workspace
 
-    subgraph Webhooks [Webhooks]
-        WH[webhooks]
-        WHS[webhook_subscriptions]
-        WHE[webhook_events]
-        WHR[webhook_received_events]
-    end
+    workspace_invites }o--|| users : invited_by
+    workspace_invites }o--|| workspaces : workspace_invite
 
-    subgraph Audit [Audit & Dead Letter]
-        AL[audit_logs]
-        DL[dead_letter_events]
-    end
+    api_keys }o--|| users : key
 
-    %% Relationships
-    U ---|owns| AK
-    U ---|owns| W
-    U ---|member_of| WM
-    U ---|favorited| FAV
-    U ---|created| URL
-    U ---|actor| AL
+    webhooks }o--|| workspaces : belongs_to
+    webhooks ||--o{ webhook_subscriptions : subscribes_to
+    webhooks ||--o{ webhook_events : delivers
+    webhooks ||--o{ webhook_received_events : received
 
-    W ---|contains| URL
-    W ---|contains| F
-    W ---|contains| T
-    W ---|subscribes| WH
-    W ---|members| WM
-    W ---|invites| WI
-    W ---|scoped_to| AL
+    webhook_subscriptions }o--|| webhooks : subscription
 
-    URL ---|has| UAS
-    URL ---|favorited_by| FAV
-    URL ---|tagged| UT
-    URL ---|generates| WHE
-    URL -.->|in_folder_optional| F
-    URL ---|owned_by| U
-    URL ---|scoped_to| W
-
-    F ---|in| W
-    T ---|in| W
-    T ---|used_on| UT
-
-    WM ---|user| U
-    WM ---|workspace| W
-
-    WI ---|invited_by| U
-    WI ---|workspace_invite| W
-
-    AK ---|key| U
-
-    WH ---|belongs_to| W
-    WH ---|subscribes_to| WHS
-    WH ---|delivers| WHE
-    WH ---|received| WHR
-
-    WHS ---|subscription| WH
-
-    UT ---|url| URL
-    UT ---|tag| T
-
-    AL ---|mutation_trail| U
-    DL ---|failed_kafka| WHE
+    audit_logs }o--|| users : actor
+    audit_logs }o--|| workspaces : scoped_to
 ```
 
 ## Table Catalog
