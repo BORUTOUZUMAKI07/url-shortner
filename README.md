@@ -1,27 +1,157 @@
 # LinkForge
 
-Enterprise URL shortener with multi-tenant workspaces, click analytics, QR codes, webhooks, API keys, team collaboration, and an event-driven architecture.
+Enterprise-grade URL shortening platform with multi-tenant workspaces, real-time click analytics, QR codes, signed webhooks, API keys, and an event-driven worker architecture.
 
-**Live**
-- Frontend: [url-shortner-peay.vercel.app](https://url-shortner-peay.vercel.app)
-- Backend: [linkforge-backend-v46v.onrender.com](https://linkforge-backend-v46v.onrender.com) · Health: `GET /health`
+## What It Does
 
----
+LinkForge turns long URLs into short, shareable codes — and tracks every click. Teams organize links in workspaces, protect them with passwords or expiration dates, route iOS/Android traffic differently via A/B device targeting, and stream click events to their own webhooks.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         LinkForge                            │
+├─────────────────┬─────────────────┬─────────────────────────┤
+│  Shorten & Share│   Analyze      │   Automate               │
+│  • Custom codes │  • Live stats   │  • Webhooks              │
+│  • QR codes     │  • Timeseries   │  • API keys              │
+│  • Passwords    │  • UTM/referrer │  • Bulk CSV import       │
+│  • Expiration   │  • Device stats │  • Workspaces            │
+└─────────────────┴─────────────────┴─────────────────────────┘
+```
+
+## Architecture
+
+```mermaid
+graph TB
+    subgraph Client [Client]
+        UI[Next.js Frontend<br/>Vercel]
+        API[Short link /r/:code]
+    end
+
+    subgraph Edge [Edge]
+        CDN[Next.js Rewrites<br/>/api/* → Backend]
+    end
+
+    subgraph API [API Layer — FastAPI]
+        Routes[Route Handlers<br/>urls, auth, webhooks, admin]
+        MW[Middleware<br/>Rate limit, RBAC, security headers]
+    end
+
+    subgraph Data [Data Stores]
+        PG[(PostgreSQL<br/>Users, URLs, workspaces)]
+        MG[(MongoDB<br/>Click events)]
+        RD[(Redis<br/>Cache, rate limits,<br/>idempotency, quotas)]
+    end
+
+    subgraph Bus [Event Bus — Kafka + Avro]
+        KC[Kafka Topics<br/>url-clicked, url-created, DLQ]
+        SR[Schema Registry]
+    end
+
+    subgraph Workers [Workers — 6 services]
+        WA[Analytics]
+        WM[Metadata]
+        WW[Webhook Click]
+        WR[Webhook Retry]
+        WDLQ[DLQ Replay]
+        WAgg[Aggregation<br/>+ Cleanup]
+    end
+
+    UI --> CDN
+    API --> CDN
+    CDN --> MW
+    MW --> Routes
+    Routes --> PG
+    Routes --> MG
+    Routes --> RD
+    Routes -.->|publish| KC
+    KC --> WA
+    KC --> WM
+    KC --> WW
+    WR --> RD
+    WDLQ --> KC
+    WAgg --> MG
+    WAgg --> PG
+```
+
+## Data Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant B as Backend
+    participant PG as PostgreSQL
+    participant K as Kafka
+    participant W as Analytics Worker
+
+    U->>F: Paste long URL, click Shorten
+    F->>B: POST /api/v1/urls
+    B->>PG: INSERT url row, generate short code
+    PG-->>B: Return url record
+    B-->>F: { short_code, short_url }
+    F-->>U: Show short link + QR code
+
+    U->>F: Click short link
+    F->>B: GET /{short_code}
+    B->>RD: Check L1 cache + rate limit
+    B->>PG: Increment click counter
+    B-->>U: 302 Redirect to destination
+    B->>K: Publish url-clicked event (Avro)
+    K->>W: Consume event
+    W->>MG: Store click event in MongoDB
+    W->>PG: Update rollup summary
+```
+
+## Folder Structure
+
+```
+url-shortner/
+├── README.md
+├── backend/
+│   ├── src/
+│   │   ├── admin/          # Superadmin panel, audit logs
+│   │   ├── analytics/      # Click rollups, timeseries
+│   │   ├── identity/       # Auth, JWT, OAuth, sessions
+│   │   ├── links/          # URL CRUD, redirect, QR, A/B
+│   │   ├── shared/         # Config, security, middleware, events, workers
+│   │   ├── webhooks/       # Subscriptions, delivery, DLQ
+│   │   └── workspaces/     # Multi-tenant isolation, invites
+│   ├── alembic/            # DB migrations
+│   ├── scripts/            # Maintenance (e2e_server, purge_users)
+│   ├── tests/              # Unit, route, core, event tests
+│   ├── render.yaml         # Render blueprint
+│   └── pyproject.toml      # Python deps (uv)
+├── frontend/
+│   ├── src/
+│   │   ├── app/            # Next.js App Router pages
+│   │   ├── components/     # UI + layout
+│   │   ├── lib/            # API client, schemas, utils
+│   │   ├── hooks/          # React Query, custom hooks
+│   │   ├── queries/        # TanStack Query keys
+│   │   └── store/          # Client state
+│   ├── test/               # Vitest + MSW
+│   ├── e2e/                # Playwright
+│   ├── next.config.ts      # Rewrites to backend
+│   └── package.json
+├── docker/
+│   └── docker-compose.yml  # Local Postgres, Mongo, Redis, Kafka
+├── docs/                   # Runbooks, SLO, alerting
+├── load-tests/             # Locust
+└── .github/workflows/      # CI/CD (lint, test, build, publish)
+```
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| **Frontend** | Next.js, React, TypeScript, Tailwind CSS, shadcn/ui |
-| **Backend** | Python 3.13, FastAPI, SQLAlchemy 2, Alembic |
-| **Databases** | PostgreSQL (Neon), MongoDB, Redis (Upstash / plain) |
-| **Event Bus** | Apache Kafka + Schema Registry (Aiven, Avro) |
-| **Auth** | JWT (access/refresh tokens), OAuth 2.0 (Google, GitHub), Argon2 hashing |
-| **Observability** | OpenTelemetry 3-layer: in-process OTel SDK → collector agent → New Relic (metrics + traces + logs); local `/metrics` |
-| **CI/CD** | GitHub Actions, GHCR image publishing |
-| **Deployment** | Render (backend), Vercel (frontend) |
-
----
+| Frontend | Next.js, React, TypeScript, Tailwind CSS, shadcn/ui |
+| Backend | Python 3.13, FastAPI, SQLAlchemy 2, Alembic |
+| Databases | PostgreSQL, MongoDB, Redis |
+| Event Bus | Apache Kafka + Schema Registry (Avro) |
+| Auth | JWT (access/refresh), OAuth 2.0 (Google, GitHub), Argon2 |
+| Observability | OpenTelemetry → collector → metrics/traces/logs; `/metrics` |
+| CI/CD | GitHub Actions, GHCR image publishing |
+| Deployment | Render (backend), Vercel (frontend) |
 
 ## Features
 
@@ -50,7 +180,6 @@ Enterprise URL shortener with multi-tenant workspaces, click analytics, QR codes
 - **API Keys** — Create, revoke, rotate with per-key quota tracking (Redis daily limits)
 - **Webhooks** — Subscribe to `url.clicked` events with HMAC-SHA256 signed delivery
 - **Webhook Receiver** — Ingest webhooks from external services, view event history
-- **Bulk API** — Programmatic CSV import/export and batch operations
 
 ### Admin
 - Superadmin panel — List users/workspaces/URLs, toggle superadmin, platform-wide stats
@@ -59,57 +188,9 @@ Enterprise URL shortener with multi-tenant workspaces, click analytics, QR codes
 ### Security
 - Argon2 password hashing
 - JWT access + refresh token pair with Redis blacklisting
-- Rate limiting — Token-bucket (IP-level + user-level)
+- Rate limiting — Token bucket (IP-level + user-level)
 - RBAC middleware — Write-permission enforcement
-
----
-
-## Architecture
-
-```
-                     ┌──────────────┐
-                     │   Frontend   │
-                     │  (Vercel)    │
-                     └──────┬───────┘
-                            │ HTTPS (proxied via rewrites)
-                     ┌──────▼───────┐
-                     │   Backend    │
-                     │  (Render)    │
-                     └──┬───────┬───┘
-                        │       │
-              ┌─────────▼──┐ ┌──▼──────────┐
-              │ PostgreSQL │ │   MongoDB    │
-              │  (Neon)    │ │             │
-              └────────────┘ └─────────────┘
-                        │
-              ┌─────────▼──┐ ┌──────────────┐
-              │   Redis    │ │    Kafka     │
-              │ (Upstash)  │ │   (Aiven)    │
-              └────────────┘ └──────┬───────┘
-                                    │
-                    ┌───────────────┼───────────────┐
-                    │               │               │
-             ┌──────▼──────┐ ┌──────▼──────┐ ┌──────▼──────┐
-             │  Analytics  │ │  Webhook    │ │  Metadata   │
-             │   Worker    │ │  Consumer   │ │   Worker    │
-             └─────────────┘ └─────────────┘ └─────────────┘
-             ┌──────▼──────┐ ┌──────▼──────┐
-             │Aggregation  │ │Webhook Retry│
-             │ + Cleanup   │ │   Worker    │
-             └─────────────┘ └─────────────┘
-             ┌──────▼──────┐
-             │  DLQ Replay │
-             │   Worker    │
-             └─────────────┘
-```
-
-- **Event-driven**: Click events and URL mutations are published to Kafka (Avro-serialized) and consumed by 6 dedicated workers.
-- **Multi-database**: PostgreSQL for relational data, MongoDB for click event analytics, Redis for caching/rate limiting/idempotency/quotas.
-- **Resilient**: DLQ (Dead Letter Queue) for failed events, exponential backoff reconnection, aggregated rollups updated every 60s.
-- Housekeeping (purge of soft-deleted URLs) runs hourly inside the aggregation worker instead of a dedicated poller; expiry is computed at query time — no status-flipping worker needed.
-- Workers run **embedded** in the web process by default, or **standalone** with `STANDALONE_WORKERS=1`.
-
----
+- SSRF-safe outbound fetches (pinned public IP, no private/loopback/metadata IPs)
 
 ## API Overview
 
@@ -124,14 +205,11 @@ All routes live under `/api/v1/` — the only exception is the redirect at `GET 
 | **Webhooks** | `POST/GET /webhooks/workspace/{ws_id}`, `POST /webhook-receiver` |
 | **API Keys** | `POST/GET /api-keys`, `DELETE /api-keys/{id}`, `POST /api-keys/{id}/rotate` |
 | **Bulk** | `POST /urls/bulk/create`, `GET /urls/bulk/export`, `GET /urls/bulk/qr` |
-| **Admin** | `POST /admin/seed` (bootstrap-token gated), `GET /admin/users`, `GET /admin/stats`, `PATCH /admin/users/{id}/toggle-superadmin`, `PATCH /admin/users/{id}/toggle-active` |
-| **Other** | `GET/POST /folders`, `GET/POST /tags`, `GET/POST /favorites`, `GET /audit-logs/...` |
+| **Admin** | `POST /admin/seed` (bootstrap-token gated), `GET /admin/users`, `GET /admin/stats`, `PATCH /admin/users/{id}/toggle-superadmin` |
 
-Redirect: `GET /{short_code}` — 302 redirect with support for password protection, A/B testing, and device-specific URLs.
+Redirect: `GET /{short_code}` — 302 redirect with password protection, A/B testing, and device-specific URLs.
 
-**Health**: `GET /health` returns `{"status": "healthy", "database": true, "redis": true, "kafka": true}`.
-
----
+Health: `GET /health` returns `{"status": "healthy", "database": true, "redis": true, "kafka": true}`.
 
 ## Local Development
 
@@ -153,6 +231,7 @@ cp .env.example .env        # configure credentials
 uv run alembic upgrade head
 uv run uvicorn src.main:app --host 127.0.0.1 --port 8000
 ```
+
 Run the backend standalone (without embedded workers):
 ```bash
 set STANDALONE_WORKERS=1
@@ -179,66 +258,41 @@ uv run python run_worker_aggregation.py
 ```
 
 ### 5. Enable the admin panel
-Set `ADMIN_BOOTSTRAP_TOKEN` in `backend/.env` first (any random 32+ char string;
-`openssl rand -hex 32`). The endpoint is **disabled with a 404** while that is
-empty, so that a fresh database can't be claimed by the first account to register.
+Set `ADMIN_BOOTSTRAP_TOKEN` in `backend/.env` first (any random 32+ char string:
+`openssl rand -hex 32`). The endpoint is disabled with a 404 while empty, so a
+fresh database can't be claimed by the first account to register.
 ```bash
 curl -X POST http://localhost:8000/api/v1/admin/seed \
   -H "Authorization: Bearer <your-access-token>" \
   -H "X-Admin-Bootstrap-Token: <ADMIN_BOOTSTRAP_TOKEN>"
 ```
-The first superadmin can then access the Admin section in the sidebar. Once
-bootstrapped, a superadmin can promote others from the panel - the endpoint
-refuses to run a second time.
+The first superadmin can then access the Admin section in the sidebar. Once bootstrapped, a superadmin can promote others from the panel — the endpoint refuses to run a second time.
 
-Note: an admin cannot demote or deactivate *themselves*, and cannot remove the
-last remaining superadmin. Both would lock the platform out permanently.
-
----
+Note: an admin cannot demote or deactivate themselves, and cannot remove the last remaining superadmin. Both would lock the platform out permanently.
 
 ## Environment Variables
 
-Copy `backend/.env.example` to `backend/.env` and fill in your values. Key variables:
+Copy `backend/.env.example` to `backend/.env` and fill in your values.
 
 | Variable | Purpose |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `MONGODB_URI` / `MONGODB_DB` | MongoDB for click analytics |
 | `REDIS_URL` | Redis connection string (Upstash or plain) |
-| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Optional — used when present |
-| `KAFKA_BOOTSTRAP_SERVERS` | Aiven Kafka host:port |
-| `KAFKA_SASL_USERNAME` / `KAFKA_SASL_PASSWORD` | Aiven SASL credentials |
-| `KAFKA_SSL_CA_PATH` | Path to `ca.pem` (local); on Render use `KAFKA_SSL_CA` with the cert contents |
-| `SCHEMA_REGISTRY_URL` | Aiven Karapace schema registry |
+| `KAFKA_BOOTSTRAP_SERVERS` | Kafka host:port |
+| `KAFKA_SASL_USERNAME` / `KAFKA_SASL_PASSWORD` | Kafka SASL credentials |
+| `KAFKA_SSL_CA_PATH` | Path to `ca.pem` (local); on Render use `KAFKA_SSL_CA` with cert contents |
+| `SCHEMA_REGISTRY_URL` | Schema registry URL |
 | `SECRET_KEY` | JWT signing key (`openssl rand -hex 32`) |
 | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | Google OAuth |
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | GitHub OAuth |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | Layer-2 collector endpoint (OTLP; `http://localhost:4318` locally); headers only when pushing direct to a vendor |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | OTLP collector endpoint (`http://localhost:4318` locally) |
 | `FRONTEND_URL` / `BACKEND_URL` | Public URLs for redirects / CORS |
-
----
-
-## Workers
-
-| Worker | Trigger | Purpose |
-|---|---|---|
-| **Analytics** | Kafka (`url-clicked`) | Parse user-agent, store click events in MongoDB, update analytics |
-| **Metadata** | Kafka (`url-created`) | Scrape title/description/OG image from destination URL |
-| **Webhook Click** | Kafka (`url-clicked`) | Deliver click events to workspace webhooks with HMAC signature |
-| **Webhook Retry** | Schedule (60s) | Retry failed webhook deliveries (exponential backoff, max 5 retries) |
-| **DLQ Replay** | Kafka (DLQ topics) | Replay failed messages back to original topics |
-| **Aggregation** | Schedule (60s) | Compute click counts and unique IPs per URL via MongoDB aggregation |
-| **Cleanup** | Hourly (inside Aggregation) | Hard-delete soft-deleted URLs after 30-day grace period |
-
-Expiry is computed at query time — no worker needed.
-
-Kafka topics (created in Aiven): `url-clicked`, `url-created`, `dlq-url-clicked`, `dlq-url-created`.
-
----
+| `ADMIN_BOOTSTRAP_TOKEN` | Admin panel bootstrap token |
 
 ## Testing
 
-> **Warning:** Never run the full pytest suite against the production database. DB-backed tests truncate tables and require Docker testcontainers.
+> Warning: Never run the full pytest suite against the production database. DB-backed tests truncate tables and require Docker testcontainers.
 
 ```bash
 # Backend — safe without Docker (unit tests only)
@@ -254,9 +308,7 @@ cd frontend && npm run test:e2e      # Playwright e2e tests
 cd frontend && npm run test:coverage # with coverage report
 ```
 
-CI runs on every push to `main` (GitHub Actions): `backend-lint`, `backend-test`, `frontend-lint`, `frontend-test`, `frontend-build`, and `docker` (builds & publishes backend/frontend images to GHCR).
-
----
+CI runs on every push to `main` (GitHub Actions): lint, tests, build, and Docker images published to GHCR.
 
 ## Deployment
 
@@ -265,8 +317,6 @@ Deploys from the `backend/render.yaml` blueprint. Build: `pip install uv && uv s
 
 ### Frontend — Vercel
 Auto-deploys from `main`. Server-side rewrites proxy `/r/:code` and `/api/v1/*` to the Render backend via `BACKEND_URL`.
-
----
 
 ## License
 
