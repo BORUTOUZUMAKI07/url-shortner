@@ -1,4 +1,4 @@
----
+﻿---
 # LinkForge Alerting Rules (New Relic)
 # These are intended to be imported into New Relic Alert Conditions/NRQL.
 # Values reflect SLOs in docs/slo.md and are tuned for a hobby deployment.
@@ -81,12 +81,12 @@ groups:
   # Account-scoped, not per-service. Telemetry ingest is billed to the New Relic
   # account, and the free grant (~100 GB/month) is shared by every service that
   # pushes to it, so the first wall at 10x traffic is this quota rather than the
-  # app — and the failure is silent, because every exporter is fail-open
+  # app â€” and the failure is silent, because every exporter is fail-open
   # (telemetry simply stops arriving while the app keeps serving 3xx). This is
   # also the one condition that cannot be evaluated from the app's own /metrics
   # endpoint: `NrConsumption` is New Relic's own usage event, so it only exists
-  # inside the New Relic account. See docs/slo.md § Telemetry Volume & Quota.
-  # Field names follow New Relic's usage docs — confirm against the account's
+  # inside the New Relic account. See docs/slo.md Â§ Telemetry Volume & Quota.
+  # Field names follow New Relic's usage docs â€” confirm against the account's
   # NrConsumption schema (and data region) before importing.
   - name: linkforge-telemetry-budget
     rules:
