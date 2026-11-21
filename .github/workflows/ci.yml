@@ -169,14 +169,16 @@ jobs:
       - name: Secret scan
         shell: bash
         run: |
-          # Fail the job if any real secrets are committed.
+          # Scan tracked files only. A filesystem-wide grep also walks
+          # backend/.venv and node_modules, where binary/base64 blobs (e.g.
+          # Pillow's ImageFont.py) produce false positives.
           # Excludes: redaction.py (contains secret detection regexes),
-          # ci.yml (contains the scan pattern itself)
-          if grep -rE "(sk_live|AKIA|ghp_|github_pat_|glpat-)" \
-             . --include="*.py" --include="*.ts" --include="*.tsx" \
-             --include="*.env" --include="*.env.*" --include="*.json" \
-             --include="*.yaml" --include="*.yml" 2>/dev/null \
-             | grep -v "redaction.py" | grep -v "ci.yml"; then
+          # ci.yml (contains the scan pattern itself).
+          matches=$(git grep -nE "(sk_live|AKIA|ghp_|github_pat_|glpat-)" -- \
+            '*.py' '*.ts' '*.tsx' '*.env' '*.env.*' '*.json' '*.yaml' '*.yml' \
+            | grep -v -e 'redaction.py' -e 'ci.yml' || true)
+          if [ -n "$matches" ]; then
+            echo "$matches"
             echo "::error::Potential secrets found in tracked files"
             exit 1
           fi
