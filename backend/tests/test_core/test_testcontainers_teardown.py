@@ -85,7 +85,7 @@ def test_alembic_failure_stops_postgres_and_restores_env(monkeypatch: pytest.Mon
     """The regression: alembic is the first thing that can fail, after PG is up."""
     fake_pg = _FakeContainer()
     monkeypatch.setattr("testcontainers.postgres.PostgresContainer", lambda *a, **k: fake_pg)
-    monkeypatch.setenv("DATABASE_URL", "postgresql://sentinel:kept@host/db")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://sentinel:kept@localhost/db")
     monkeypatch.setattr(tc.subprocess, "run", _alembic_fails)
 
     with pytest.raises(RuntimeError, match="Alembic migration failed"):
@@ -93,7 +93,7 @@ def test_alembic_failure_stops_postgres_and_restores_env(monkeypatch: pytest.Mon
 
     assert fake_pg.started == 1
     assert fake_pg.stopped == 1, "a live Postgres container was stranded"
-    assert os.environ["DATABASE_URL"] == "postgresql://sentinel:kept@host/db"
+    assert os.environ["DATABASE_URL"] == "postgresql://sentinel:kept@localhost/db"
     # delenv first: under --use-testcontainers this flag is legitimately set for
     # the whole session, so "absent" is only true because we made it so.
     monkeypatch.delenv("_USE_TESTCONTAINERS", raising=False)
@@ -154,7 +154,7 @@ def test_later_failure_stops_everything_started_so_far(monkeypatch: pytest.Monke
 
 def test_failure_restores_a_preexisting_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """Env is restored to its prior value, not merely cleared."""
-    monkeypatch.setenv("DATABASE_URL", "postgresql://real:container@host:5432/db")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://real:container@localhost:5432/db")
     monkeypatch.setenv("_USE_TESTCONTAINERS", "1")
     monkeypatch.setattr("testcontainers.postgres.PostgresContainer", lambda *a, **k: _FakeContainer())
     monkeypatch.setattr(tc.subprocess, "run", _alembic_fails)
@@ -162,7 +162,7 @@ def test_failure_restores_a_preexisting_database_url(monkeypatch: pytest.MonkeyP
     with pytest.raises(RuntimeError, match="Alembic migration failed"):
         tc.start_containers()
 
-    assert os.environ["DATABASE_URL"] == "postgresql://real:container@host:5432/db"
+    assert os.environ["DATABASE_URL"] == "postgresql://real:container@localhost:5432/db"
     assert os.environ["_USE_TESTCONTAINERS"] == "1"
 
 

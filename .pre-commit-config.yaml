@@ -13,6 +13,18 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.0
     hooks:
+      # No --exit-zero: CI runs `ruff check` as a blocking gate, so a local hook
+      # that always exits 0 only lets the failure move to CI.
       - id: ruff
-        args: [--exit-zero]
         types_or: [python, pyi]
+
+  - repo: local
+    hooks:
+      # Same scanner CI runs, but against the index, so a credential is caught
+      # before it is ever committed (and therefore before it is ever tracked).
+      - id: check-secrets
+        name: check for committed credentials
+        entry: python .github/scripts/check_secrets.py --staged
+        language: system
+        pass_filenames: false
+        always_run: true

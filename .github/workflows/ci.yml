@@ -28,9 +28,23 @@ env:
   WEBHOOK_SECRET_KEY: "test-secret-key-for-ci-0123456789abcdef"
 
 jobs:
+  # Cheapest gate first, and a prerequisite for everything else: no point
+  # installing dependencies for a commit that leaks a credential. Stdlib-only,
+  # so it runs without any setup step.
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan tracked files for credentials
+        run: python3 .github/scripts/check_secrets.py
+
   backend-lint:
     name: Backend Lint
     runs-on: ubuntu-latest
+    needs: [secret-scan]
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
@@ -46,6 +60,8 @@ jobs:
   frontend-lint:
     name: Frontend Lint
     runs-on: ubuntu-latest
+    needs: [secret-scan]
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -54,6 +70,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
 
@@ -61,6 +79,7 @@ jobs:
     name: Backend Tests
     runs-on: ubuntu-latest
     needs: [backend-lint]
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -99,6 +118,7 @@ jobs:
     name: Frontend Tests
     runs-on: ubuntu-latest
     needs: [frontend-lint]
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -107,6 +127,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run test
 
@@ -114,6 +136,7 @@ jobs:
     name: Frontend Build
     runs-on: ubuntu-latest
     needs: [frontend-test]
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -122,6 +145,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
 
@@ -129,6 +154,7 @@ jobs:
     name: Security Scan
     runs-on: ubuntu-latest
     needs: [backend-lint, frontend-lint]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -166,38 +192,11 @@ jobs:
         working-directory: frontend
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Secret scan
-        shell: bash
-        run: |
-          # Scan tracked files only. A filesystem-wide grep also walks
-          # backend/.venv and node_modules, where binary/base64 blobs (e.g.
-          # Pillow's ImageFont.py) produce false positives.
-          #
-          # git grep exits 0 for matches, 1 for no matches, and >1 when the
-          # scan itself could not run. Treat >1 as a failure instead of letting
-          # `|| true` turn a broken scan into a green job.
-          set +e
-          matches=$(git grep -nE "(sk_live|AKIA|ghp_|github_pat_|glpat-)" -- \
-            '*.py' '*.ts' '*.tsx' '*.env' '*.env.*' '*.json' '*.yaml' '*.yml' \
-            ':(exclude)backend/src/shared/core/redaction.py' \
-            ':(exclude).github/workflows/ci.yml')
-          status=$?
-          set -e
-          if [ "$status" -gt 1 ]; then
-            echo "::error::Secret scan could not run (git grep exit $status)"
-            exit 1
-          fi
-          if [ -n "$matches" ]; then
-            echo "$matches"
-            echo "::error::Potential secrets found in tracked files"
-            exit 1
-          fi
-          echo "No secrets detected"
-
   backend-e2e:
     name: Backend E2E (Real HTTP)
     runs-on: ubuntu-latest
     needs: [backend-test]
+    timeout-minutes: 30
     env:
       TESTCONTAINERS_RYUK_DISABLED: "true"
     defaults:
@@ -238,6 +237,7 @@ jobs:
     name: Frontend Integration + E2E (Real Backend)
     runs-on: ubuntu-latest
     needs: [backend-e2e, frontend-build]
+    timeout-minutes: 40
     env:
       TESTCONTAINERS_RYUK_DISABLED: "true"
     steps:
@@ -251,6 +251,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Install frontend deps
         working-directory: frontend
         run: npm ci
@@ -303,6 +305,7 @@ jobs:
     name: Docker Build
     runs-on: ubuntu-latest
     needs: [frontend-integration, security]
+    timeout-minutes: 60
     # CI now runs on pull_request too. Never publish `:latest` from an
     # unmerged PR; only main pushes may write images to GHCR.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

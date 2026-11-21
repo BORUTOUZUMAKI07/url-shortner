@@ -21,13 +21,13 @@ import pytest
 
 from src.identity.services import auth_service as auth_module
 from src.identity.services.auth_service import AuthService
-from src.shared.core.config import settings
 from src.shared.core.security import (
     create_email_verification_token,
     create_password_reset_token,
     decode_token,
     reset_fingerprint,
 )
+from src.shared.core.security import settings as jwt_settings
 from src.shared.errors import InvalidResetToken
 
 HASH_A = "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$aGFzaEFh"
@@ -180,12 +180,16 @@ class TestResetTokenIsBound:
         be sitting in an attacker's inbox.
         """
         svc, repo = _service(_User())
+        # Sign with the object decode_token() actually reads. start_containers()
+        # rebuilds config.settings, so importing `settings` from config here can
+        # yield a different instance with a different SECRET_KEY than the one
+        # verification uses - which only shows up locally, where .env has a key.
         legacy = jwt.encode(
             {"sub": "me@example.com", "type": "reset",
              "exp": 9999999999, "jti": "old",
-             "iss": settings.JWT_ISSUER, "aud": settings.JWT_AUDIENCE},
-            settings.SECRET_KEY,
-            algorithm=settings.ALGORITHM,
+             "iss": jwt_settings.JWT_ISSUER, "aud": jwt_settings.JWT_AUDIENCE},
+            jwt_settings.SECRET_KEY,
+            algorithm=jwt_settings.ALGORITHM,
         )
         with pytest.raises(InvalidResetToken):
             await svc.reset_password(legacy, "Whatever123!")
