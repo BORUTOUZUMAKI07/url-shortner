@@ -172,11 +172,21 @@ jobs:
           # Scan tracked files only. A filesystem-wide grep also walks
           # backend/.venv and node_modules, where binary/base64 blobs (e.g.
           # Pillow's ImageFont.py) produce false positives.
-          # Excludes: redaction.py (contains secret detection regexes),
-          # ci.yml (contains the scan pattern itself).
+          #
+          # git grep exits 0 for matches, 1 for no matches, and >1 when the
+          # scan itself could not run. Treat >1 as a failure instead of letting
+          # `|| true` turn a broken scan into a green job.
+          set +e
           matches=$(git grep -nE "(sk_live|AKIA|ghp_|github_pat_|glpat-)" -- \
             '*.py' '*.ts' '*.tsx' '*.env' '*.env.*' '*.json' '*.yaml' '*.yml' \
-            | grep -v -e 'redaction.py' -e 'ci.yml' || true)
+            ':(exclude)backend/src/shared/core/redaction.py' \
+            ':(exclude).github/workflows/ci.yml')
+          status=$?
+          set -e
+          if [ "$status" -gt 1 ]; then
+            echo "::error::Secret scan could not run (git grep exit $status)"
+            exit 1
+          fi
           if [ -n "$matches" ]; then
             echo "$matches"
             echo "::error::Potential secrets found in tracked files"
