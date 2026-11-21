@@ -27,4 +27,4 @@
 
 ## Notes
 - `/api/v1/ping` always returns 200 (best-effort DB check) — use it for keep-warm and post-recovery sanity check.
-- SIGTERM handling: workers use shutdown helpers; uvicorn signal handlers can be clobbered only if `EMBEDDED_WORKERS=1` — prod runs standalone workers typically.
+- SIGTERM handling: embedded workers defer to uvicorn's handlers (`EMBEDDED_WORKERS=1`, the production default); standalone launchers install their own. Production runs the six workers embedded in the single uvicorn process.

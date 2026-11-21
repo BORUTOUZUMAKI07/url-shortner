@@ -117,7 +117,7 @@ url-shortner/
 │   │   ├── webhooks/       # Subscriptions, delivery, DLQ
 │   │   └── workspaces/     # Multi-tenant isolation, invites
 │   ├── alembic/            # DB migrations
-│   ├── scripts/            # Maintenance (e2e_server, purge_users)
+│   ├── scripts/            # Maintenance (e2e_server)
 │   ├── tests/              # Unit, route, core, event tests
 │   ├── render.yaml         # Render blueprint
 │   └── pyproject.toml      # Python deps (uv)

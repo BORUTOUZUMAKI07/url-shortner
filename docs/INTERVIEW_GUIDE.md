@@ -686,7 +686,7 @@ The pattern everywhere is: **routes ’ services ’ repositories ’ models**. 
 ### Entry point
 | File | What it does |
 |---|---|
-| `main.py` | The FastAPI app. `create_app()` wires middleware, exception handlers, `/health`, routers, and the **lifespan** which starts the 8 background workers (unless `STANDALONE_WORKERS=1`). |
+| `main.py` | The FastAPI app. `create_app()` wires middleware, exception handlers, `/health`, routers, and the **lifespan** which starts the 6 background workers (unless `STANDALONE_WORKERS=1`). |
 
 ### `shared/` — cross-cutting everything uses
 | File | What it does |

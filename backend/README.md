@@ -43,7 +43,7 @@ backend/src/
 ├── links/          # URL CRUD, redirect, QR, A/B
 ├── webhooks/       # Subscriptions, delivery, DLQ
 ├── workspaces/     # Multi-tenancy, invites, members
-└── scripts/        # Maintenance: e2e_server.py, purge_users.py
+└── scripts/        # Maintenance: e2e_server.py
 ```
 
 ### Data Flow (Redirect)
@@ -198,7 +198,7 @@ backend/
 │   ├── shared/           # config, DB, Redis, security, events, workers
 │   ├── webhooks/         # subscriptions, delivery, DLQ
 │   └── workspaces/       # multi-tenancy, invites, members
-├── scripts/              # e2e_server.py, purge_users.py
+├── scripts/              # e2e_server.py
 ├── tests/                # unit, route, core, event tests
 ├── render.yaml           # Render blueprint
 ├── pyproject.toml        # Python deps (uv)
