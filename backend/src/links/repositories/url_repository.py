@@ -226,4 +226,8 @@ class URLRepository(BaseRepository[URL]):
             .options(selectinload(URL.tags))
         )
         result = await self.db.execute(query)
-        return list(result.scalars().all())  # type: ignore[return-value]
+        return list(result.scalars().all())
+
+    async def update_qr_code(self, id: int, qr_b64: str) -> None:
+        await self.db.execute(update(URL).where(URL.id == id).values(qr_code=qr_b64))
+        await self.db.commit()  # type: ignore[return-value]

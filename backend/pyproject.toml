@@ -46,7 +46,9 @@ dependencies = [
     "qrcode[pil]>=8.2",
     "redis>=8.0.0",
     "upstash-redis>=1.0.0",
-    "sqlalchemy>=2.0.50",
+    # SQLAlchemy 2.1 moved greenlet behind the `asyncio` extra; without it the
+    # async engine (and every conftest import) fails at import time.
+    "sqlalchemy[asyncio]>=2.0.50",
     "user-agents>=2.2.0",
     "uvicorn>=0.49.0",
     # Observability
@@ -77,6 +79,9 @@ dev = [
     "types-qrcode>=7.4.0",
     "types-beautifulsoup4>=4.12.0",
     "pre-commit>=4.0.0",
+    # CI security job (bandit + pip-audit) uses the locked dev environment.
+    "bandit>=1.9.4",
+    "pip-audit>=2.10.1",
 ]
 
 [tool.pytest.ini_options]
@@ -96,6 +101,12 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
 ignore = ["E501", "E712"]
+
+[tool.bandit]
+# Scan application code only. Test files are assert-heavy and would drown the
+# signal; alembic/ is generated migration code. CI runs `bandit -ll` (medium+).
+targets = ["src"]
+exclude_dirs = [".venv", "tests", "alembic"]
 
 [tool.mypy]
 python_version = "3.13"

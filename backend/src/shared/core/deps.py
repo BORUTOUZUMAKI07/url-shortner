@@ -36,10 +36,14 @@ from src.links.repositories.url_repository import URLRepository
 from src.links.services.bulk_service import BulkService
 from src.links.services.favorite_service import FavoriteService
 from src.links.services.folder_service import FolderService
+from src.links.services.qr_code_service import QRCodeService
 from src.links.services.redirect_service import RedirectService
 from src.links.services.tag_service import TagService
 from src.links.services.url_service import URLService
 from src.shared.core.api_key_auth import verify_api_key_quota
+from src.shared.core.interfaces import (
+    IAuditService,
+)
 from src.shared.errors import InvalidToken, TokenRevoked, UnauthorizedError, UserNotFound
 from src.shared.events.dispatcher import KafkaEventDispatcher
 from src.webhooks.repositories.webhook_receiver_repository import WebhookReceivedEventRepository
@@ -171,10 +175,10 @@ async def get_webhook_service(db: AsyncSession = Depends(get_db)) -> WebhookServ
 
 async def get_url_service(
     db: AsyncSession = Depends(get_db),
-    audit: AuditService = Depends(get_audit_service),
+    audit: IAuditService = Depends(get_audit_service),
     webhooks: WebhookService = Depends(get_webhook_service),
 ) -> URLService:
-    return URLService(
+    url_service = URLService(
         url_repo=URLRepository(db),
         workspace_repo=WorkspaceRepository(db),
         folder_repo=FolderRepository(db),
@@ -183,6 +187,13 @@ async def get_url_service(
         webhooks=webhooks,
         event_dispatcher=KafkaEventDispatcher(),
     )
+    # Wire the QR code service into the facade
+    qr_service = QRCodeService(
+        url_repo=URLRepository(db),
+        workspace_repo=WorkspaceRepository(db),
+    )
+    url_service.set_qr_service(qr_service)
+    return url_service
 
 
 async def get_workspace_service(

@@ -21,7 +21,7 @@ The backend is the API and business-logic layer for LinkForge. It handles:
 
 ```
 backend/src/
-├── main.py              # FastAPI app, middleware, lifespan (starts 8 workers)
+├── main.py              # FastAPI app, middleware, lifespan (starts 6 workers)
 ├── shared/              # Cross-cutting: config, DB, Redis, Mongo, security, events, workers
 │   ├── core/
 │   │   ├── config.py         # pydantic-settings (env → config, validators)
@@ -63,7 +63,7 @@ Browser → Next.js frontend → FastAPI /{short_code}
                                             └─► Aggregation worker: rollup to Postgres every 60s
 ```
 
-### Workers (8, embedded in the web process by default)
+### Workers (6, embedded in the web process by default)
 
 | Worker | Trigger | Purpose |
 |---|---|---|
@@ -72,9 +72,11 @@ Browser → Next.js frontend → FastAPI /{short_code}
 | webhook_click | Kafka `url-clicked` | Deliver click events to workspace webhooks |
 | webhook_retry | Schedule (60s) | Retry failed webhook deliveries (exponential backoff, max 5) |
 | dlq_replay | Kafka DLQ topics | Replay failed messages back to original topics |
-| aggregation | Schedule (60s) | Aggregate MongoDB clicks into PostgreSQL rollups |
-| expiry | Schedule | Mark expired links |
-| cleanup | Hourly | Hard-delete soft-deleted URLs after 30-day grace |
+| aggregation | Schedule (60s) | Aggregate MongoDB clicks into PostgreSQL rollups; also runs the hourly soft-delete purge |
+
+Expiry is not a worker: it is enforced at read/redirect time via the
+`_IS_NOT_EXPIRED` query predicate. The old `cleanup_worker` was folded into the
+aggregation worker's hourly purge.
 
 Workers run as `asyncio` tasks inside uvicorn (single worker, fits Render free tier). Set `STANDALONE_WORKERS=1` + `run_worker_*.py` scripts to run them as separate processes.
 

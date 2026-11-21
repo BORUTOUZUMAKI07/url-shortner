@@ -3,6 +3,16 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+
+# A superseded push should not keep burning runner minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   PYTHON_VERSION: "3.13"
@@ -64,8 +74,9 @@ jobs:
         shell: bash
         run: |
           # Retry up to 3 times: GitHub shared runners occasionally race on
-          # container startup. Genuine failures still fail after retries.
-          set +e
+          # container startup. The final `exit 1` is what makes a genuine
+          # failure turn the job red; without it the last `echo` exits 0.
+          set -uo pipefail
           log=/tmp/backend-tests.log
           for attempt in 1 2 3; do
             echo "== pytest attempt $attempt ==" | tee -a "$log"
@@ -73,7 +84,8 @@ jobs:
               exit 0
             fi
           done
-          echo "backend tests failed after 3 retries (testcontainers may be unavailable)"
+          echo "::error::backend tests failed after 3 attempts (testcontainers may be unavailable)"
+          exit 1
         env:
           TESTCONTAINERS_RYUK_DISABLED: "true"
       - name: Upload test log on failure
@@ -119,19 +131,41 @@ jobs:
     needs: [backend-lint, frontend-lint]
     steps:
       - uses: actions/checkout@v4
-      - name: Python security (bandit + pip-audit)
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install locked dev environment
         working-directory: backend
-        shell: bash
-        run: |
-          set +e
-          uv pip install bandit pip-audit 2>/dev/null || true
-          uv run bandit -r src/ --exit-zero || true
-          uv run pip-audit || true
-      - name: Node security (npm audit)
+        run: uv sync --extra dev
+
+      # Blocking. Bandit's `-ll` means medium severity or higher; the one
+      # intentional container bind is annotated with `# nosec B104` on
+      # Settings.HOST in src/shared/core/config.py. A new medium/high finding
+      # fails the job.
+      - name: Bandit (SAST, medium+)
+        working-directory: backend
+        run: uv run bandit -c pyproject.toml -r src -q -ll
+
+      # Blocking. The lockfile refresh cleared the previous 133 advisories;
+      # `-l` audits the installed venv and `--skip-editable` skips this
+      # project. A new advisory fails the job. If one cannot be fixed, add a
+      # documented, dated allowlist rather than `|| true`.
+      - name: pip-audit (known advisories)
+        working-directory: backend
+        run: uv run pip-audit -l --skip-editable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Blocking. Scoped to the graph that ships (`--omit=dev`); dev-only
+      # advisories are visible locally but cannot fail this gate.
+      - name: npm audit (production deps)
         working-directory: frontend
-        shell: bash
-        run: |
-          npm audit --audit-level=high || true
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Secret scan
         shell: bash
         run: |
@@ -166,9 +200,10 @@ jobs:
       - name: Run backend E2E against Docker testcontainers
         shell: bash
         run: |
-          # The server boots a subprocess + 3 containers; retry once for the
-          # same GitHub-runner startup races the main suite handles.
-          set +e
+          # The server boots a subprocess + 3 containers; retry for the same
+          # GitHub-runner startup races the main suite handles. As above, the
+          # final `exit 1` is required or the job exits 0 after three failures.
+          set -uo pipefail
           log=/tmp/backend-e2e.log
           for attempt in 1 2 3; do
             echo "== pytest tests/test_e2e attempt $attempt ==" | tee -a "$log"
@@ -176,7 +211,8 @@ jobs:
               exit 0
             fi
           done
-          echo "backend e2e tests failed after 3 retries (testcontainers may be unavailable)"
+          echo "::error::backend e2e tests failed after 3 attempts (testcontainers may be unavailable)"
+          exit 1
         env:
           TESTCONTAINERS_RYUK_DISABLED: "true"
       - name: Upload log on failure
@@ -254,7 +290,10 @@ jobs:
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: [frontend-integration]
+    needs: [frontend-integration, security]
+    # CI now runs on pull_request too. Never publish `:latest` from an
+    # unmerged PR; only main pushes may write images to GHCR.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: write

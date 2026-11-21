@@ -9,6 +9,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     PROJECT_NAME: str = "LinkForge URL Shortener"
 
+    # HTTP server defaults for the `python -m src.main` entrypoint. Render
+    # injects PORT; HOST stays 0.0.0.0 inside the container.
+    HOST: str = "0.0.0.0"  # nosec B104
+    PORT: int = 8000
+
     # --- PostgreSQL (Neon / Supabase / local Docker) ---
     DATABASE_URL: Optional[str] = None
     POSTGRES_USER: str = "linkforge_user"

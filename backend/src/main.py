@@ -259,19 +259,19 @@ app = create_app(lifespan_override=lifespan)
 
 
 if __name__ == "__main__":
-    # Determine port from settings (default 8000)
-    port = int(settings.PORT) if hasattr(settings, "PORT") else 8000
+    # Render injects PORT; HOST is configurable too (default 0.0.0.0).
+    port = settings.PORT
 
     print(f"Starting URL Shortener on port {port}...")
     print("Consumers: analytics, metadata, webhook-click")
-    print("Scheduled workers: webhook-retry, aggregation, expiry, cleanup")
+    print("Scheduled workers: webhook-retry, aggregation (includes soft-delete purge)")
 
     # Start the application
     import uvicorn
 
     uvicorn.run(
         "src.main:app",
-        host="0.0.0.0",
+        host=settings.HOST,
         port=port,
         log_level="info",
         reload=False,

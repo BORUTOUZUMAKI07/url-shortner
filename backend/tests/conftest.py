@@ -147,8 +147,9 @@ async def mock_external_services():
         patch("src.identity.services.auth_service.EmailService.send_verification_email", AsyncMock()),
         patch("src.identity.services.auth_service.EmailService.send_password_reset", AsyncMock()),
         patch("src.workspaces.services.workspace_service.EmailService.send_invite_email", AsyncMock()),
-        patch("src.links.services.url_service.delete_url_cache", AsyncMock()),
-        patch("src.links.services.url_service.EventDispatcher", AsyncMock()),
+        # The URL service split moved cache eviction into redirect_service;
+        # patching the old url_service binding made every test error at setup.
+        patch("src.links.services.redirect_service.delete_url_cache", AsyncMock()),
         patch("src.workspaces.services.workspace_service.AuditService", AsyncMock()),
         patch("src.workspaces.services.workspace_service.WebhookService", AsyncMock()),
     ]

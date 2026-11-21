@@ -27,9 +27,12 @@ jobs:
       - run: uv sync --extra dev --extra testcontainers
       - name: Run full test suite (incl. concurrency)
         shell: bash
-        # Explicit bash: GitHub's default shell does not enable pipefail, so
-        # `pytest | tee` previously reported success even when pytest failed.
-        run: uv run pytest tests/ -v --use-testcontainers 2>&1 | tee /tmp/nightly_output.log
+        # `pytest | tee` reports tee's status unless pipefail is on. GitHub's
+        # bash shell enables it, but set it explicitly so this cannot regress
+        # if the shell default changes.
+        run: |
+          set -o pipefail
+          uv run pytest tests/ -v --use-testcontainers 2>&1 | tee /tmp/nightly_output.log
         env:
           TESTCONTAINERS_RYUK_DISABLED: "true"
       - name: Upload test log on failure
