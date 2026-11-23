@@ -30,7 +30,9 @@ async def verify_password_async(plain: str, hashed: str) -> bool:
 # Claims this module owns. A caller passing them in would be silently ignored
 # (they were overwritten before, which hid bugs like a caller asking for a
 # 30-day token and getting the default), so now they raise.
-_RESERVED_CLAIMS = frozenset({"aud", "exp", "iat", "iss", "type", "jti", "sid"})
+# `sid` is intentionally NOT reserved: it is an application claim used to bind
+# access tokens to a refresh session for session management UI.
+_RESERVED_CLAIMS = frozenset({"aud", "exp", "iat", "iss", "type", "jti"})
 
 
 def _encode(data: dict, reserved: dict) -> str:
@@ -75,6 +77,18 @@ def create_refresh_token(data: dict, sid: Optional[str] = None) -> str:
         "jti": secrets.token_urlsafe(32),
         "sid": sid or secrets.token_urlsafe(32),
     })
+
+def create_two_factor_challenge_token(user_id: int) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(seconds=settings.TWO_FACTOR_CHALLENGE_TTL_SECONDS)
+    return _encode(
+        {"sub": str(user_id)},
+        {
+            "exp": expire,
+            "type": "2fa",
+            "jti": secrets.token_urlsafe(16),
+        },
+    )
+
 
 def decode_token(token: str) -> dict:
     try:

@@ -7,14 +7,17 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 
 from src.identity.models.user import User
+from src.identity.schemas.profile import SessionListResponse
 from src.identity.schemas.user import (
     ForgotPasswordRequest,
+    LoginResponse,
     OAuthExchangeRequest,
     RefreshTokenRequest,
     ResendVerificationRequest,
     ResetPasswordRequest,
     Token,
     TokenWithUser,
+    TwoFactorVerifyRequest,
     UserCreate,
     UserLogin,
     UserResponse,
@@ -27,6 +30,7 @@ from src.shared.core.config import settings
 from src.shared.core.deps import (
     bearer_scheme_optional,
     get_auth_service,
+    get_current_token_payload,
     get_current_user,
 )
 from src.shared.core.redis import check_rate_limit, rate_limit_headers, redis_client
@@ -44,9 +48,9 @@ async def register(payload: UserCreate, svc: AuthService = Depends(get_auth_serv
     return await svc.register(payload.email, payload.password)
 
 
-@router.post("/login", response_model=Token,
+@router.post("/login", response_model=LoginResponse,
     summary="Login",
-    description="Authenticate with email and password to receive access and refresh tokens.")
+    description="Authenticate with email and password. Returns access/refresh tokens, or a 2FA challenge when two-factor authentication is enabled.")
 async def login(
     request: Request,
     response: Response,
@@ -55,11 +59,43 @@ async def login(
 ):
     await _enforce_auth_rate_limit(request, "login")
     account_key = await _enforce_login_account_limit(request, payload.email)
-    token = await svc.login(payload.email, payload.password)
+    result = await svc.login(
+        payload.email,
+        payload.password,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
     # A successful sign-in clears the account's failure budget. Failed attempts
     # are the only ones that accumulate, so a legitimate user is never left
     # throttled by someone else's guessing once they prove the password.
     await _clear_login_account_limit(account_key)
+    if isinstance(result, dict):
+        return result
+    _set_auth_cookies(response, result.access_token, result.refresh_token)
+    return LoginResponse(
+        access_token=result.access_token,
+        token_type=result.token_type,
+        refresh_token=result.refresh_token,
+        two_factor_required=False,
+    )
+
+
+@router.post("/2fa/verify", response_model=Token,
+    summary="Verify 2FA login challenge",
+    description="Complete a two-factor login challenge using a TOTP code or recovery code.")
+async def verify_two_factor(
+    request: Request,
+    response: Response,
+    payload: TwoFactorVerifyRequest,
+    svc: AuthService = Depends(get_auth_service),
+):
+    await _enforce_auth_rate_limit(request, "login")
+    token = await svc.verify_two_factor_login(
+        payload.challenge_token,
+        payload.code,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
     _set_auth_cookies(response, token.access_token, token.refresh_token)
     return token
 
@@ -77,7 +113,11 @@ async def refresh(
     try:
         if not refresh_token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
-        token = await svc.refresh(refresh_token)
+        token = await svc.refresh(
+            refresh_token,
+            ip_address=get_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
     except Exception:
         # A refresh that fails means the refresh cookie is dead: expired,
         # revoked, replayed, or the user's account deactivated. The cookie was
@@ -200,6 +240,46 @@ async def resend_verification_for_email(
     summary="Get current user profile")
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.get("/sessions", response_model=SessionListResponse,
+    summary="List active sessions",
+    description="List active refresh sessions/devices for the current user.")
+async def list_sessions(
+    current_user: User = Depends(get_current_user),
+    payload: dict = Depends(get_current_token_payload),
+    svc: AuthService = Depends(get_auth_service),
+):
+    current_sid = payload.get("sid")
+    sessions = await svc.list_sessions(current_user.id, current_sid=current_sid)
+    return {"sessions": sessions}
+
+
+@router.delete("/sessions/{session_id}",
+    summary="Revoke a session",
+    description="Revoke a specific active session/device. Revoking the current session signs you out on next refresh.")
+async def revoke_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    payload: dict = Depends(get_current_token_payload),
+    svc: AuthService = Depends(get_auth_service),
+):
+    current_sid = payload.get("sid")
+    await svc.revoke_session(current_user.id, session_id, current_sid=current_sid)
+    return {"detail": "Session revoked."}
+
+
+@router.delete("/sessions",
+    summary="Revoke all other sessions",
+    description="Revoke every active session except the current one.")
+async def revoke_other_sessions(
+    current_user: User = Depends(get_current_user),
+    payload: dict = Depends(get_current_token_payload),
+    svc: AuthService = Depends(get_auth_service),
+):
+    current_sid = payload.get("sid")
+    revoked = await svc.revoke_other_sessions(current_user.id, current_sid=current_sid)
+    return {"detail": f"Revoked {revoked} other session(s)."}
 
 
 @router.get("/providers",

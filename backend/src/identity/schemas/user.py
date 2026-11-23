@@ -25,6 +25,7 @@ class UserResponse(BaseModel):
     is_active: bool
     is_superadmin: bool
     avatar_url: str | None = None
+    two_factor_enabled: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -34,6 +35,26 @@ class Token(BaseModel):
     access_token: str
     token_type: str = Field(default="bearer", description="Token type (always 'bearer')")
     refresh_token: Optional[str] = Field(None, description="Refresh token for silent re-authentication")
+
+
+class TwoFactorChallengeResponse(BaseModel):
+    two_factor_required: bool = True
+    challenge_token: str
+    token_type: str = "bearer"
+
+
+class LoginResponse(BaseModel):
+    """Either a token pair or a 2FA challenge."""
+
+    access_token: str | None = None
+    token_type: str = "bearer"
+    refresh_token: str | None = None
+    two_factor_required: bool = False
+    challenge_token: str | None = None
+
+    @property
+    def is_challenge(self) -> bool:
+        return self.two_factor_required and bool(self.challenge_token)
 
 
 class TokenWithUser(Token):
@@ -63,6 +84,11 @@ class VerifyEmailRequest(BaseModel):
 
 class ResendVerificationRequest(BaseModel):
     email: EmailStr = Field(description="Address to (re-)send the verification link to")
+
+
+class TwoFactorVerifyRequest(BaseModel):
+    challenge_token: str = Field(..., description="Temporary 2FA challenge token from login")
+    code: str = Field(..., min_length=6, max_length=32, description="TOTP code or recovery code")
 
 
 class GoogleOAuthInitRequest(BaseModel):

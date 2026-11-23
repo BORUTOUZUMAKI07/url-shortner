@@ -306,6 +306,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
+    { name = "pyotp" },
     { name = "python-json-logger" },
     { name = "python-multipart" },
     { name = "qrcode", extra = ["pil"] },
@@ -368,6 +369,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.14.1" },
     { name = "pyjwt", specifier = ">=2.10.0" },
+    { name = "pyotp", specifier = ">=2.9.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
@@ -2285,6 +2287,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/cc/fca24bb5f78282943a1ee671a103ca2297718a490f5f550a0291a8a78bbe/pymongo-4.20.1-cp315-cp315t-win32.whl", hash = "sha256:647a4cddd29c198d523011c41b5cf88a7de9ef6c9cf2ae6d4f48cb8c230169ec", size = 824216, upload-time = "2026-11-19T17:30:51.839Z" },
     { url = "https://files.pythonhosted.org/packages/00/2b/123eaba19b4964215a55ced720c1677529bd34c500848dd769f47aabd41f/pymongo-4.20.1-cp315-cp315t-win_amd64.whl", hash = "sha256:2b513256c5ee40b9a65853d4afe5d72010bd8baa3d033a13225af7ad09a03a81", size = 831649, upload-time = "2026-11-19T17:30:53.092Z" },
     { url = "https://files.pythonhosted.org/packages/44/4c/6358db855e3cb19cee3336c038f03ddc9a1e98c4b620a29c1fedc49a1685/pymongo-4.20.1-cp315-cp315t-win_arm64.whl", hash = "sha256:0f991a9c53658bd2e9c36ce2e3ac48b31aa94e23bff00f276dc7f031e4deb1d4", size = 825794, upload-time = "2026-11-19T17:30:54.705Z" },
+]
+
+[[package]]
+name = "pyotp"
+version = "2.12.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/70/d7/fe43d6cfd1e80081a374c612df6b6555205a7ab761fdd6ba6e30435fd963/pyotp-2.12.1.tar.gz", hash = "sha256:8d0c4192f3c5d1b1a8792df23b9d8acbb7e70abd2b160962af55c5700edbd236", size = 27480, upload-time = "2026-11-19T05:06:24.189Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/32/d5/ca399f55b474357c42b8d0ee1c0222a22e6f88bbf4588130b75737c3b73b/pyotp-2.12.1-py3-none-any.whl", hash = "sha256:2f65978d0a0afe5588ec960c810cbb974ba1957ffbf29775d8d4e1b2d4b8984c", size = 17026, upload-time = "2026-11-19T05:06:22.922Z" },
 ]
 
 [[package]]

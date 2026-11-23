@@ -1,3 +1,4 @@
+import contextlib
 import os
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
@@ -17,19 +18,120 @@ from src.workspaces.models.workspace_member import MemberRole, WorkspaceMember
 pytestmark = pytest.mark.integration
 
 
+class _FakeRedis:
+    def __init__(self):
+        self.store: dict[str, str] = {}
+        self.sets: dict[str, set[str]] = {}
+        self.ttls: dict[str, int] = {}
+
+    async def get(self, key: str):
+        return self.store.get(key)
+
+    async def setex(self, key: str, ttl: int, value: str):
+        self.store[key] = value
+        self.ttls[key] = ttl
+        return True
+
+    async def set(self, key: str, value: str, ex: int | None = None, nx: bool = False):
+        if nx and key in self.store:
+            return None
+        self.store[key] = value
+        if ex is not None:
+            self.ttls[key] = ex
+        return True
+
+    async def delete(self, *keys: str):
+        count = 0
+        for k in keys:
+            if k in self.store:
+                del self.store[k]
+                count += 1
+            if k in self.sets:
+                del self.sets[k]
+                count += 1
+        return count
+
+    async def incr(self, key: str):
+        val = int(self.store.get(key, "0")) + 1
+        self.store[key] = str(val)
+        return val
+
+    async def expire(self, key: str, ttl: int):
+        self.ttls[key] = ttl
+        return True
+
+    async def sadd(self, key: str, *values: str):
+        s = self.sets.setdefault(key, set())
+        before = len(s)
+        for v in values:
+            s.add(v)
+        return len(s) - before
+
+    async def srem(self, key: str, *values: str):
+        s = self.sets.get(key, set())
+        count = 0
+        for v in values:
+            if v in s:
+                s.remove(v)
+                count += 1
+        return count
+
+    async def smembers(self, key: str):
+        return set(self.sets.get(key, set()))
+
+    async def eval(self, script: str, numkeys: int, *keys_and_args):
+        # Default: return 1 (success) for Lua scripts like refresh rotation.
+        # Tests needing specific behavior should override this attribute.
+        return 1
+
+    async def getdel(self, key: str):
+        val = self.store.pop(key, None)
+        return val
+
+    async def scan(self, cursor=0, match=None, count=None):
+        # Minimal scan implementation for tests.
+        import fnmatch
+        keys = list(self.store.keys()) + list(self.sets.keys())
+        if match:
+            keys = [k for k in keys if fnmatch.fnmatch(k, match)]
+        return 0, keys
+
+    async def mget(self, *keys: str):
+        return [self.store.get(k) for k in keys]
+
+    async def ping(self):
+        return True
+
+    def pipeline(self):
+        return self
+
+    async def execute(self):
+        return []
+
+    async def aclose(self):
+        return None
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def mock_redis():
-    redis_mock = AsyncMock()
-    redis_mock.get.return_value = None
-    redis_mock.setex.return_value = True
-    redis_mock.delete.return_value = True
-    redis_mock.incr.return_value = 1
-    redis_mock.expire.return_value = True
-    redis_mock.eval.return_value = 1
-    with (patch("src.shared.core.deps.redis_client", redis_mock),
-          patch("src.shared.core.api_key_auth.redis_client", redis_mock),
-          patch("src.identity.services.auth_service.redis_client", redis_mock)):
-        yield
+    from src.shared.core.redis import RateLimitResult
+
+    async def _allow_rate_limit(key: str, capacity: int, refill_rate_per_sec: float) -> RateLimitResult:
+        return RateLimitResult(limited=False, remaining=capacity, retry_after_seconds=None, reset_after_seconds=0.0)
+
+    redis_mock = _FakeRedis()
+    patches = [
+        patch("src.shared.core.deps.redis_client", redis_mock),
+        patch("src.shared.core.api_key_auth.redis_client", redis_mock),
+        patch("src.identity.services.auth_service.redis_client", redis_mock),
+        patch("src.identity.services.profile_service.redis_client", redis_mock),
+        patch("src.identity.services.session_revocation.redis_client", redis_mock),
+        patch("src.identity.routes.auth.check_rate_limit", _allow_rate_limit),
+    ]
+    with contextlib.ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
+        yield redis_mock
 
 _test_engine = None
 

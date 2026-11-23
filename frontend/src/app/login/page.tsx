@@ -28,6 +28,10 @@ function LoginForm() {
   const [pendingEmail, setPendingEmail] = useState("")
   const [resending, setResending] = useState(false)
   const [resendMsg, setResendMsg] = useState<string | null>(null)
+  const [twoFactorChallenge, setTwoFactorChallenge] = useState<string | null>(null)
+  const [twoFactorCode, setTwoFactorCode] = useState("")
+  const [twoFactorError, setTwoFactorError] = useState("")
+  const [twoFactorSubmitting, setTwoFactorSubmitting] = useState(false)
   // OAuth providers the backend reports as fully configured (id AND secret).
   // null = check still in flight; [] = none configured. The server is the only
   // source of truth — see auth.is_configured() requiring the secret too.
@@ -97,23 +101,37 @@ function LoginForm() {
   async function onSubmit(data: LoginFormData) {
     setNeedsVerification(false)
     setResendMsg(null)
+    setTwoFactorError("")
     try {
-      await auth.login(data.email, data.password)
-      // Seed the shared ["me"] cache with the freshly-signed-in user; the
-      // layout's useMe() (sidebar) reads it on the very next page.
+      const result = await auth.login(data.email, data.password)
+      if (result.two_factor_required && result.challenge_token) {
+        setTwoFactorChallenge(result.challenge_token)
+        setPendingEmail(data.email)
+        return
+      }
       queryClient.setQueryData(["me"], await auth.me())
       redirectAfterLogin()
     } catch (err: unknown) {
       const message = getErrorMessage(err, "Login failed")
       setError("root", { message })
-      // The server refused the login because the address is unverified, and
-      // with REQUIRE_EMAIL_VERIFICATION on there is no way past this screen
-      // except the mail. The signup link's token expires after 24h, so "check
-      // your inbox" is not a recovery for most locked-out users — offer the
-      // unauthenticated resend here, inline, where the account's address is
-      // already in the form.
       setNeedsVerification(message.toLowerCase().includes("not verified"))
       setPendingEmail(data.email)
+    }
+  }
+
+  async function handleTwoFactorVerify(e: React.FormEvent) {
+    e.preventDefault()
+    if (!twoFactorChallenge) return
+    setTwoFactorSubmitting(true)
+    setTwoFactorError("")
+    try {
+      await auth.verifyTwoFactor(twoFactorChallenge, twoFactorCode.trim())
+      queryClient.setQueryData(["me"], await auth.me())
+      redirectAfterLogin()
+    } catch (err: unknown) {
+      setTwoFactorError(getErrorMessage(err, "Invalid two-factor code"))
+    } finally {
+      setTwoFactorSubmitting(false)
     }
   }
 
@@ -148,6 +166,32 @@ function LoginForm() {
           <p className="mt-1 text-sm text-stone-500">Sign in to your account</p>
         </div>
 
+        {twoFactorChallenge ? (
+          <form onSubmit={handleTwoFactorVerify} className="glass mb-4 space-y-4 rounded-xl p-8 shadow-lg">
+            <h1 className="text-center text-2xl font-heading font-semibold tracking-tight text-stone-900">Two-Factor Authentication</h1>
+            <p className="text-center text-sm text-stone-500">Enter the 6-digit code from your authenticator app, or a recovery code.</p>
+            {twoFactorError && (
+              <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-3">
+                <p className="text-center text-sm text-red-600">{twoFactorError}</p>
+              </div>
+            )}
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="Authentication code"
+              value={twoFactorCode}
+              onChange={(e) => setTwoFactorCode(e.target.value)}
+              className="w-full rounded-lg border border-stone-300 bg-stone-200/50 px-3 py-2.5 text-sm text-stone-900 placeholder-stone-500 transition-colors focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <Button type="submit" className="w-full bg-emerald-600 text-white hover:bg-emerald-700" disabled={twoFactorSubmitting || !twoFactorCode.trim()}>
+              {twoFactorSubmitting ? "Verifying..." : "Verify"}
+            </Button>
+            <button type="button" className="w-full text-sm text-stone-500 hover:text-stone-900" onClick={() => { setTwoFactorChallenge(null); setTwoFactorCode(""); setTwoFactorError(""); }}>
+              Back to sign in
+            </button>
+          </form>
+        ) : (
         <form onSubmit={handleSubmit(onSubmit)} className="glass mb-4 space-y-4 rounded-xl p-8 shadow-lg">
           <h1 className="text-center text-2xl font-heading font-semibold tracking-tight text-stone-900">Sign In</h1>
 
@@ -200,6 +244,7 @@ function LoginForm() {
             <Link href="/register" className="text-stone-500 hover:text-stone-900 transition-colors">No account?</Link>
           </div>
         </form>
+        )}
 
         {/* Reserve the social section's space while the configured-provider
             lookup is in flight. The page is vertically centred, so without a
@@ -208,7 +253,7 @@ function LoginForm() {
             the user is already typing. The real section (and its "Or continue
             with" header) still waits for the answer, so a hidden button is
             never a lie. */}
-        {oauthProviders === null && (
+        {!twoFactorChallenge && oauthProviders === null && (
           <div className="glass rounded-xl p-8 shadow-lg">
             <div role="status">
               <span className="sr-only">Loading sign-in options</span>
@@ -221,7 +266,7 @@ function LoginForm() {
           </div>
         )}
 
-        {oauthProviders && oauthProviders.length > 0 && (
+        {!twoFactorChallenge && oauthProviders && oauthProviders.length > 0 && (
           <div className="glass rounded-xl p-8 shadow-lg">
             <div className="relative mb-6">
               <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-stone-200" /></div>

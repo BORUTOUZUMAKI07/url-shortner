@@ -76,6 +76,18 @@ bearer_scheme = HTTPBearer()
 bearer_scheme_optional = HTTPBearer(auto_error=False)
 
 
+async def get_current_token_payload(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> dict:
+    token = credentials.credentials
+    if token.startswith("lf_"):
+        return {"type": "api_key"}
+    payload = decode_token(token)
+    if payload.get("type") != "access":
+        raise InvalidToken()
+    return payload
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
@@ -155,7 +167,15 @@ async def get_profile_service(
     db: AsyncSession = Depends(get_db),
     audit: AuditService = Depends(get_audit_service),
 ) -> ProfileService:
-    return ProfileService(repo=UserRepository(db), audit=audit)
+    return ProfileService(
+        repo=UserRepository(db),
+        audit=audit,
+        workspace_repo=WorkspaceRepository(db),
+        url_repo=URLRepository(db),
+        api_key_repo=APIKeyRepository(db),
+        favorite_repo=FavoriteRepository(db),
+        db=db,
+    )
 
 
 async def get_admin_service(db: AsyncSession = Depends(get_db)) -> AdminService:

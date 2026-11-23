@@ -205,6 +205,11 @@ class Settings(BaseSettings):
     # existed. Flip to True once existing accounts have been verified.
     REQUIRE_EMAIL_VERIFICATION: bool = False
 
+    # --- Two-factor authentication (TOTP) ---
+    TOTP_ISSUER: str = "LinkForge"
+    TWO_FACTOR_CHALLENGE_TTL_SECONDS: int = 300
+    TWO_FACTOR_RECOVERY_CODES: int = 8
+
     # --- Webhook encryption (separate from JWT SECRET_KEY) ---
     WEBHOOK_SECRET_KEY: str = ""
 

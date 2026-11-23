@@ -139,9 +139,15 @@ export async function apiFetchBlob(path: string, options: RequestInit = {}): Pro
   return res.blob()
 }
 export interface User {
-  id: number; email: string; is_verified: boolean; is_active: boolean; is_superadmin: boolean; avatar_url: string | null; created_at: string
+  id: number; email: string; is_verified: boolean; is_active: boolean; is_superadmin: boolean; avatar_url: string | null; two_factor_enabled?: boolean; created_at: string
 }
 export interface Token { access_token: string; refresh_token?: string; token_type: string }
+export interface LoginResponse extends Token { two_factor_required?: boolean; challenge_token?: string | null }
+export interface SessionItem { id: string; created_at: string | null; last_seen_at: string | null; ip_address: string | null; user_agent: string | null; is_current: boolean }
+export interface TwoFactorStatus { enabled: boolean; confirmed_at: string | null; recovery_codes_remaining: number }
+export interface TwoFactorSetup { secret: string; otpauth_uri: string; qr_code_data_uri: string }
+export interface RecoveryCodes { recovery_codes: string[] }
+export interface AccountExport { exported_at: string; profile: Record<string, unknown>; workspaces: Record<string, unknown>[]; links: Record<string, unknown>[]; api_keys: Record<string, unknown>[]; favorites: Record<string, unknown>[]; audit_retention_policy: Record<string, string> }
 /** Bulk create reports per-row failures alongside the success count.
  *  `errors` is one entry per rejected row (bad URL, duplicate alias, folder not
  *  in the workspace, ...) â€” omitting it reported a partial import as a clean
@@ -186,7 +192,8 @@ export interface Favorite { id: number; url_id: number; created_at: string }
 export interface FavoriteCheck { favorited: boolean }
 
 export const auth = {
-  login: (email: string, password: string) => apiFetch<Token>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  login: (email: string, password: string) => apiFetch<LoginResponse>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  verifyTwoFactor: (challenge_token: string, code: string) => apiFetch<Token>("/auth/2fa/verify", { method: "POST", body: JSON.stringify({ challenge_token, code }) }),
   register: (email: string, password: string) => apiFetch<User>("/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
   me: () => apiFetch<User>("/auth/me"),
   refresh: (refresh_token: string) => apiFetch<Token>("/auth/refresh", { method: "POST", body: JSON.stringify({ refresh_token }) }),
@@ -213,6 +220,9 @@ export const auth = {
     if (!res.ok) throw new Error("Failed to initiate OAuth")
     return res.json() as Promise<{ authorization_url: string }>
   },
+  sessions: () => apiFetch<{ sessions: SessionItem[] }>("/auth/sessions"),
+  revokeSession: (sessionId: string) => apiFetch<{ detail: string }>(`/auth/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }),
+  revokeOtherSessions: () => apiFetch<{ detail: string }>("/auth/sessions", { method: "DELETE" }),
 }
 
 export const urls = {
@@ -415,6 +425,13 @@ export const profileApi = {
     apiFetch<{ detail: string }>("/profile/email", { method: "PUT", body: JSON.stringify({ new_email, current_password }) }),
   uploadAvatar: (avatar: string) =>
     apiFetch<{ detail: string; avatar_url: string }>("/profile/avatar", { method: "POST", body: JSON.stringify({ avatar }) }),
+  twoFactorStatus: () => apiFetch<TwoFactorStatus>("/profile/2fa"),
+  twoFactorSetup: (current_password: string) => apiFetch<TwoFactorSetup>("/profile/2fa/setup", { method: "POST", body: JSON.stringify({ current_password }) }),
+  twoFactorConfirm: (code: string) => apiFetch<RecoveryCodes>("/profile/2fa/confirm", { method: "POST", body: JSON.stringify({ code }) }),
+  twoFactorDisable: (current_password: string, code: string) => apiFetch<{ detail: string }>("/profile/2fa/disable", { method: "POST", body: JSON.stringify({ current_password, code }) }),
+  twoFactorRegenerateRecoveryCodes: (current_password: string, code: string) => apiFetch<RecoveryCodes>("/profile/2fa/recovery-codes", { method: "POST", body: JSON.stringify({ current_password, code }) }),
+  exportAccount: () => apiFetch<AccountExport>("/profile/export"),
+  deleteAccount: (current_password: string, confirmation: string) => apiFetch<{ detail: string }>("/profile/account", { method: "DELETE", body: JSON.stringify({ current_password, confirmation }) }),
 }
 
 export const webhookReceiverApi = {

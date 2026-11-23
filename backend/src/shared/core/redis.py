@@ -85,6 +85,24 @@ class RedisAdapter:
     async def expire(self, key: str, ttl: int):
         return await self._client.expire(key, ttl)
 
+    async def sadd(self, key: str, *values: str):
+        if self._is_upstash:
+            cmd = ["SADD", key, *values]
+            return await self._client.execute(cmd)
+        return await self._client.sadd(key, *values)
+
+    async def srem(self, key: str, *values: str):
+        if self._is_upstash:
+            cmd = ["SREM", key, *values]
+            return await self._client.execute(cmd)
+        return await self._client.srem(key, *values)
+
+    async def smembers(self, key: str):
+        if self._is_upstash:
+            result = await self._client.execute(["SMEMBERS", key])
+            return set(result or [])
+        return await self._client.smembers(key)
+
     async def eval(self, script: str, numkeys: int, *args):
         if self._is_upstash:
             cmd = ["EVAL", script, str(numkeys)] + list(args)

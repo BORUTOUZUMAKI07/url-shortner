@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.shared.core.base import Base
@@ -33,6 +33,15 @@ class User(Base):
     github_id: Mapped[str | None] = mapped_column(String, unique=True, index=True, nullable=True)
     oauth_provider: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g., 'google', 'github'
     oauth_avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # Two-factor authentication (TOTP). Secret is encrypted at rest; recovery
+    # codes are stored as a JSON array of Argon2 hashes. Replay protection uses
+    # the last accepted TOTP time-step counter.
+    two_factor_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    totp_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_last_counter: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    two_factor_recovery_codes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    two_factor_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     workspaces = relationship("Workspace", back_populates="owner", cascade="all, delete-orphan")

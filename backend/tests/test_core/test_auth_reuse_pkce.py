@@ -60,6 +60,7 @@ class FakeRedis:
 
     def __init__(self):
         self.data = {}
+        self.sets: dict[str, set[str]] = {}
         self.eval_result = 1
 
     async def get(self, key):
@@ -74,12 +75,36 @@ class FakeRedis:
 
     async def delete(self, key):
         self.data.pop(key, None)
+        self.sets.pop(key, None)
         return 1
 
     async def delete_many(self, *keys):
         for k in keys:
             self.data.pop(k, None)
+            self.sets.pop(k, None)
         return len(keys)
+
+    async def sadd(self, key, *values):
+        s = self.sets.setdefault(key, set())
+        before = len(s)
+        s.update(str(v) for v in values)
+        return len(s) - before
+
+    async def srem(self, key, *values):
+        s = self.sets.get(key, set())
+        count = 0
+        for v in values:
+            v = str(v)
+            if v in s:
+                s.remove(v)
+                count += 1
+        return count
+
+    async def smembers(self, key):
+        return set(self.sets.get(key, set()))
+
+    async def expire(self, key, ttl):
+        return True
 
     async def eval(self, script, numkeys, *args):
         """Model the three scripts auth_service actually runs.

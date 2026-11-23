@@ -6,6 +6,7 @@ import logging
 import secrets
 import time
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
 
 from jwt import InvalidTokenError
@@ -20,6 +21,11 @@ from src.identity.services.session_revocation import (
     revoke_refresh_family,
     upgrade_legacy_revocation_marker,
 )
+from src.identity.services.two_factor_service import (
+    decrypt_totp_secret,
+    verify_recovery_code,
+    verify_totp_code,
+)
 from src.shared.core.config import settings
 from src.shared.core.redis import redis_client
 from src.shared.core.security import (
@@ -27,6 +33,7 @@ from src.shared.core.security import (
     create_email_verification_token,
     create_password_reset_token,
     create_refresh_token,
+    create_two_factor_challenge_token,
     decode_token,
     hash_password_async,
     reset_fingerprint,
@@ -55,6 +62,7 @@ logger = logging.getLogger("url-shortener")
 # grace window). If a presented jti matches neither, the token was rotated out
 # already — a replay — so the whole refresh family for the user is revoked.
 _REFRESH_SESSION_PREFIX = "refresh:session:"
+_REFRESH_USER_SESSIONS_PREFIX = "refresh:user:sessions:"
 _REUSE_GRACE_SECONDS = 30  # tolerate legit duplicate refreshes (network retries/concurrent 401s)
 
 _ROTATE_REFRESH_LUA = """
@@ -73,6 +81,7 @@ if obj.jti == presented then
     obj.prev_jti = obj.jti
     obj.prev_at = now
     obj.jti = new_jti
+    obj.last_seen = now
     redis.call('SET', KEYS[1], cjson.encode(obj), 'EX', ttl)
     return 1
 end
@@ -80,6 +89,7 @@ if obj.prev_jti == presented and (now - (obj.prev_at or 0)) <= grace then
     obj.prev_jti = obj.jti
     obj.prev_at = now
     obj.jti = new_jti
+    obj.last_seen = now
     redis.call('SET', KEYS[1], cjson.encode(obj), 'EX', ttl)
     return 1
 end
@@ -184,7 +194,14 @@ class AuthService:
         )
         return user
 
-    async def login(self, email: str, password: str) -> Token:
+    async def login(
+        self,
+        email: str,
+        password: str,
+        *,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> Token | dict:
         user = await self.user_repo.get_by_email(email)
         if not user or not await verify_password_async(password, user.password_hash):
             # Audit the failure too: credential stuffing against a known
@@ -208,18 +225,105 @@ class AuthService:
         if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
             raise UnauthorizedError("Email address is not verified")
         await upgrade_legacy_revocation_marker(user.id)
-        access_token = create_access_token(data={"sub": str(user.id)})
+
+        if getattr(user, "two_factor_enabled", False) and getattr(user, "totp_secret_encrypted", None):
+            challenge = create_two_factor_challenge_token(user.id)
+            await self._audit.log(
+                actor_id=user.id,
+                action="login_2fa_challenge",
+                resource_type="user",
+                resource_id=user.id,
+            )
+            return {
+                "two_factor_required": True,
+                "challenge_token": challenge,
+                "token_type": "bearer",
+            }
+
+        return await self._issue_tokens(user, action="login", ip_address=ip_address, user_agent=user_agent)
+
+    async def _issue_tokens(
+        self,
+        user: User,
+        *,
+        action: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> Token:
         refresh_token = create_refresh_token(data={"sub": str(user.id)})
-        await self._store_refresh_session(refresh_token, user.id)
+        refresh_payload = decode_token(refresh_token)
+        sid = refresh_payload.get("sid")
+        access_token = create_access_token(data={"sub": str(user.id), "sid": sid})
+        await self._store_refresh_session(refresh_token, user.id, ip_address=ip_address, user_agent=user_agent)
         await self._audit.log(
             actor_id=user.id,
-            action="login",
+            action=action,
             resource_type="user",
             resource_id=user.id,
+            after={"ip": ip_address} if ip_address else None,
         )
         return Token(access_token=access_token, token_type="bearer", refresh_token=refresh_token)
 
-    async def refresh(self, refresh_token: str) -> Token:
+    async def verify_two_factor_login(
+        self,
+        challenge_token: str,
+        code: str,
+        *,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> Token:
+        payload = decode_token(challenge_token)
+        if payload.get("type") != "2fa":
+            raise InvalidToken()
+        user_id = payload.get("sub")
+        if not user_id or not str(user_id).isdigit():
+            raise InvalidToken()
+
+        # Single-use challenge: blacklist the jti until exp.
+        jti = payload.get("jti")
+        exp = payload.get("exp")
+        if jti and exp:
+            ttl = int(exp) - int(time.time())
+            if ttl > 0:
+                seen = await redis_client.get(f"2fa:challenge:{jti}")
+                if seen:
+                    raise TokenRevoked()
+                await redis_client.setex(f"2fa:challenge:{jti}", ttl, "1")
+
+        user = await self.user_repo.get(int(user_id))
+        if not user or not user.is_active:
+            raise InvalidToken()
+        if not user.two_factor_enabled or not user.totp_secret_encrypted:
+            raise UnauthorizedError("Two-factor authentication is not enabled")
+
+        secret = decrypt_totp_secret(user.totp_secret_encrypted)
+        counter = verify_totp_code(secret, code, user.totp_last_counter)
+        if counter is not None:
+            await self.user_repo.update(user.id, totp_last_counter=counter)
+            await self._audit.log(actor_id=user.id, action="login_2fa_verified", resource_type="user", resource_id=user.id)
+            return await self._issue_tokens(user, action="login_2fa", ip_address=ip_address, user_agent=user_agent)
+
+        matched, remaining = verify_recovery_code(user.two_factor_recovery_codes, code)
+        if matched:
+            await self.user_repo.update(user.id, two_factor_recovery_codes=remaining)
+            await self._audit.log(
+                actor_id=user.id,
+                action="login_2fa_recovery_code_used",
+                resource_type="user",
+                resource_id=user.id,
+            )
+            return await self._issue_tokens(user, action="login_2fa_recovery", ip_address=ip_address, user_agent=user_agent)
+
+        await self._audit.log(actor_id=user.id, action="login_2fa_failed", resource_type="user", resource_id=user.id)
+        raise UnauthorizedError("Invalid two-factor authentication code")
+
+    async def refresh(
+        self,
+        refresh_token: str,
+        *,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> Token:
         payload = decode_token(refresh_token)
         user_id = payload.get("sub")
         token_type = payload.get("type")
@@ -245,7 +349,10 @@ class AuthService:
             # what sends the frontend to the login page and its resend path.
             raise UnauthorizedError("Email address is not verified")
 
-        new_access = create_access_token(data={"sub": str(user.id)})
+        access_data = {"sub": str(user.id)}
+        if sid:
+            access_data["sid"] = sid
+        new_access = create_access_token(data=access_data)
 
         # Family-wide revocation must be checked for every refresh token, not
         # only tokens that carry sid/jti. Legacy tokens predate session metadata
@@ -290,7 +397,7 @@ class AuthService:
             # Legacy token (pre-session-metadata): rotate as before, but mint
             # the replacement WITH session metadata so detection applies next time.
             new_refresh = create_refresh_token(data={"sub": str(user.id)})
-            await self._store_refresh_session(new_refresh, user.id)
+            await self._store_refresh_session(new_refresh, user.id, ip_address=ip_address, user_agent=user_agent)
 
         exp = payload.get("exp")
         if exp:
@@ -300,7 +407,14 @@ class AuthService:
 
         return Token(access_token=new_access, token_type="bearer", refresh_token=new_refresh)
 
-    async def _store_refresh_session(self, refresh_token: str, user_id: int) -> None:
+    async def _store_refresh_session(
+        self,
+        refresh_token: str,
+        user_id: int,
+        *,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> None:
         """Record a freshly-issued refresh token's sid/jti so rotation and
         reuse detection have a session anchor. Best-effort: if Redis is down we
         can't detect reuse, but the token itself is still valid."""
@@ -310,15 +424,24 @@ class AuthService:
             jti = payload.get("jti")
             if not sid or not jti:
                 return
+            now = int(time.time())
             record = json.dumps({
                 "jti": jti,
                 "prev_jti": None,
                 "prev_at": 0,
-                "created": int(time.time()),
+                "created": now,
+                "last_seen": now,
+                "user_id": int(user_id),
+                "ip_address": ip_address,
+                "user_agent": (user_agent or "")[:512] or None,
             })
-            await redis_client.setex(
-                f"{_REFRESH_SESSION_PREFIX}{sid}", _refresh_session_ttl(), record
-            )
+            ttl = _refresh_session_ttl()
+            await redis_client.setex(f"{_REFRESH_SESSION_PREFIX}{sid}", ttl, record)
+            # Per-user session index for listing/revocation. The set is best-effort
+            # and may contain stale sids; list_sessions filters them.
+            user_key = f"{_REFRESH_USER_SESSIONS_PREFIX}{int(user_id)}"
+            await redis_client.sadd(user_key, sid)
+            await redis_client.expire(user_key, ttl)
         except Exception as e:
             logger.warning("Failed to store refresh session: %s", e)
 
@@ -720,8 +843,10 @@ class AuthService:
             )
             _lap("db_audit_log")
             await upgrade_legacy_revocation_marker(user.id)
-            access_token = create_access_token(data={"sub": str(user.id)})
             refresh_token = create_refresh_token(data={"sub": str(user.id)})
+            refresh_payload = decode_token(refresh_token)
+            refresh_sid = refresh_payload.get("sid")
+            access_token = create_access_token(data={"sub": str(user.id), "sid": refresh_sid})
             _lap("mint_tokens")
             await self._store_refresh_session(refresh_token, user.id)
             _lap("redis_store_session")
@@ -731,6 +856,90 @@ class AuthService:
         except Exception as e:
             logger.error(f"OAuth callback error for {provider}: {e}", exc_info=True)
             raise
+
+    async def list_sessions(self, user_id: int, current_sid: str | None = None) -> list[dict]:
+        key = f"{_REFRESH_USER_SESSIONS_PREFIX}{int(user_id)}"
+        try:
+            sids = await redis_client.smembers(key)
+        except Exception:
+            sids = set()
+        sessions: list[dict] = []
+        stale: list[str] = []
+        for raw_sid in sids or []:
+            sid = raw_sid.decode() if isinstance(raw_sid, (bytes, bytearray)) else str(raw_sid)
+            rec_raw = await redis_client.get(f"{_REFRESH_SESSION_PREFIX}{sid}")
+            if not rec_raw:
+                stale.append(sid)
+                continue
+            try:
+                rec = json.loads(rec_raw)
+            except Exception:
+                stale.append(sid)
+                continue
+            created = rec.get("created")
+            last_seen = rec.get("last_seen") or created
+            sessions.append({
+                "id": sid,
+                "created_at": datetime.fromtimestamp(created, tz=timezone.utc) if created else None,
+                "last_seen_at": datetime.fromtimestamp(last_seen, tz=timezone.utc) if last_seen else None,
+                "ip_address": rec.get("ip_address"),
+                "user_agent": rec.get("user_agent"),
+                "is_current": bool(current_sid and sid == current_sid),
+            })
+        if stale:
+            try:
+                await redis_client.srem(key, *stale)
+            except Exception:
+                pass
+        sessions.sort(key=lambda s: (not s["is_current"], s["last_seen_at"] or datetime.min.replace(tzinfo=timezone.utc)), reverse=False)
+        # Sort: current first, then most recent last_seen desc
+        sessions.sort(key=lambda s: s["last_seen_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        sessions.sort(key=lambda s: not s["is_current"])
+        return sessions
+
+    async def revoke_session(self, user_id: int, sid: str, current_sid: str | None = None) -> bool:
+        key = f"{_REFRESH_USER_SESSIONS_PREFIX}{int(user_id)}"
+        # Ensure the sid belongs to this user index; if not in index, still allow delete only if record says same user.
+        rec_raw = await redis_client.get(f"{_REFRESH_SESSION_PREFIX}{sid}")
+        if rec_raw:
+            try:
+                rec = json.loads(rec_raw)
+                if int(rec.get("user_id", user_id)) != int(user_id):
+                    return False
+            except Exception:
+                pass
+        await redis_client.delete(f"{_REFRESH_SESSION_PREFIX}{sid}")
+        try:
+            await redis_client.srem(key, sid)
+        except Exception:
+            pass
+        await self._audit.log(
+            actor_id=user_id,
+            action="session_revoked",
+            resource_type="session",
+            resource_id=None,
+            after={"sid": sid, "current_sid": current_sid},
+        )
+        return True
+
+    async def revoke_other_sessions(self, user_id: int, current_sid: str | None) -> int:
+        sessions = await self.list_sessions(user_id, current_sid=current_sid)
+        revoked = 0
+        for s in sessions:
+            if s["is_current"]:
+                continue
+            ok = await self.revoke_session(user_id, s["id"], current_sid=current_sid)
+            if ok:
+                revoked += 1
+        if revoked:
+            await self._audit.log(
+                actor_id=user_id,
+                action="sessions_revoked_other",
+                resource_type="user",
+                resource_id=user_id,
+                after={"revoked": revoked},
+            )
+        return revoked
 
     @staticmethod
     def _sub_column(provider: str) -> str:
