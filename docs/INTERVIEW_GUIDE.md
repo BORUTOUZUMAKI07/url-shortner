@@ -90,7 +90,7 @@ Every tool we used, why we picked it, and the plain-words explanation.
 | **Neon** | Serverless PostgreSQL (free tier). Production Postgres. |
 | **Upstash** | Serverless Redis (free tier). Production Redis. |
 | **Aiven** | Managed Kafka (30-day free trial). Production Kafka. |
-| **GitHub Actions** | CI/CD — runs on every push to `main`. 6 parallel jobs: Backend Tests, Backend Lint (ruff+mypy), Frontend Build, Frontend Test, Frontend Lint, Docker Build (pushes images to GHCR). |
+| **GitHub Actions** | CI/CD - runs on push/PR to `main`. CI validates lint/type/tests/build/security/E2E and, on green main pushes, publishes SHA+latest images to GHCR. Production deploys are gated by `.github/workflows/production-deploy.yml` (CI success + stale-SHA guard + Render/Vercel deploy hooks + smoke). |
 | **GHCR** | GitHub Container Registry — stores Docker images. |
 | **New Relic** | Observability backend (free tier). Receives OTel traces/metrics. |
 | **docs/database-schema.md** | Repo file that documents critical fixes and operational rules (e.g., "never run pytest against production"). It's our institutional memory — a good practice to mention in interviews. |
@@ -381,10 +381,10 @@ Every story follows **Situation ’ Task ’ Action ’ Result**. These are your
 **Task:** Build a CI pipeline that catches real bugs.
 
 **Action:**
-- GitHub Actions workflow with **6 parallel jobs**: Backend Tests (testcontainers), Backend Lint (ruff + mypy), Frontend Build, Frontend Tests, Frontend Lint, and Docker Build (pushes images to GHCR).
+- GitHub Actions CI validates backend lint/type/tests, frontend lint/tests/build, security scans, backend E2E, and frontend integration/E2E against a real backend. On green `main` pushes, it publishes SHA+latest images to GHCR.
 - Learned to surface failures well: failing-test summaries as **error annotations**, and test logs uploaded as **artifacts** on failure (this is how we diagnosed the testcontainers and asyncpg bugs).
 - Iterated through several red CI runs (testcontainers config, ruff import order, asyncpg loop bug, RBAC 403s) until everything was green.
-- Render auto-deploys from the Docker image on every push.
+- Production deploys are CI-gated: `.github/workflows/production-deploy.yml` triggers only after `CI` success, skips stale SHAs, triggers Render/Vercel deploy hooks from GitHub secrets, and runs post-deploy smoke. Platform auto-deploy-on-push should be disabled; see `docs/production-deployment.md`.
 
 **Result:** Every commit is verified end-to-end. This story shows debugging discipline — good to tell.
 

@@ -1,0 +1,245 @@
+﻿name: Deploy production
+
+# Push-to-main production deployment for url-shortner (LinkForge).
+#
+# Runs only AFTER the `CI` workflow succeeds on main. A red/cancelled CI run
+# cannot deploy. Both platforms are triggered via deploy hook URLs stored as
+# GitHub secrets; no broad platform token is stored in the repo.
+#
+# Required repository secrets:
+#   RENDER_DEPLOY_HOOK_URL      Render -> linkforge-backend -> Settings -> Deploy Hook
+#   VERCEL_DEPLOY_HOOK_URL      Vercel -> frontend project -> Deploy Hooks (main)
+#
+# Optional repository secrets:
+#   RENDER_OTEL_DEPLOY_HOOK_URL Render -> linkforge-otel-collector -> Settings -> Deploy Hook
+#                               (recommended; if unset, collector deploy is skipped with warning)
+#
+# Optional repository variable:
+#   SMOKE_BASE_URL              Backend base URL for post-deploy smoke
+#                               (default: https://linkforge-backend-v46v.onrender.com)
+#
+# Notes:
+# - backend/render.yaml currently describes source-based Render services. If a
+#   Render service is source/Git-backed, the hook accepts `ref=<commit>`. If a
+#   service is image-backed, configure it to deploy an immutable SHA/digest
+#   image (not floating latest).
+# - CI already publishes ghcr.io/<repo>/backend:${sha} and frontend:${sha} on
+#   green main pushes. Prefer immutable SHA/digest deploys over floating latest.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize deploys. Never cancel in progress: a half-triggered rollout should
+# finish before a newer one starts.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve deploy target
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.tip.outputs.sha }}
+      skip: ${{ steps.stale.outputs.skip }}
+    steps:
+      - name: Resolve current main tip
+        id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/$REPO/commits/main" --jq .sha)"
+          if [ -z "$sha" ]; then
+            echo "::error::Could not resolve refs/heads/main"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Current main tip: $sha"
+
+      - name: Skip stale CI run
+        id: stale
+        if: github.event_name == 'workflow_run'
+        env:
+          CI_SHA: ${{ github.event.workflow_run.head_sha }}
+          DEPLOY_SHA: ${{ steps.tip.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$CI_SHA" != "$DEPLOY_SHA" ]; then
+            echo "::notice::CI validated $CI_SHA, but main is now $DEPLOY_SHA. Skipping stale deploy; newer CI owns deployment."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    name: Trigger Render + Vercel
+    needs: resolve
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && needs.resolve.outputs.skip != 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      RENDER_OTEL_DEPLOY_HOOK_URL: ${{ secrets.RENDER_OTEL_DEPLOY_HOOK_URL }}
+      VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+      DEPLOY_SHA: ${{ needs.resolve.outputs.sha }}
+    steps:
+      - name: Verify deploy secrets are configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in RENDER_DEPLOY_HOOK_URL VERCEL_DEPLOY_HOOK_URL; do
+            if [ -z "$(printenv "$name" 2>/dev/null)" ]; then
+              echo "::error::$name is not configured. Add it under Settings -> Secrets and variables -> Actions."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Production deployment aborted; no platform was contacted."
+            exit 1
+          fi
+          if [ -z "$(printenv RENDER_OTEL_DEPLOY_HOOK_URL 2>/dev/null)" ]; then
+            echo "::warning::RENDER_OTEL_DEPLOY_HOOK_URL is not configured. linkforge-otel-collector deploy will be skipped. Add it for full CI-gated Render parity."
+          fi
+
+      - name: Trigger Render backend deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Render deploy hooks are secret URLs.
+          # - Source/Git-backed services: Render accepts `ref=<commit>`.
+          # - Image-backed services: Render accepts `imgURL=<registry image>`.
+          # backend/render.yaml is currently source-based, so we pin `ref` to the
+          # validated SHA by default. If you switch to image-backed deploys, change
+          # this to pass imgURL=<immutable sha/digest image>.
+          hook="$RENDER_DEPLOY_HOOK_URL"
+          if [[ "$hook" == *"?"* ]]; then
+            hook="${hook}&ref=${DEPLOY_SHA}"
+          else
+            hook="${hook}?ref=${DEPLOY_SHA}"
+          fi
+          code="$(curl --silent --show-error --request POST \
+            --output /tmp/render-deploy.json --write-out '%{http_code}' \
+            "$hook")"
+          case "$code" in
+            2??)
+              echo "Render deploy accepted (HTTP $code) for validated SHA $DEPLOY_SHA."
+              ;;
+            *)
+              echo "::error::Render deploy hook failed (HTTP $code)."
+              sed -n '1,20p' /tmp/render-deploy.json || true
+              exit 1
+              ;;
+          esac
+
+      - name: Trigger Render OTel collector deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$(printenv RENDER_OTEL_DEPLOY_HOOK_URL 2>/dev/null)" ]; then
+            echo "::warning::Skipping linkforge-otel-collector deploy; RENDER_OTEL_DEPLOY_HOOK_URL not configured."
+            exit 0
+          fi
+          hook="$RENDER_OTEL_DEPLOY_HOOK_URL"
+          if [[ "$hook" == *"?"* ]]; then
+            hook="${hook}&ref=${DEPLOY_SHA}"
+          else
+            hook="${hook}?ref=${DEPLOY_SHA}"
+          fi
+          code="$(curl --silent --show-error --request POST \
+            --output /tmp/render-otel-deploy.json --write-out '%{http_code}' \
+            "$hook")"
+          case "$code" in
+            2??)
+              echo "Render OTel collector deploy accepted (HTTP $code) for validated SHA $DEPLOY_SHA."
+              ;;
+            *)
+              echo "::error::Render OTel collector deploy hook failed (HTTP $code)."
+              sed -n '1,20p' /tmp/render-otel-deploy.json || true
+              exit 1
+              ;;
+          esac
+
+      - name: Trigger Vercel frontend deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --request POST \
+            --output /tmp/vercel-deploy.json --write-out '%{http_code}' \
+            "$VERCEL_DEPLOY_HOOK_URL")"
+          case "$code" in
+            2??)
+              echo "Vercel deploy accepted (HTTP $code) for validated SHA $DEPLOY_SHA."
+              ;;
+            *)
+              echo "::error::Vercel deploy hook failed (HTTP $code)."
+              sed -n '1,20p' /tmp/vercel-deploy.json || true
+              exit 1
+              ;;
+          esac
+
+      - name: Summarize trigger
+        shell: bash
+        run: |
+          otel_status="skipped (secret not configured)"
+          if [ -n "$(printenv RENDER_OTEL_DEPLOY_HOOK_URL 2>/dev/null)" ]; then
+            otel_status="Render deploy hook triggered"
+          fi
+          {
+            echo "### Production deployment triggered"
+            echo
+            echo "- Validated commit: \`$DEPLOY_SHA\`"
+            echo "- Backend: Render deploy hook triggered"
+            echo "- OTel collector: ${otel_status}"
+            echo "- Frontend: Vercel deploy hook triggered"
+            echo "- Smoke: post-deploy health probe will run next"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  smoke:
+    name: Post-deploy smoke
+    needs: [resolve, deploy]
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && needs.resolve.outputs.skip != 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Probe deployed backend health
+        shell: bash
+        env:
+          SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL || 'https://linkforge-backend-v46v.onrender.com' }}
+          DEPLOY_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          echo "Probing $SMOKE_BASE_URL for validated SHA $DEPLOY_SHA"
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS --max-time 60 "$SMOKE_BASE_URL/health" >/dev/null \
+              && curl -fsS --max-time 60 "$SMOKE_BASE_URL/api/v1/ping" >/dev/null; then
+              echo "deployed backend healthy (attempt $attempt)"
+              {
+                echo "### Post-deploy smoke passed"
+                echo
+                echo "- Base URL: \`$SMOKE_BASE_URL\`"
+                echo "- Commit: \`$DEPLOY_SHA\`"
+                echo "- Checks: \`/health\`, \`/api/v1/ping\`"
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "attempt $attempt failed; sleeping before retry"
+            sleep 30
+          done
+          echo "::error::deployed backend failed smoke probes after 10 attempts"
+          exit 1
