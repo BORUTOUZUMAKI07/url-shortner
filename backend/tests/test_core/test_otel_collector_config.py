@@ -347,6 +347,10 @@ def test_the_collector_really_builds_the_tracked_config() -> None:
             "-e",
             "ENVIRONMENT=development",
             "-e",
+            "PORT=4318",
+            "-e",
+            "NEW_RELIC_APP_NAME=linkforge-backend",
+            "-e",
             "SERVICE_VERSION=dev",
             "-e",
             "OTLP_HTTP_AUTH_HTPASSWD=linkforge:linkforge",
@@ -372,3 +376,30 @@ def test_the_collector_really_builds_the_tracked_config() -> None:
         f'graph (readiness marker: "{READY_MARKER}").\n'
         f"--- collector log (tail) ---\n{logs}"
     )
+
+
+def test_collector_http_endpoint_uses_render_injected_port() -> None:
+    """Render injects PORT; pinning 4318 breaks the public HTTPS proxy."""
+    http = _config()["receivers"]["otlp"]["protocols"]["http"]
+    assert http["endpoint"] == "0.0.0.0:${env:PORT:-4318}", (
+        "OTLP/HTTP must bind to ${env:PORT:-4318} so Render's injected PORT works"
+    )
+
+    collector = _render_services()["linkforge-otel-collector"]
+    port_entries = [entry for entry in collector["envVars"] if entry["key"] == "PORT"]
+    assert not port_entries, "render.yaml must not pin PORT=4318; Render injects a dynamic PORT"
+
+
+def test_service_name_comes_from_env_and_matches_alerts() -> None:
+    attributes = (_config().get("processors") or {}).get("resource", {}).get("attributes") or []
+    service_name = next((a for a in attributes if a.get("key") == "service.name"), None)
+    assert service_name, "resource processor must upsert service.name"
+    assert "${env:NEW_RELIC_APP_NAME" in service_name["value"], (
+        "service.name must come from NEW_RELIC_APP_NAME, not a hard-coded value"
+    )
+    assert service_name.get("action") == "upsert"
+
+    name = _env_var(_render_services()["linkforge-otel-collector"], "NEW_RELIC_APP_NAME")
+    assert name.get("value") == "linkforge-backend"
+    alert_rules = (REPO_ROOT / "docs" / "alerting" / "alert-rules.yml").read_text(encoding="utf-8")
+    assert "service.name = 'linkforge-backend'" in alert_rules

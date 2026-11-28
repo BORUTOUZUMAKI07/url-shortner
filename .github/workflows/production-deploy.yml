@@ -6,13 +6,11 @@
 # cannot deploy. Both platforms are triggered via deploy hook URLs stored as
 # GitHub secrets; no broad platform token is stored in the repo.
 #
-# Required repository secrets:
+# Required repository secrets (all three must be set; missing any aborts before
+# any platform is contacted — fail-closed):
 #   RENDER_DEPLOY_HOOK_URL      Render -> linkforge-backend -> Settings -> Deploy Hook
+#   COLLECTOR_DEPLOY_HOOK_URL   Render -> linkforge-otel-collector -> Settings -> Deploy Hook
 #   VERCEL_DEPLOY_HOOK_URL      Vercel -> frontend project -> Deploy Hooks (main)
-#
-# Optional repository secrets:
-#   RENDER_OTEL_DEPLOY_HOOK_URL Render -> linkforge-otel-collector -> Settings -> Deploy Hook
-#                               (recommended; if unset, collector deploy is skipped with warning)
 #
 # Optional repository variable:
 #   SMOKE_BASE_URL              Backend base URL for post-deploy smoke
@@ -92,7 +90,7 @@ jobs:
     timeout-minutes: 15
     env:
       RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
-      RENDER_OTEL_DEPLOY_HOOK_URL: ${{ secrets.RENDER_OTEL_DEPLOY_HOOK_URL }}
+      COLLECTOR_DEPLOY_HOOK_URL: ${{ secrets.COLLECTOR_DEPLOY_HOOK_URL }}
       VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
       DEPLOY_SHA: ${{ needs.resolve.outputs.sha }}
     steps:
@@ -101,7 +99,7 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for name in RENDER_DEPLOY_HOOK_URL VERCEL_DEPLOY_HOOK_URL; do
+          for name in RENDER_DEPLOY_HOOK_URL COLLECTOR_DEPLOY_HOOK_URL VERCEL_DEPLOY_HOOK_URL; do
             if [ -z "$(printenv "$name" 2>/dev/null)" ]; then
               echo "::error::$name is not configured. Add it under Settings -> Secrets and variables -> Actions."
               missing=1
@@ -110,9 +108,6 @@ jobs:
           if [ "$missing" -ne 0 ]; then
             echo "::error::Production deployment aborted; no platform was contacted."
             exit 1
-          fi
-          if [ -z "$(printenv RENDER_OTEL_DEPLOY_HOOK_URL 2>/dev/null)" ]; then
-            echo "::warning::RENDER_OTEL_DEPLOY_HOOK_URL is not configured. linkforge-otel-collector deploy will be skipped. Add it for full CI-gated Render parity."
           fi
 
       - name: Trigger Render backend deploy
@@ -149,18 +144,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "$(printenv RENDER_OTEL_DEPLOY_HOOK_URL 2>/dev/null)" ]; then
-            echo "::warning::Skipping linkforge-otel-collector deploy; RENDER_OTEL_DEPLOY_HOOK_URL not configured."
-            exit 0
-          fi
-          hook="$RENDER_OTEL_DEPLOY_HOOK_URL"
+          hook="$COLLECTOR_DEPLOY_HOOK_URL"
           if [[ "$hook" == *"?"* ]]; then
             hook="${hook}&ref=${DEPLOY_SHA}"
           else
             hook="${hook}?ref=${DEPLOY_SHA}"
           fi
           code="$(curl --silent --show-error --request POST \
-            --output /tmp/render-otel-deploy.json --write-out '%{http_code}' \
+            --output /tmp/collector-deploy.json --write-out '%{http_code}' \
             "$hook")"
           case "$code" in
             2??)
@@ -168,7 +159,7 @@ jobs:
               ;;
             *)
               echo "::error::Render OTel collector deploy hook failed (HTTP $code)."
-              sed -n '1,20p' /tmp/render-otel-deploy.json || true
+              sed -n '1,20p' /tmp/collector-deploy.json || true
               exit 1
               ;;
           esac
@@ -194,16 +185,12 @@ jobs:
       - name: Summarize trigger
         shell: bash
         run: |
-          otel_status="skipped (secret not configured)"
-          if [ -n "$(printenv RENDER_OTEL_DEPLOY_HOOK_URL 2>/dev/null)" ]; then
-            otel_status="Render deploy hook triggered"
-          fi
           {
             echo "### Production deployment triggered"
             echo
             echo "- Validated commit: \`$DEPLOY_SHA\`"
             echo "- Backend: Render deploy hook triggered"
-            echo "- OTel collector: ${otel_status}"
+            echo "- OTel collector: Render deploy hook triggered (required)"
             echo "- Frontend: Vercel deploy hook triggered"
             echo "- Smoke: post-deploy health probe will run next"
           } >> "$GITHUB_STEP_SUMMARY"

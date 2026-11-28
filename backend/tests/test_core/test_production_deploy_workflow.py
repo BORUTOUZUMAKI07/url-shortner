@@ -15,8 +15,9 @@ def test_production_deploy_workflow_exists_and_is_gated():
     assert "stale" in text.lower()
     assert "cancel-in-progress: false" in text
     assert "RENDER_DEPLOY_HOOK_URL" in text
-    assert "RENDER_OTEL_DEPLOY_HOOK_URL" in text
+    assert "COLLECTOR_DEPLOY_HOOK_URL" in text
     assert "VERCEL_DEPLOY_HOOK_URL" in text
+    assert "Production deployment aborted; no platform was contacted." in text
     assert "linkforge-otel-collector" in text
     assert "/health" in text
     assert "/api/v1/ping" in text

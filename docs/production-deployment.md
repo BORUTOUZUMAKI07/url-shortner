@@ -14,14 +14,13 @@ A red or cancelled CI run does not deploy.
 
 ## Required GitHub Secrets
 
-Add under **Settings -> Secrets and variables -> Actions**:
+Add under **Settings -> Secrets and variables -> Actions**. All three are
+required — the workflow is **fail-closed**: if any is missing it aborts before
+contacting Render or Vercel.
 
 - `RENDER_DEPLOY_HOOK_URL` - Render deploy hook for `linkforge-backend`.
+- `COLLECTOR_DEPLOY_HOOK_URL` - Render deploy hook for `linkforge-otel-collector`.
 - `VERCEL_DEPLOY_HOOK_URL` - Vercel deploy hook for the frontend production/main deployment.
-
-Optional but recommended:
-
-- `RENDER_OTEL_DEPLOY_HOOK_URL` - Render deploy hook for `linkforge-otel-collector`. If unset, the deploy workflow skips collector with a warning.
 
 Optional:
 
@@ -34,9 +33,12 @@ Optional:
    - CI also publishes GHCR images (`backend:${sha}`, `backend:latest`) after green main CI.
 2. Disable **Auto Deploy on push** for production services you want gated.
 3. Create a Deploy Hook for `linkforge-backend` and store it as `RENDER_DEPLOY_HOOK_URL`.
-4. Create a Deploy Hook for `linkforge-otel-collector` and store it as `RENDER_OTEL_DEPLOY_HOOK_URL` (recommended for full Render parity; workflow skips with warning if unset).
+4. Create a Deploy Hook for `linkforge-otel-collector` and store it as `COLLECTOR_DEPLOY_HOOK_URL` (required; a missing hook fails the whole deploy).
 5. If the service is **source/Git-backed**, the workflow appends `ref=<validated SHA>` to the hook request. Both Render services in `backend/render.yaml` are currently source/Docker-backed on Render.
 6. If a service becomes **image-backed**, update the workflow to pass `imgURL=<immutable image>` (prefer SHA/digest, not `latest`).
+7. The collector binds its OTLP/HTTP receiver to Render's injected `PORT` (no
+   hard-coded `4318` in `backend/render.yaml`). `NEW_RELIC_APP_NAME=linkforge-backend`
+   is set on the collector so `service.name` matches the alert NRQL.
 
 ## Vercel Setup
 
@@ -63,7 +65,7 @@ Optional:
 
 After setup:
 
-1. Trigger `Deploy production` manually (`workflow_dispatch`) and confirm both hooks return 2xx.
+1. Trigger `Deploy production` manually (`workflow_dispatch`) and confirm all three hooks (backend, collector, Vercel) return 2xx.
 2. Confirm smoke passes (`/health`, `/api/v1/ping`).
 3. Push a commit to `main`: CI green should trigger deploy; CI red/cancelled should not.
 4. Confirm Render/Vercel auto-deploy-on-push is disabled.

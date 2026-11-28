@@ -126,6 +126,11 @@ services:
       # out of the box while staying overridable per-environment.
       - OTLP_HTTP_AUTH_HTPASSWD=${OTLP_HTTP_AUTH_HTPASSWD:-linkforge:linkforge}
       - ENVIRONMENT=development
+      # The collector config binds HTTP to ${env:PORT:-4318}; keep local
+      # compose explicit while Render injects a dynamic PORT in production.
+      - PORT=4318
+      # Stamped as service.name on every signal; matches the alert NRQL.
+      - NEW_RELIC_APP_NAME=linkforge-backend
     ports:
       - "4317:4317"   # OTLP/gRPC (optional)
       - "4318:4318"   # OTLP/HTTP — what the app pushes to

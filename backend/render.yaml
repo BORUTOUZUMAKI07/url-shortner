@@ -91,7 +91,7 @@ services:
         sync: false
 
   # ── Layer-2: OpenTelemetry Collector (collection & transport) ──────────────
-  # Public HTTPS :443 is proxied to $PORT (4318) — the OTLP/HTTP receiver the
+  # Public HTTPS :443 is proxied to Render's injected $PORT — the OTLP/HTTP receiver the
   # backend pushes all three signals to. The agent tail-samples traces, batches,
   # and forwards to New Relic (Layer-3 sink) using NEW_RELIC_LICENSE_KEY. Free
   # plan: the instance sleeps after ~15 min of inactivity and cold-starts on the
@@ -128,5 +128,7 @@ services:
         sync: false
       - key: ENVIRONMENT
         value: production
-      - key: PORT
-        value: "4318"
+      # Collector upserts service.name from this so every signal matches the
+      # alert NRQL in docs/alerting/alert-rules.yml.
+      - key: NEW_RELIC_APP_NAME
+        value: linkforge-backend

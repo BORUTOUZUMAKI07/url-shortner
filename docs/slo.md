@@ -53,7 +53,9 @@ Two things follow:
 - **Attribute usage per project.** `service.name` / `service.namespace` are
   stamped on every signal, so if this New Relic account is shared with the
   sibling projects (same US ingest endpoint), usage can be split per project
-  before deciding who trims sampling.
+  before deciding who trims sampling. The collector upserts `service.name`
+  from `NEW_RELIC_APP_NAME` (set to `linkforge-backend` on Render), which is the
+  exact value the alert NRQL filters on.
 
 ## Alerting Alignment
 

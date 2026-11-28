@@ -31,13 +31,14 @@
 # ============================================================================
 
 receivers:
-  # The app pushes all three signals here over OTLP/HTTP (port 4318).
+  # The app pushes all three signals here over OTLP/HTTP. Render injects PORT
+  # dynamically; the `${env:PORT:-4318}` fallback keeps local compose on 4318.
   otlp:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
       http:
-        endpoint: 0.0.0.0:4318
+        endpoint: 0.0.0.0:${env:PORT:-4318}
         # SECURITY: on a free-tier Render service this endpoint is PUBLIC. Any
         # anonymous caller could POST junk and burn the New Relic free tier
         # (or evict real telemetry from the queue). Basic auth is a speed bump,
@@ -90,6 +91,12 @@ processors:
 
   resource:
     attributes:
+      # Upsert service.name from the environment so every signal arriving at
+      # New Relic matches docs/alerting/alert-rules.yml. The app also sets this
+      # attribute; upsert keeps collector and app in sync.
+      - key: service.name
+        value: ${env:NEW_RELIC_APP_NAME:-linkforge-backend}
+        action: upsert
       - key: service.namespace
         value: linkforge
         action: upsert
